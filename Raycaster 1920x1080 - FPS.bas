@@ -15,10 +15,18 @@
 '
 ' Raycaster i QB64 (Linux) - 1920x1080, WASD + mouselook, FPS-matare, ingen LIMIT
 ' ======== INITIERING: fönster, GL, karta, variabler, pickups ========
-display& = _NewImage(1920, 1080, 32)
+' fönster = skrivbordets faktiska upplösning (1920x1080 ger samma läge som tidigare)
+display& = _NewImage(_DesktopWidth, _DesktopHeight, 32)
 Screen display&
 _FullScreen
-buf& = _NewImage(960, 540, 32)
+' RW/RH = fönstrets faktiska dimension (variabler nu, inte Const)
+RW = _Width(display&)
+RH = _Height(display&)
+' aspektjusterad projektion: vertikal FOV konstant (0.66 vid 16:9), horisonten
+' breddas automatiskt på bredare format (21:9/32:9). Vid 1920x1080 blir båda = 0.66.
+planeDist = 0.66 * (16 / 9) / (RW / RH)
+fovCut = 0.66 * (RW / RH) / (16 / 9)
+buf& = _NewImage(RW, RH, 32)
 dummy = _MouseMovementX
 
 Dim mapRow$(15)
@@ -47,8 +55,7 @@ For i = 0 To 255
     pal&(i) = _RGB32(i, i, i)
 Next i
 
-Const RW = 960
-Const RH = 540
+' RW/RH satta ovan från fönstrets dimension (var tidigare Const 960/540)
 
 px = 8.5
 py = 4.5
@@ -116,12 +123,12 @@ Do
             _MOUSEHIDE _DISABLE
         End If
         _Dest display&
-        Line (0, 0)-(1919, 1079), _RGB32(8, 8, 24), BF
-        Line (100, 350)-(1819, 729), _RGB32(255, 200, 0), B
+        Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
+        Line (RW \ 2 - 860, RH \ 2 - 190)-(RW \ 2 + 859, RH \ 2 + 189), _RGB32(255, 200, 0), B
         Color _RGB32(255, 200, 0)
-        _PrintString (884, 500), "RAYCASTER 1920x1080"
+        _PrintString ((RW - Len("RAYCASTER 1920x1080") * 8) \ 2, RH \ 2 - 40), "RAYCASTER 1920x1080"
         Color _RGB32(200, 200, 200)
-        _PrintString (916, 570), "Tryck SPACE"
+        _PrintString ((RW - Len("Tryck SPACE") * 8) \ 2, RH \ 2 + 30), "Tryck SPACE"
         _Display
     Else
 
@@ -252,8 +259,8 @@ Do
     Line (0, 0)-(RW - 1, midY - 1 + pitch), ceilingCol&, BF
     Line (0, midY + pitch)-(RW - 1, RH - 1), floorCol&, BF
 
-    planeX = -dirY * 0.66
-    planeY = dirX * 0.66
+    planeX = -dirY * planeDist
+    planeY = dirX * planeDist
 
     For x = 0 To RW - 1
         cameraX = 2 * x / RW - 1
@@ -325,12 +332,12 @@ Do
                 pang = _ATan2(pdy, pdx) - angle
                 While pang > 3.14159265: pang = pang - 6.2831853: Wend
                 While pang < -3.14159265: pang = pang + 6.2831853: Wend
-                If Abs(pang) < 0.66 Then
+                If Abs(pang) < fovCut Then
                     ' projektionsformeln: vägg-loopen har cameraX = 2*x/RW-1 och
                     ' plan = 0.66*dir, dvs tan(pang) = 0.66*cameraX. Omvänt blir
                     ' skärmkolumnen pcx = RW/2*(1 + Tan(pang)/0.66), där pang är
                     ' vinkeln till pickupen relativt spelarens riktning.
-                    pcx = RW / 2 * (1 + Tan(pang) / 0.66)
+                    pcx = RW / 2 * (1 + Tan(pang) / planeDist)
                     pw = RW / pdist * 0.25
                     ph = RH / pdist * 0.25
                     ' pbase = golvlinjen vid avståndet pdist: horisont + halva
@@ -369,8 +376,8 @@ Do
                 pang = _ATan2(pdy, pdx) - angle
                 While pang > 3.14159265: pang = pang - 6.2831853: Wend
                 While pang < -3.14159265: pang = pang + 6.2831853: Wend
-                If Abs(pang) < 0.66 Then
-                    pcx = RW / 2 * (1 + Tan(pang) / 0.66)
+                If Abs(pang) < fovCut Then
+                    pcx = RW / 2 * (1 + Tan(pang) / planeDist)
                     pw = RW / pdist * 0.25
                     ph = RH / pdist * 0.25
                     pbase = midY + RH / (2 * pdist) + pitch
@@ -388,14 +395,17 @@ Do
     ' ======== HUD: debug-rad, HP-bar, ammo, transient meddelande ======
 
     _Dest display&
-    _PutImage (0, 0)-(1919, 1079), buf&
+    _PutImage (0, 0)-(RW - 1, RH - 1), buf&
     Color _RGB32(255, 255, 0)
-    _PrintString (8, 8), "FPS:" + Str$(fpsShow) + " mmx:" + Str$(mmx) + " mmy:" + Str$(mmy) + " ang:" + Str$(Int(angle * 57.2958)) + " x:" + LTrim$(Str$(px)) + " y:" + LTrim$(Str$(py)) + " pitch:" + Str$(Int(pitch))
+    _PrintString (0, 0), "FPS:" + Str$(fpsShow) + " mmx:" + Str$(mmx) + " mmy:" + Str$(mmy) + " ang:" + Str$(Int(angle * 57.2958)) + " x:" + LTrim$(Str$(px)) + " y:" + LTrim$(Str$(py)) + " pitch:" + Str$(Int(pitch))
 
-    ' HP-ruta nertill: bar-längd + siffra (tydligt även utan färgseende)
-    Line (8, 1052)-(216, 1072), _RGB32(40, 40, 40), BF
-    Line (8, 1052)-(216, 1072), _RGB32(255, 255, 255), B
-    Line (9, 1053)-(215, 1071), _RGB32(255, 255, 255), B
+    ' HP-ruta nertill vänster: bar-längd + siffra (tydligt även utan färgseende)
+    ' HUD-koordinaterna är RELATIVA RW/RH (hudY = RH-28 osv; vid 1920x1080 samma värden som tidigare)
+    hudY = RH - 28
+    hpX0 = 8: hpW = Int(RW * 208 / 1920): hpX1 = hpX0 + hpW
+    Line (hpX0, hudY)-(hpX1, hudY + 20), _RGB32(40, 40, 40), BF
+    Line (hpX0, hudY)-(hpX1, hudY + 20), _RGB32(255, 255, 255), B
+    Line (hpX0 + 1, hudY + 1)-(hpX1 - 1, hudY + 19), _RGB32(255, 255, 255), B
     If hp > 50 Then
         barCol& = _RGB32(0, 200, 0)
     ElseIf hp >= 25 Then
@@ -403,26 +413,27 @@ Do
     Else
         barCol& = _RGB32(220, 0, 0)
     End If
-    If hp > 0 Then Line (10, 1054)-(10 + hp * 2, 1070), barCol&, BF
+    If hp > 0 Then Line (hpX0 + 2, hudY + 2)-(hpX0 + 2 + Int(hp * (hpW - 8) / 100), hudY + 18), barCol&, BF
     Color _RGB32(255, 255, 255)
-    _PrintString (224, 1056), "HP:" + Str$(Int(hp))
-    ' ammo-ruta bredvid HP-boxen (gul kant = ammo-pickups)
-    Line (320, 1052)-(420, 1072), _RGB32(40, 40, 40), BF
-    Line (320, 1052)-(420, 1072), _RGB32(230, 200, 0), B
-    Line (321, 1053)-(419, 1071), _RGB32(230, 200, 0), B
+    _PrintString (hpX1 + 8, hudY + 4), "HP:" + Str$(Int(hp))
+    ' ammo-ruta relativt HP-boxens bredd/högerkant (gul kant = ammo-pickups)
+    amX0 = hpX1 + Int(RW * 104 / 1920): amW = Int(RW * 100 / 1920): amX1 = amX0 + amW
+    Line (amX0, hudY)-(amX1, hudY + 20), _RGB32(40, 40, 40), BF
+    Line (amX0, hudY)-(amX1, hudY + 20), _RGB32(230, 200, 0), B
+    Line (amX0 + 1, hudY + 1)-(amX1 - 1, hudY + 19), _RGB32(230, 200, 0), B
     Color _RGB32(230, 200, 0)
-    _PrintString (428, 1056), "AMMO:" + Str$(ammo)
+    _PrintString (amX1 + 8, hudY + 4), "AMMO:" + Str$(ammo)
     If Timer - hpMsgTime < 2 Then
         Color _RGB32(0, 255, 0)
-        _PrintString (560, 1056), hpMsg$
+        _PrintString (amX1 + Int(RW * 140 / 1920), hudY + 4), hpMsg$
     End If
-    ' tracer-flash (vitt streck från skärm-mitt) + träff-flash, 2-3 frames
-    If Timer - tracerTime < 0.05 Then Line (960, 540)-(960, 390), _RGB32(255, 255, 255)
+    ' tracer-flash från skärm-mitt (RW/2, RH/2) + träff-flash, 2-3 frames
+    If Timer - tracerTime < 0.05 Then Line (RW \ 2, RH \ 2)-(RW \ 2, RH \ 2 - Int(RW * 150 / 1920)), _RGB32(255, 255, 255)
     If Timer - flashTime < 0.05 Then
-        fs = 300 / flashDist
+        fs = Int(RW * 300 / 1920 / flashDist)
         If fs < 4 Then fs = 4
         If fs > 60 Then fs = 60
-        Line (960 - fs, 540 + pitch * 2 - fs)-(960 + fs, 540 + pitch * 2 + fs), _RGB32(255, 220, 80), BF
+        Line (RW \ 2 - fs, RH \ 2 + pitch - fs)-(RW \ 2 + fs, RH \ 2 + pitch + fs), _RGB32(255, 220, 80), BF
     End If
     _Display
 
