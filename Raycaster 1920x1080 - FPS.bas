@@ -2,7 +2,7 @@
 ' RAYCASTER 1920x1080 - FPS  -- raycaster-demo / FPS i QB64-PE (Linux/Wayland)
 ' ============================================================================
 ' VAD: Wolfenstein/Doom-liknande raycaster (DDA) med titelmeny, mouselook (yaw),
-'      pitch via y-shearing, HP och medkit-pickups.
+'      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning + HP-regen (Fas 2).
 '
 ' KÖRINSTRUKTIONER:
 '   ./Raycaster 1920x1080 - FPS
@@ -78,6 +78,18 @@ pkX(2) = 14.5: pkY(2) = 1.5: pkActive(2) = 1
 pkX(3) = 5.5: pkY(3) = 7.5: pkActive(3) = 1
 pkX(4) = 6.5: pkY(4) = 14.5: pkActive(4) = 1
 
+' Fas 2: ammo + skjutning + HP-regen (samma array-pool-mönster som medkit)
+DIM amX(10), amY(10), amActive(10)
+ammo = 20
+lastShotTime = -1        ' cooldown 0.3 s mellan skott
+tracerTime = -1          ' tracer-flash synlig 2-3 frames
+flashTime = -1           ' träff-flash
+flashDist = 99
+lastDamageTime = Timer   ' HP-regen börjar först 5 s efter senaste skada
+amX(0) = 3.5: amY(0) = 4.5: amActive(0) = 1
+amX(1) = 12.5: amY(1) = 4.5: amActive(1) = 1
+amX(2) = 6.5: amY(2) = 9.5: amActive(2) = 1
+
 frames = 0
 fpsShow = 0
 lastTime = Timer
@@ -120,6 +132,7 @@ Do
         If hp < 0 Then hp = 0
         hpMsg$ = "-5 HP"
         hpMsgTime = Timer
+        lastDamageTime = Timer   ' G räknas som skada: resetta regen-grace
     End If
     If k$ = Chr$(0) + "K" Or _KeyDown(19200) Then angle = angle - turnStep * speed
     If k$ = Chr$(0) + "M" Or _KeyDown(19712) Then angle = angle + turnStep * speed
@@ -183,6 +196,55 @@ Do
             End If
         End If
     Next i
+
+    ' ammo-pickups: avstånd < 0.5 tiles ger +10 ammo
+    For i = 0 To 10
+        If amActive(i) Then
+            If Sqr((amX(i) - px) ^ 2 + (amY(i) - py) ^ 2) < 0.5 Then
+                amActive(i) = 0
+                ammo = ammo + 10
+                hpMsg$ = "+10 AMMO"
+                hpMsgTime = Timer
+            End If
+        End If
+    Next i
+
+    ' ======== SKJUTNING: vänster musknapp, cooldown 0.3 s ========
+    If _MouseButton(1) And Timer - lastShotTime >= 0.3 Then
+        lastShotTime = Timer
+        If ammo > 0 Then
+            ammo = ammo - 1
+            tracerTime = Timer
+            pitch = pitch + 6   ' liten rekyl-puff
+            ' träff-koll: samma DDA som vägg-loopen men rakt fram (cameraX=0)
+            rdx = dirX: rdy = dirY
+            mapX = Int(px): mapY = Int(py)
+            If rdx = 0 Then ddx = 1E+30 Else ddx = Abs(1 / rdx)
+            If rdy = 0 Then ddy = 1E+30 Else ddy = Abs(1 / rdy)
+            If rdx < 0 Then stepX = -1: sdx = (px - mapX) * ddx Else stepX = 1: sdx = (mapX + 1 - px) * ddx
+            If rdy < 0 Then stepY = -1: sdy = (py - mapY) * ddy Else stepY = 1: sdy = (mapY + 1 - py) * ddy
+            Do
+                If sdx < sdy Then
+                    sdx = sdx + ddx: mapX = mapX + stepX
+                Else
+                    sdy = sdy + ddy: mapY = mapY + stepY
+                End If
+            Loop Until Mid$(mapRow$(mapY), mapX + 1, 1) = "#"
+            If sdx < sdy Then hitDist = sdx - ddx Else hitDist = sdy - ddy
+            If hitDist < 0.2 Then hitDist = 0.2
+            flashDist = hitDist
+            flashTime = Timer
+        Else
+            hpMsg$ = "CLICK"
+            hpMsgTime = Timer
+        End If
+    End If
+
+    ' ======== HP-REGEN: +1 HP/s, först efter 5 s grace sedan senaste skada ========
+    If Timer - lastDamageTime >= 5 Then
+        hp = hp + dt
+        If hp > 100 Then hp = 100
+    End If
 
     ' ======== RENDERING: DDA-väggloop (fyller även wallDist för sprites) ========
     _Dest buf&
@@ -297,7 +359,33 @@ Do
         End If
     Next i
 
-    ' ======== HUD: debug-rad, HP-bar, transient meddelande =====
+    ' ammo-pickups: GULA rutor (distinkt från röda medkit), samma projektion + ocklusion
+    For i = 0 To 10
+        If amActive(i) Then
+            pdx = amX(i) - px
+            pdy = amY(i) - py
+            pdist = Sqr(pdx * pdx + pdy * pdy)
+            If pdist > 0.05 Then
+                pang = _ATan2(pdy, pdx) - angle
+                While pang > 3.14159265: pang = pang - 6.2831853: Wend
+                While pang < -3.14159265: pang = pang + 6.2831853: Wend
+                If Abs(pang) < 0.66 Then
+                    pcx = RW / 2 * (1 + Tan(pang) / 0.66)
+                    pw = RW / pdist * 0.25
+                    ph = RH / pdist * 0.25
+                    pbase = midY + RH / (2 * pdist) + pitch
+                    x0 = Int(pcx - pw / 2): x1 = Int(pcx + pw / 2)
+                    If x0 < 0 Then x0 = 0
+                    If x1 > RW - 1 Then x1 = RW - 1
+                    For sx = x0 To x1
+                        If pdist < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(230, 200, 0)
+                    Next sx
+                End If
+            End If
+        End If
+    Next i
+
+    ' ======== HUD: debug-rad, HP-bar, ammo, transient meddelande ======
 
     _Dest display&
     _PutImage (0, 0)-(1919, 1079), buf&
@@ -317,10 +405,24 @@ Do
     End If
     If hp > 0 Then Line (10, 1054)-(10 + hp * 2, 1070), barCol&, BF
     Color _RGB32(255, 255, 255)
-    _PrintString (224, 1056), "HP:" + Str$(hp)
+    _PrintString (224, 1056), "HP:" + Str$(Int(hp))
+    ' ammo-ruta bredvid HP-boxen (gul kant = ammo-pickups)
+    Line (320, 1052)-(420, 1072), _RGB32(40, 40, 40), BF
+    Line (320, 1052)-(420, 1072), _RGB32(230, 200, 0), B
+    Line (321, 1053)-(419, 1071), _RGB32(230, 200, 0), B
+    Color _RGB32(230, 200, 0)
+    _PrintString (428, 1056), "AMMO:" + Str$(ammo)
     If Timer - hpMsgTime < 2 Then
         Color _RGB32(0, 255, 0)
-        _PrintString (300, 1056), hpMsg$
+        _PrintString (560, 1056), hpMsg$
+    End If
+    ' tracer-flash (vitt streck från skärm-mitt) + träff-flash, 2-3 frames
+    If Timer - tracerTime < 0.05 Then Line (960, 540)-(960, 390), _RGB32(255, 255, 255)
+    If Timer - flashTime < 0.05 Then
+        fs = 300 / flashDist
+        If fs < 4 Then fs = 4
+        If fs > 60 Then fs = 60
+        Line (960 - fs, 540 + pitch * 2 - fs)-(960 + fs, 540 + pitch * 2 + fs), _RGB32(255, 220, 80), BF
     End If
     _Display
 
