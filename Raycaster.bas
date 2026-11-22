@@ -1,12 +1,12 @@
 ' ============================================================================
-' RAYCASTER 1920x1080 - FPS  -- raycaster-demo / FPS i QB64-PE (Linux/Wayland)
+' RAYCASTER  -- raycaster-demo / FPS i QB64-PE (Linux/Wayland)
 ' ============================================================================
 ' VAD: Wolfenstein/Doom-liknande raycaster (DDA) med titelmeny, mouselook (yaw),
 '      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning + HP-regen (Fas 2),
 '      klickbar START GAME-knapp med hover-tick/klick-ljud och fade-overgang (Fas 2.5).
 '
 ' KÖRINSTRUKTIONER:
-'   ./Raycaster 1920x1080 - FPS
+'   ./Raycaster
 '   SPACE = starta spelet (från titelmenyn), ESC = avsluta (fungerar i båda lägen)
 '   WASD = gå/strafe, musen = titta runt. Muslåset (pointer lock) aktiveras
 '   FÖRST när state = "playing" -- i menyn är pekaren synlig.
@@ -147,7 +147,13 @@ Do
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
         Line (RW \ 2 - 860, RH \ 2 - 190)-(RW \ 2 + 859, RH \ 2 + 189), _RGB32(255, 200, 0), B
         Color _RGB32(255, 200, 0)
-        _PrintString ((RW - Len("RAYCASTER 1920x1080") * 8) \ 2, RH \ 2 - 40), "RAYCASTER 1920x1080"
+        ttx = (RW - Len("RAYCASTER") * 8) \ 2
+        tty = RH \ 2 - 40
+        Color _RGB32(120, 60, 0)
+        _PrintString (ttx + 3, tty + 3), "RAYCASTER"
+        _PrintString (ttx - 2, tty), "RAYCASTER"
+        Color _RGB32(255, 200, 0)
+        _PrintString (ttx, tty), "RAYCASTER"
         ' START GAME-knapp: centrerad rektangel, hover = highlight
         If hover = 1 Then
             btnFill& = _RGB32(255, 200, 0)
@@ -498,7 +504,7 @@ Do
     frames = frames + 1
     If curTime - lastTime >= 1 Then
         fpsShow = Int(frames / (curTime - lastTime))
-        _Title "Raycaster 1920x1080 - FPS: " + LTrim$(Str$(fpsShow))
+        _Title "Raycaster - FPS: " + LTrim$(Str$(fpsShow))
         frames = 0
         lastTime = curTime
     End If
