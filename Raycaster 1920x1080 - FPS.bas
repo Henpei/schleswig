@@ -2,7 +2,8 @@
 ' RAYCASTER 1920x1080 - FPS  -- raycaster-demo / FPS i QB64-PE (Linux/Wayland)
 ' ============================================================================
 ' VAD: Wolfenstein/Doom-liknande raycaster (DDA) med titelmeny, mouselook (yaw),
-'      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning + HP-regen (Fas 2).
+'      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning + HP-regen (Fas 2),
+'      klickbar START GAME-knapp med hover-tick/klick-ljud och fade-overgang (Fas 2.5).
 '
 ' KÖRINSTRUKTIONER:
 '   ./Raycaster 1920x1080 - FPS
@@ -27,6 +28,12 @@ RH = _Height(display&)
 planeDist = 0.66 * (16 / 9) / (RW / RH)
 fovCut = 0.66 * (RW / RH) / (16 / 9)
 buf& = _NewImage(RW, RH, 32)
+' Fas 2.5: meny-knapp + ljud + fade-overgang (knappgeometri relativ RW/RH)
+btnW = Int(RW * 360 / 1920): btnH = Int(RH * 60 / 1080)
+btnX0 = (RW - btnW) \ 2: btnY0 = RH \ 2 + Int(RH * 40 / 1080)
+btnX1 = btnX0 + btnW: btnY1 = btnY0 + btnH
+hover = 0: prevHover = 0
+fading = 0: fadeT0 = 0   ' fading: 0=nej, 1=fade-out ej aktuell, 2=fade-in i playing
 dummy = _MouseMovementX
 
 Dim mapRow$(15)
@@ -116,19 +123,61 @@ Do
     If k$ = Chr$(0) Then k$ = Chr$(0) + InKey$
 
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
-    If state$ = "menu" Then
-        If k$ = Chr$(27) Or _KeyDown(27) Then End
-        If k$ = " " Then
-            state$ = "playing"
-            _MOUSEHIDE _DISABLE
+    If state$ = "menu" Or state$ = "fadeout" Then
+        If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) Then End
+        While _MouseInput: WEND   ' töm muskön så _MouseX/Y/_MouseButton blir färska här
+        mx = _MouseX: my = _MouseY
+        hover = 0
+        If mx >= btnX0 And mx <= btnX1 And my >= btnY0 And my <= btnY1 Then hover = 1
+        If hover <> prevHover Then
+            prevHover = hover
+            If hover = 1 Then SOUND 1500, 1   ' hover-tick
+        End If
+        If state$ = "menu" And k$ = " " Then
+            state$ = "fadeout": fadeT0 = Timer
+            SOUND 300, 2: SOUND 150, 3        ' klick/plopp
+        End If
+        If state$ = "menu" And hover = 1 Then
+            If _MouseButton(1) Then
+                state$ = "fadeout": fadeT0 = Timer
+                SOUND 300, 2: SOUND 150, 3
+            End If
         End If
         _Dest display&
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
         Line (RW \ 2 - 860, RH \ 2 - 190)-(RW \ 2 + 859, RH \ 2 + 189), _RGB32(255, 200, 0), B
         Color _RGB32(255, 200, 0)
         _PrintString ((RW - Len("RAYCASTER 1920x1080") * 8) \ 2, RH \ 2 - 40), "RAYCASTER 1920x1080"
-        Color _RGB32(200, 200, 200)
-        _PrintString ((RW - Len("Tryck SPACE") * 8) \ 2, RH \ 2 + 30), "Tryck SPACE"
+        ' START GAME-knapp: centrerad rektangel, hover = highlight
+        If hover = 1 Then
+            btnFill& = _RGB32(255, 200, 0)
+            btnText& = _RGB32(20, 20, 20)
+        Else
+            btnFill& = _RGB32(30, 30, 70)
+            btnText& = _RGB32(255, 255, 255)
+        End If
+        Line (btnX0, btnY0)-(btnX1, btnY1), btnFill&, BF
+        Line (btnX0, btnY0)-(btnX1, btnY1), _RGB32(255, 255, 255), B
+        tx = btnX0 + (btnW - Len("START GAME") * 8) \ 2
+        ty = btnY0 + (btnH - 16) \ 2
+        Color _RGB32(0, 0, 0)
+        _PrintString (tx + 2, ty + 2), "START GAME"   ' skugga -> fet stil
+        Color btnText&
+        _PrintString (tx, ty), "START GAME"
+        Color _RGB32(150, 150, 150)
+        _PrintString ((RW - Len("(eller SPACE)") * 8) \ 2, btnY1 + 16), "(eller SPACE)"
+        ' fade-through-black: titel fade:ar ut (0.4 s), sedan spelet fade:ar in
+        If state$ = "fadeout" Then
+            fa = (Timer - fadeT0) / 0.4
+            If fa > 1 Then fa = 1
+            Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, Int(fa * 255)), BF
+            If fa >= 1 Then
+                state$ = "playing"
+                _MOUSEHIDE _DISABLE
+                fadeT0 = Timer
+                fading = 2
+            End If
+        End If
         _Display
     Else
 
@@ -434,6 +483,13 @@ Do
         If fs < 4 Then fs = 4
         If fs > 60 Then fs = 60
         Line (RW \ 2 - fs, RH \ 2 + pitch - fs)-(RW \ 2 + fs, RH \ 2 + pitch + fs), _RGB32(255, 220, 80), BF
+    End If
+    ' fade-in: svart overlay över spelet, FÖRE _Display (ritordningsregeln)
+    If fading = 2 Then
+        fa = (Timer - fadeT0) / 0.4
+        If fa > 1 Then fa = 1
+        Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, Int((1 - fa) * 255)), BF
+        If fa >= 1 Then fading = 0
     End If
     _Display
 
