@@ -3,7 +3,8 @@
 ' ============================================================================
 ' VAD: Wolfenstein/Doom-liknande raycaster (DDA) med titelmeny, mouselook (yaw),
 '      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning + HP-regen (Fas 2),
-'      klickbar START GAME-knapp med hover-tick/klick-ljud och fade-overgang (Fas 2.5).
+'      klickbar START GAME-knapp med hover-tick/klick-ljud och fade-overgang (Fas 2.5),
+'      dodsskarm + full reset vid R/SPACE (Fas 2.6).
 '
 ' KÖRINSTRUKTIONER:
 '   ./Raycaster
@@ -33,7 +34,8 @@ btnW = Int(RW * 360 / 1920): btnH = Int(RH * 60 / 1080)
 btnX0 = (RW - btnW) \ 2: btnY0 = RH \ 2 + Int(RH * 40 / 1080)
 btnX1 = btnX0 + btnW: btnY1 = btnY0 + btnH
 hover = 0: prevHover = 0
-fading = 0: fadeT0 = 0   ' fading: 0=nej, 1=fade-out ej aktuell, 2=fade-in i playing
+fading = 0: fadeT0 = 0   ' fading: 0=nej, 2=fade-in i playing
+deathTime = 0            ' Fas 2.6: när state$ = "dead"
 dummy = _MouseMovementX
 
 Dim mapRow$(15)
@@ -185,6 +187,41 @@ Do
             End If
         End If
         _Display
+    ElseIf state$ = "dead" Then
+        If k$ = Chr$(27) Or _KeyDown(27) Then End
+        If k$ = "r" Or k$ = "R" Or k$ = " " Or _KeyDown(Asc("R")) Or _KeyDown(32) Then
+            ' reset ALLT -> tillbaka till menyn
+            hp = 100: ammo = 20
+            px = 8.5: py = 4.5: angle = 0: pitch = 0
+            For i = 0 To 10
+                If i <= 4 Then pkActive(i) = 1 Else pkActive(i) = 0
+                If i <= 2 Then amActive(i) = 1 Else amActive(i) = 0
+            Next i
+            lastDamageTime = Timer
+            hpMsg$ = "": hpMsgTime = 0
+            lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
+            fading = 0: deathTime = 0
+            hover = 0: prevHover = 0
+            state$ = "menu"
+            _MOUSESHOW
+        End If
+        ' dödsskärm: svart overlay fade 0.5 s, sedan stor röd text
+        _Dest display&
+        da = (Timer - deathTime) / 0.5
+        If da > 1 Then da = 1
+        Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, Int(da * 255)), BF
+        If da >= 1 Then
+            dtx = (RW - Len("DU DÖ") * 8) \ 2
+            dty = RH \ 2 - 40
+            Color _RGB32(120, 0, 0)
+            _PrintString (dtx + 3, dty + 3), "DU DÖ"
+            _PrintString (dtx - 2, dty), "DU DÖ"
+            Color _RGB32(220, 0, 0)
+            _PrintString (dtx, dty), "DU DÖ"
+            Color _RGB32(200, 200, 200)
+            _PrintString ((RW - Len("Tryck R för att starta om") * 8) \ 2, RH \ 2 + 40), "Tryck R för att starta om"
+        End If
+        _Display
     Else
 
     If k$ = Chr$(27) Or _KeyDown(27) Then End
@@ -306,6 +343,14 @@ Do
     If Timer - lastDamageTime >= 5 Then
         hp = hp + dt
         If hp > 100 Then hp = 100
+    End If
+
+    ' ======== DÖD (Fas 2.6): hp<=0 i playing -> dead; ingen regen/resurrection efter detta ======
+    If hp <= 0 Then
+        hp = 0
+        state$ = "dead"
+        deathTime = Timer
+        _MOUSESHOW   ' slapp pointer-lock vid död
     End If
 
     ' ======== RENDERING: DDA-väggloop (fyller även wallDist för sprites) ========
