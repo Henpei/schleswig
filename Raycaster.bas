@@ -4,7 +4,7 @@
 ' VAD: Wolfenstein/Doom-liknande raycaster (DDA) med titelmeny, mouselook (yaw),
 '      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning + HP-regen (Fas 2),
 '      klickbar START GAME-knapp med hover-tick/klick-ljud och fade-overgang (Fas 2.5),
-'      dodsskarm + full reset vid R/SPACE (Fas 2.6).
+'      dodsskarm + full reset vid R/SPACE (Fas 2.6), crosshair i playing (Fas 2.7).
 '
 ' KÖRINSTRUKTIONER:
 '   ./Raycaster
@@ -496,6 +496,19 @@ Do
 
     _Dest display&
     _PutImage (0, 0)-(RW - 1, RH - 1), buf&
+    ' crosshair (Fas 2.7): centrerad på (RW\2, RH\2) = tracer-epicentrum.
+    ' Ritordning: efter värld+sprites (ovan), före HUD och fade-overlay.
+    ' Mörk outline först (tjockare), sedan vit kärna -> syns mot både ljusa och mörka väggar.
+    cx = RW \ 2: cy = RH \ 2
+    cg = Int(RW * 6 / 1920): ca = Int(RW * 14 / 1920): ct = Int(RH * 2 / 1080)
+    Line (cx - ca - cg, cy - ct - 1)-(cx - cg, cy + ct + 1), _RGB32(0, 0, 0), BF
+    Line (cx + cg, cy - ct - 1)-(cx + ca + cg, cy + ct + 1), _RGB32(0, 0, 0), BF
+    Line (cx - ct - 1, cy - ca - cg)-(cx + ct + 1, cy - cg), _RGB32(0, 0, 0), BF
+    Line (cx - ct - 1, cy + cg)-(cx + ct + 1, cy + ca + cg), _RGB32(0, 0, 0), BF
+    Line (cx - ca - cg, cy - ct)-(cx - cg, cy + ct), _RGB32(255, 255, 255), BF
+    Line (cx + cg, cy - ct)-(cx + ca + cg, cy + ct), _RGB32(255, 255, 255), BF
+    Line (cx - ct, cy - ca - cg)-(cx + ct, cy - cg), _RGB32(255, 255, 255), BF
+    Line (cx - ct, cy + cg)-(cx + ct, cy + ca + cg), _RGB32(255, 255, 255), BF
     Color _RGB32(255, 255, 0)
     _PrintString (0, 0), "FPS:" + Str$(fpsShow) + " mmx:" + Str$(mmx) + " mmy:" + Str$(mmy) + " ang:" + Str$(Int(angle * 57.2958)) + " x:" + LTrim$(Str$(px)) + " y:" + LTrim$(Str$(py)) + " pitch:" + Str$(Int(pitch))
 
