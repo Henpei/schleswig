@@ -277,22 +277,8 @@ Do
         _PrintString (ttx - 2, tty), strTitle$
         Color _RGB32(255, 200, 0)
         _PrintString (ttx, tty), strTitle$
-        ' START GAME-knapp: centrerad rektangel, hover = highlight
-        If hover = 1 Then
-            btnFill& = _RGB32(255, 200, 0)
-            btnText& = _RGB32(20, 20, 20)
-        Else
-            btnFill& = _RGB32(30, 30, 70)
-            btnText& = _RGB32(255, 255, 255)
-        End If
-        Line (btnX0, btnY0)-(btnX1, btnY1), btnFill&, BF
-        Line (btnX0, btnY0)-(btnX1, btnY1), _RGB32(255, 255, 255), B
-        tx = btnX0 + (btnW - Len(strStartBtn$) * 8) \ 2
-        ty = btnY0 + (btnH - 16) \ 2
-        Color _RGB32(0, 0, 0)
-        _PrintString (tx + 2, ty + 2), strStartBtn$   ' skugga -> fet stil
-        Color btnText&
-        _PrintString (tx, ty), strStartBtn$
+        ' START GAME-knapp: centrerad rektangel, samma widget som resultatmenyn
+        DrawButton btnX0, btnY0, btnX1, btnY1, strStartBtn$, hover
         Color _RGB32(150, 150, 150)
         _PrintString ((RW - Len(strOrSpace$) * 8) \ 2, btnY1 + 16), strOrSpace$
         ' versionshörn nere till höger på titelskärmen
@@ -463,28 +449,9 @@ Do
             Color _RGB32(255, 80, 80)
             _PrintString ((RW - Len(strNewRec$) * 8) \ 2, RH \ 2 + 25), strNewRec$
         End If
-        ' knapp 1: VIDARE (samma ritning som huvudmenyns knapp)
-        If hoverR = 1 Then
-            Line (resB1X0, resB1Y0)-(resB1X1, resB1Y1), _RGB32(255, 200, 0), BF
-            btnTxt& = _RGB32(20, 20, 20)
-        Else
-            Line (resB1X0, resB1Y0)-(resB1X1, resB1Y1), _RGB32(30, 30, 70), BF
-            btnTxt& = _RGB32(255, 255, 255)
-        End If
-        Line (resB1X0, resB1Y0)-(resB1X1, resB1Y1), _RGB32(255, 255, 255), B
-        Color btnTxt&
-        _PrintString (resB1X0 + (resBw - Len(strNextMap$) * 8) \ 2, resB1Y0 + (resBh - 16) \ 2), strNextMap$
-        ' knapp 2: HUVUDMENY
-        If hoverR = 2 Then
-            Line (resB2X0, resB2Y0)-(resB2X1, resB2Y1), _RGB32(255, 200, 0), BF
-            btnTxt& = _RGB32(20, 20, 20)
-        Else
-            Line (resB2X0, resB2Y0)-(resB2X1, resB2Y1), _RGB32(30, 30, 70), BF
-            btnTxt& = _RGB32(255, 255, 255)
-        End If
-        Line (resB2X0, resB2Y0)-(resB2X1, resB2Y1), _RGB32(255, 255, 255), B
-        Color btnTxt&
-        _PrintString (resB2X0 + (resBw - Len(strMainMenu$) * 8) \ 2, resB2Y0 + (resBh - 16) \ 2), strMainMenu$
+        ' två knappar via samma widget som huvudmenyn (samma palett)
+        DrawButton resB1X0, resB1Y0, resB1X1, resB1Y1, strNextMap$, (hoverR = 1)
+        DrawButton resB2X0, resB2Y0, resB2X1, resB2Y1, strMainMenu$, (hoverR = 2)
         Color _RGB32(150, 150, 150)
         _PrintString ((RW - Len(strEscMenu$) * 8) \ 2, RH \ 2 + 195), strEscMenu$
         _Display
@@ -1378,6 +1345,30 @@ Sub ShutdownSound
     Open "/tmp/schleswig_snd.log" For Append As #sndDbg
     Print #sndDbg, "SND shutdown: totala PlaySound-anrop="; sndCalls
     Close #sndDbg
+End Sub
+
+' DrawButton: EN knapp-widget för huvudmenyn + resultatmenyn (samma palett).
+' Palett (hover-kontrast, beslut 2026-11-23):
+'   normal: fill RGB(30,30,70), text RGB(255,255,255), vit kant, svart skugga
+'   hover:  fill RGB(255,200,0) (amber), text RGB(0,0,0), vit kant, ingen skugga
+Sub DrawButton (bx0, by0, bx1, by1, label$, hovered)
+    bw = bx1 - bx0: bh = by1 - by0
+    If hovered Then
+        Line (bx0, by0)-(bx1, by1), _RGB32(255, 200, 0), BF
+        tc& = _RGB32(0, 0, 0)
+    Else
+        Line (bx0, by0)-(bx1, by1), _RGB32(30, 30, 70), BF
+        tc& = _RGB32(255, 255, 255)
+    End If
+    Line (bx0, by0)-(bx1, by1), _RGB32(255, 255, 255), B
+    tx = bx0 + (bw - Len(label$) * 8) \ 2
+    ty = by0 + (bh - 16) \ 2
+    If hovered = 0 Then
+        Color _RGB32(0, 0, 0)
+        _PrintString (tx + 2, ty + 2), label$   ' skugga bara i normal-läge
+    End If
+    Color tc&
+    _PrintString (tx, ty), label$
 End Sub
 
 ' LOSCheck: DDA-stråle från (fx,fy) till (tx,ty); losOK=1 om ingen väggcell på vägen
