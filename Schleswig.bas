@@ -1,5 +1,5 @@
 ' ============================================================================
-' RAYCASTER  -- raycaster-demo / FPS i QB64-PE (Linux/Wayland)
+' SCHLESWIG v0.1.0  -- raycaster-FPS i QB64-PE (Linux/Wayland)
 ' ============================================================================
 ' VAD: Wolfenstein/Doom-liknande raycaster (DDA) med titelmeny, mouselook (yaw),
 '      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning + HP-regen (Fas 2),
@@ -10,14 +10,14 @@
 '
 ' BYGG-KONVENTION (stående regel, gäller alla sessioner):
 '   Bygg ALLTID från /home/andre/QB64pe med:
-'     ./qb64pe -c Raycaster/Raycaster.bas -o Raycaster/raycaster -x
-'   Binären heter ALLTID "raycaster" (liten r) i Raycaster/. ALDRIG "Raycaster"
-'   som binärnamn - det krockar med projektkatalogen
-'   (ld: "kan inte öppna utdatafil Raycaster: Är en katalog").
+'     ./qb64pe -c schleswig/Schleswig.bas -o schleswig/schleswig -x
+'   Projektkatalogen heter schleswig/ och binären heter ALLTID "schleswig"
+'   (liten s) - samma namn i olika "lager" (katalog vs fil) krockar aldrig,
+'   till skillnad från tidigare Raycaster/ vs Raycaster-bygge.
 '
 ' KÖRINSTRUKTIONER:
-'   ./raycaster            (binären i Raycaster/, liten r)
-'   ./raycaster selftest   = autoplay-selftest (logg: /tmp/raycaster_selftest.log)
+'   ./schleswig/schleswig            (binären i schleswig/)
+'   ./schleswig/schleswig selftest   = autoplay-selftest (logg: /tmp/schleswig_selftest.log)
 '   SPACE = starta spelet (från titelmenyn), ESC = avsluta (fungerar i båda lägen)
 '   WASD = gå/strafe, musen = titta runt. Muslåset (pointer lock) aktiveras
 '   FÖRST när state = "playing" -- i menyn är pekaren synlig.
@@ -25,7 +25,7 @@
 ' Byggd med qb64pe från grenen wayland-backend. Byggdatum: 2026-11-22
 ' ============================================================================
 '
-' Raycaster i QB64 (Linux) - 1920x1080, WASD + mouselook, FPS-matare, ingen LIMIT
+' Schleswig i QB64 (Linux) - 1920x1080, WASD + mouselook, FPS-matare, ingen LIMIT
 ' ======== INITIERING: fönster, GL, karta, variabler, pickups ========
 ' fönster = skrivbordets faktiska upplösning (1920x1080 ger samma läge som tidigare)
 display& = _NewImage(_DesktopWidth, _DesktopHeight, 32)
@@ -85,6 +85,9 @@ moveStep = 0.01
 turnStep = 0.04
 mouseSens = 0.002
 Const pitchSens = 2
+' Version (semver-light): MINOR = stor fas, PATCH = fix, 1.0.0 = fullständig spelarkrets.
+' Placering: git-tagg (v0.1.0) + denna rad + titelskärm-hörn + _Title.
+Const ver$ = "v0.1.0"
 
 ceilingCol& = _RGB32(24, 24, 48)
 floorCol& = _RGB32(70, 45, 25)
@@ -122,14 +125,14 @@ amX(2) = 6.5: amY(2) = 9.5: amActive(2) = 1
 DIM enX(10), enY(10), enActive(10), enHP(10), enDmg(10), enSpd(10), enLastHit(10)
 DIM enState(10), enSeen(10), enTx(10), enTy(10), enPatrolT(10), enLastSeen(10)
 DIM enLx(10), enLy(10), enCalmT(10), bfsD(15, 15), qx(255), qy(255)
-' Fas 3 selftest/autoplay: ./raycaster selftest -> scriptat scenario, loggas till fil
+' Fas 3 selftest/autoplay: ./schleswig/schleswig selftest -> scriptat scenario, loggas till fil
 selftest = 0
 cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, bara LTrim$/RTrim$
 If cmdArg$ = "selftest" Then selftest = 1
 testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFlag = 0
 If selftest Then
     stF = FreeFile
-    Open "/tmp/raycaster_selftest.log" For Output As #stF
+    Open "/tmp/schleswig_selftest.log" For Output As #stF
     Close #stF
     state$ = "playing"          ' hoppa över menyn direkt
     _MOUSEHIDE _DISABLE
@@ -193,13 +196,13 @@ Do
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
         Line (RW \ 2 - 860, RH \ 2 - 190)-(RW \ 2 + 859, RH \ 2 + 189), _RGB32(255, 200, 0), B
         Color _RGB32(255, 200, 0)
-        ttx = (RW - Len("RAYCASTER") * 8) \ 2
+        ttx = (RW - Len("SCHLESWIG") * 8) \ 2
         tty = RH \ 2 - 40
         Color _RGB32(120, 60, 0)
-        _PrintString (ttx + 3, tty + 3), "RAYCASTER"
-        _PrintString (ttx - 2, tty), "RAYCASTER"
+        _PrintString (ttx + 3, tty + 3), "SCHLESWIG"
+        _PrintString (ttx - 2, tty), "SCHLESWIG"
         Color _RGB32(255, 200, 0)
-        _PrintString (ttx, tty), "RAYCASTER"
+        _PrintString (ttx, tty), "SCHLESWIG"
         ' START GAME-knapp: centrerad rektangel, hover = highlight
         If hover = 1 Then
             btnFill& = _RGB32(255, 200, 0)
@@ -218,6 +221,9 @@ Do
         _PrintString (tx, ty), "START GAME"
         Color _RGB32(150, 150, 150)
         _PrintString ((RW - Len("(eller SPACE)") * 8) \ 2, btnY1 + 16), "(eller SPACE)"
+        ' versionshörn nere till höger på titelskärmen
+        Color _RGB32(110, 110, 140)
+        _PrintString (RW - Len(ver$) * 8 - 16, RH - 24), ver$
         ' fade-through-black: titel fade:ar ut (0.4 s), sedan spelet fade:ar in
         If state$ = "fadeout" Then
             fa = (Timer - fadeT0) / 0.4
@@ -839,7 +845,7 @@ Do
     End If
     If curTime - lastTime >= 1 Then
         fpsShow = Int(frames / (curTime - lastTime))
-        _Title "Raycaster - FPS: " + LTrim$(Str$(fpsShow))
+        _Title "Schleswig " + ver$ + " - FPS: " + LTrim$(Str$(fpsShow))
         frames = 0
         lastTime = curTime
     End If
@@ -925,7 +931,7 @@ BFSCompute:
 ' STLog: append:a en rad till selftest-loggen (fil + konsol)
 STLog:
     stF = FreeFile
-    Open "/tmp/raycaster_selftest.log" For Append As #stF
+    Open "/tmp/schleswig_selftest.log" For Append As #stF
     Print #stF, stMsg$
     Close #stF
     Print stMsg$
