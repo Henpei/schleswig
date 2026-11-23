@@ -106,7 +106,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "b3ea948"
+Const strBuild$ = "75d822b"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -115,7 +115,7 @@ Const strBuild$ = "b3ea948"
 Const strAppName$ = "Schleswig"                    ' fönstertitel (_Title)
 Const strTitle$ = "SCHLESWIG"                      ' stor titel på titelskärmen
 Const strStartBtn$ = "START GAME"                  ' menyknapp
-Const strOrSpace$ = "(eller SPACE)"               ' rad under menyknappen
+Const strQuitBtn$ = "QUIT GAME"                    ' menyknapp 2 (samma meny, samma bredd)
 Const strDead$ = "DU DÖ"                           ' dödsskärm, stor text
 Const strRestart$ = "Tryck R för att starta om"    ' dödsskärm, rad 2
 Const strHudHp$ = "HP:"                            ' HUD-etikett
@@ -156,6 +156,7 @@ pkX(3) = 5.5: pkY(3) = 7.5: pkActive(3) = 1
 pkX(4) = 6.5: pkY(4) = 14.5: pkActive(4) = 1
 
 ' Fas 2: ammo + skjutning (ingen HP-regen; samma array-pool-mönster som medkit)
+Const maxAmmo = 20         ' ammo-cap — samma konstant används av HUD-streckantalet
 DIM amX(10), amY(10), amActive(10)
 ammo = 5
 lastShotTime = -1        ' cooldown 0.3 s mellan skott
@@ -282,23 +283,29 @@ Do
         End If
         ' FIX 2: ESC i menu avslutar fortfarande, men inte precis efter ESC från
         ' result-skärmen (held ESC skulle annars bledda in i meny-grenen)
-        If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then End
+        If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then Gosub QuitGame
         While _MouseInput: WEND   ' töm muskön så _MouseX/Y/_MouseButton blir färska här
         mx = _MouseX: my = _MouseY
-        ' knapp-geometri: gemensam bredd per meny (längsta labeln + padding)
+        ' knapp-geometri: GEMENSAM bredd för hela huvudmenyn = längsta labeln
+        ' (START GAME / QUIT GAME) + 2*padX — båda knappar lika brede
         padX = Int(btnFontSize * 0.9): If padX < 12 Then padX = 12
-        BtnTextW strStartBtn$, tw
-        menuBtnW = tw + padX * 2
+        BtnTextW strStartBtn$, w1: BtnTextW strQuitBtn$, w2
+        If w2 > w1 Then w1 = w2
+        menuBtnW = w1 + padX * 2
         menuBtnTop = RH \ 2 + Int(RH * 40 / 1080)
-        BtnGeom menuBtnW, RW \ 2, menuBtnTop, btnX0, btnY0, btnX1, btnY1
+        BtnGeom menuBtnW, RW \ 2, menuBtnTop, btnX0, btnY0, btnX1, btnY1          ' START GAME
+        quitBtnTop = btnY1 + Int(RH * 16 / 1080)
+        BtnGeom menuBtnW, RW \ 2, quitBtnTop, quitX0, quitY0, quitX1, quitY1      ' QUIT GAME
+        menuPanelHalf = (quitY1 + Int(RH * 30 / 1080)) - RH \ 2   ' panel rymmer båda knapparna
         hover = 0
         If mx >= btnX0 And mx <= btnX1 And my >= btnY0 And my <= btnY1 Then hover = 1
+        If mx >= quitX0 And mx <= quitX1 And my >= quitY0 And my <= quitY1 Then hover = 2
         If hover <> prevHover Then
             prevHover = hover
-            If hover = 1 Then SOUND 1500, 1   ' hover-tick
+            If hover > 0 Then SOUND 1500, 1   ' hover-tick
         End If
         If state$ = "menu" And k$ = " " Then
-            Gosub StartRun
+            Gosub StartRun   ' SPACE = osynlig genväg för START (beteende oförändrat)
             SOUND 300, 2: SOUND 150, 3        ' klick/plopp
         End If
         If state$ = "menu" And hover = 1 Then
@@ -307,9 +314,12 @@ Do
                 SOUND 300, 2: SOUND 150, 3
             End If
         End If
+        If state$ = "menu" And hover = 2 Then
+            If _MouseButton(1) Then Gosub QuitGame   ' QUIT GAME = samma exit som meny-ESC
+        End If
         _Dest display&
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
-        Line (RW \ 2 - 860, RH \ 2 - 190)-(RW \ 2 + 859, RH \ 2 + 189), _RGB32(255, 200, 0), B
+        Line (RW \ 2 - 860, RH \ 2 - menuPanelHalf)-(RW \ 2 + 859, RH \ 2 + menuPanelHalf - 1), _RGB32(255, 200, 0), B
         Color _RGB32(255, 200, 0)
         ttx = (RW - Len(strTitle$) * 8) \ 2
         tty = RH \ 2 - 40
@@ -318,10 +328,9 @@ Do
         _PrintString (ttx - 2, tty), strTitle$
         Color _RGB32(255, 200, 0)
         _PrintString (ttx, tty), strTitle$
-        ' START GAME-knapp: centrerad rektangel, samma widget som resultatmenyn
-        DrawButton btnX0, btnY0, btnX1, btnY1, strStartBtn$, hover
-        Color _RGB32(150, 150, 150)
-        _PrintString ((RW - Len(strOrSpace$) * 8) \ 2, btnY1 + 16), strOrSpace$
+        ' två knappar via samma DrawButton-widget: START GAME + QUIT GAME (samma bredd)
+        DrawButton btnX0, btnY0, btnX1, btnY1, strStartBtn$, (hover = 1)
+        DrawButton quitX0, quitY0, quitX1, quitY1, strQuitBtn$, (hover = 2)
         ' versionshörn nere till höger på titelskärmen (ver + commit-hash)
         Color _RGB32(110, 110, 140)
         _PrintString (RW - Len(ver$ + " " + strBuild$) * 8 - 16, RH - 24), ver$ + " " + strBuild$
@@ -346,12 +355,23 @@ Do
         ' selftest fas12d: huvudmenyn har renderat EN frame med DrawButton (stor
         ' TTF-text) utan krasch -> SELFTEST OK. (Resultatmenyn täcks av fas12a-c.)
         If selftest And testPhase = 12 And testFlag = 5 Then
-            stMsg$ = "PASS fas12d-meny-renderad (DrawButton stor TTF-text, ingen krasch)"
-            Gosub STLog
-            stMsg$ = "SELFTEST OK"
-            Gosub STLog
-            ShutdownSound
-            End
+            ' huvudmenyn renderade EN frame utan krasch; kontrollera även att
+            ' menyn har 2 knappar (START + QUIT) med SAMMA bredd, staplade utan överlapp
+            If quitY0 >= btnY1 And quitY1 > quitY0 And (quitX1 - quitX0) = (btnX1 - btnX0) And btnY1 > btnY0 Then
+                stMsg$ = "PASS fas12d-meny-renderad (2 knappar START+QUIT samma bredd=" + Str$(btnX1 - btnX0) + " px, staplade utan överlapp, ingen krasch)"
+                Gosub STLog
+                stMsg$ = "SELFTEST OK"
+                Gosub STLog
+                ShutdownSound
+                End
+            Else
+                stMsg$ = "FAIL fas12d-meny-layout btnW=" + Str$(btnX1 - btnX0) + " quitW=" + Str$(quitX1 - quitX0) + " btnY1=" + Str$(btnY1) + " quitY0=" + Str$(quitY0)
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
         End If
     ElseIf state$ = "dead" Then
         If k$ = Chr$(27) Or _KeyDown(27) Then End
@@ -621,7 +641,7 @@ Do
             If Sqr((amX(i) - px) ^ 2 + (amY(i) - py) ^ 2) < 0.5 Then
                 amActive(i) = 0
                 ammo = ammo + 5              ' FIX 3: ammo-pickup ger +5
-                If ammo > 20 Then ammo = 20  ' FIX 3: max-cap 20 (överskott försvinner)
+                If ammo > maxAmmo Then ammo = maxAmmo  ' FIX 3: max-cap (överskott försvinner)
                 hpMsg$ = strAmmoPick$
                 hpMsgTime = Timer
                 PlaySound SND_PICKUP
@@ -1208,6 +1228,23 @@ Do
     Line (amX0, hudY)-(amX1, hudY + 20), _RGB32(40, 40, 40), BF
     Line (amX0, hudY)-(amX1, hudY + 20), _RGB32(230, 200, 0), B
     Line (amX0 + 1, hudY + 1)-(amX1 - 1, hudY + 19), _RGB32(230, 200, 0), B
+    ' ammo-streck INUTI rutan: maxAmmo tunna staplar, en per projektil kvar.
+    ' Rutan är bredare än hög (amW x 20) -> VERTIKALA streck (tydligast).
+    ' Streck 1..CountAmmoTicks%(ammo) = GULT RGB(255,200,0) (matchar hover-paletten),
+    ' resten svag platshållare RGB(60,60,90). Skalar med RW/RH via amW/hudY.
+    tickN = CountAmmoTicks%(ammo)
+    inX0 = amX0 + 2: inX1 = amX1 - 2: inY0 = hudY + 2: inY1 = hudY + 18
+    slotW = (inX1 - inX0 + 1) / maxAmmo
+    tgap = 1: If slotW < 3 Then tgap = 0
+    For ti = 1 To maxAmmo
+        tx0 = inX0 + Int((ti - 1) * slotW): tx1 = inX0 + Int(ti * slotW) - 1 - tgap
+        If tx1 < tx0 Then tx1 = tx0
+        If ti <= tickN Then
+            Line (tx0, inY0)-(tx1, inY1), _RGB32(255, 200, 0), BF
+        Else
+            Line (tx0, inY0)-(tx1, inY1), _RGB32(60, 60, 90), BF
+        End If
+    Next ti
     Color _RGB32(230, 200, 0)
     _PrintString (amX1 + 8, hudY + 4), strHudAmmo$ + Str$(ammo)
     If Timer - hpMsgTime < 2 Then
@@ -1299,6 +1336,14 @@ Function CalcScore&
     sc& = 10000 - 5 * s% - 10 * shotsFired - 25 * dmgTaken
     If sc& < 0 Then sc& = 0
     CalcScore& = sc&
+End Function
+
+' CountAmmoTicks%: antal tända streck i ammo-rutan = aktuell ammo, klamrad till
+' [0, maxAmmo] — samma konstant som ammo-capen (kan inte glida isär).
+Function CountAmmoTicks% (a)
+    If a < 0 Then a = 0
+    If a > maxAmmo Then a = maxAmmo
+    CountAmmoTicks% = a
 End Function
 
 ' InitSounds (Fas 4): fyller det datadrivna ljud-registret (id -> vågform,
@@ -1422,6 +1467,11 @@ End Sub
 ' och resultatmenyns VIDARE (samma väg = samma muslås-beteende).
 ' Sätter fadeout; när faden är klar (i menu/fadeout-grenen) går state till
 ' playing och musen låses (_MOUSEHIDE _DISABLE).
+' QuitGame: ENDA avsluts-sökvägen — meny-ESC och QUIT GAME-knappen går båda hit.
+' Ren exit (repot gör ingen explicit _FREEIMAGE-cleanup; End städar via QB64-PE).
+QuitGame:
+    End
+
 StartRun:
     ' ENDA start-vägen (meny START-klick/SPACE + pendingStart från VIDARE).
     ' startRuns räknar triggeringar — selftest fas12b bevisar att VIDARE går här.
@@ -1692,6 +1742,20 @@ SelftestDrive:
             If enActive(0) = 0 Then
                 stMsg$ = "PASS fas7-dod-av-skott (enHP gick 3->0)"
                 Gosub STLog
+                ' fas7b: ammo-streck-funktionen CountAmmoTicks% — fallen 0, 5, 20
+                ' samt aktuell ammo (efter skotten) ska ge exakt antal tända streck
+                tk0 = CountAmmoTicks%(0): tk5 = CountAmmoTicks%(5): tk20 = CountAmmoTicks%(20): tkA = CountAmmoTicks%(ammo)
+                If tk0 = 0 And tk5 = 5 And tk20 = 20 And tkA = ammo And ammo >= 0 And ammo <= maxAmmo Then
+                    stMsg$ = "PASS fas7b-ammo-ticks CountAmmoTicks% 0/5/20=" + Str$(tk0) + "/" + Str$(tk5) + "/" + Str$(tk20) + " ammo=" + Str$(ammo) + "->" + Str$(tkA) + " (maxAmmo=" + Str$(maxAmmo) + ")"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas7b-ammo-ticks 0/5/20=" + Str$(tk0) + "/" + Str$(tk5) + "/" + Str$(tk20) + " ammo=" + Str$(ammo) + "->" + Str$(tkA)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
                 ' fas 8: låt en ny fiende döda spelaren (hp lågt för snabbhet)
                 hp = 25
                 enX(1) = px + 1: enY(1) = py: enActive(1) = 1
