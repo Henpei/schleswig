@@ -138,7 +138,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "1ee4815"
+Const strBuild$ = "157eedb"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -243,7 +243,11 @@ Const PR_MORTAR = 2
 Const PR_MAX = 31
 Const plrBallSpd! = 6     ' player musket ball: slow, period-correct
 Const plrBallDmg = 1      ' same damage per hit as the old hitscan (balance unchanged)
-Const ballSizePx = 5      ' 4B hotfix: BALL renders as a FIXED ~5x5 px screen-space square (no distance scaling)
+' BALL render size: light distance scale with HARD clamp — ballPx = clamp(RW/dist * ballScale!, ballPxMin, ballPxMax)
+' (near = 12 px, far = 7 px, never below 7 -> always visible; never a 'shoebox'). Tune via feel-test.
+Const ballScale! = 0.35
+Const ballPxMin = 7
+Const ballPxMax = 12
 DIM prX(PR_MAX), prY(PR_MAX), prDX(PR_MAX), prDY(PR_MAX), prActive(PR_MAX)
 DIM prSpd!(PR_MAX), prOwner(PR_MAX), prDmg(PR_MAX), prType(PR_MAX), prSrcType(PR_MAX)
 DIM prTX(PR_MAX), prTY(PR_MAX), prLandT(PR_MAX)
@@ -1387,14 +1391,26 @@ Do
                     If Abs(bang) < fovCut Then
                         bdistP = bdist * Cos(bang)
                         bcx2 = RW / 2 * (1 + Tan(bang) / planeDist)
-                        ' FIXED screen-space size (Const ballSizePx): only the projected
-                        ' POSITION scales with distance, never the ball size (hotfix 4B)
-                        bx0 = Int(bcx2 - ballSizePx / 2): bx1 = bx0 + ballSizePx - 1
-                        by0 = Int(midY + pitch - ballSizePx / 2): by1 = by0 + ballSizePx - 1
+                        ' Light distance scale with hard clamp: ballPx = clamp(RW/bdist * ballScale!, ballPxMin, ballPxMax)
+                        ' (near ~12 px, far ~7 px — always visible, never a shoebox). Mini-fix 2.
+                        ballPx = Int(RW / bdist * ballScale!)
+                        If ballPx < ballPxMin Then ballPx = ballPxMin
+                        If ballPx > ballPxMax Then ballPx = ballPxMax
+                        bx0 = Int(bcx2 - ballPx / 2): bx1 = bx0 + ballPx - 1
+                        by0 = Int(midY + pitch - ballPx / 2): by1 = by0 + ballPx - 1
                         If bx0 < 0 Then bx0 = 0: If bx1 > RW - 1 Then bx1 = RW - 1
                         If by0 < 0 Then by0 = 0: If by1 > RH - 1 Then by1 = RH - 1
-                        If prOwner(i) = 0 Then bcol& = _RGB32(230, 230, 220) Else bcol& = _RGB32(255, 60, 40)
+                        If prOwner(i) = 0 Then bcol& = _RGB32(255, 255, 255) Else bcol& = _RGB32(255, 40, 40)
                         If by1 > by0 And bx1 >= bx0 Then
+                            ' cheap 1px dark outline around the ball so it pops against walls
+                            obx0 = bx0 - 1: obx1 = bx1 + 1: oby0 = by0 - 1: oby1 = by1 + 1
+                            If obx0 < 0 Then obx0 = 0: If obx1 > RW - 1 Then obx1 = RW - 1
+                            If oby0 < 0 Then oby0 = 0: If oby1 > RH - 1 Then oby1 = RH - 1
+                            For sx = obx0 To obx1
+                                If bdistP < wallDist(sx) Then
+                                    Line (sx, oby0)-(sx, oby1), _RGB32(20, 20, 20)
+                                End If
+                            Next sx
                             For sx = bx0 To bx1
                                 If bdistP < wallDist(sx) Then Line (sx, by0)-(sx, by1), bcol&
                             Next sx
