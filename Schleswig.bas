@@ -2,7 +2,8 @@
 ' SCHLESWIG v0.1.0  -- raycaster-FPS i QB64-PE (Linux/Wayland)
 ' ============================================================================
 ' VAD: Wolfenstein/Doom-liknande raycaster (DDA) med titelmeny, mouselook (yaw),
-'      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning + HP-regen (Fas 2),
+'      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning (Fas 2; ingen
+'      HP-regen — medkits är enda botemedlet, beslut 2026-11-23),
 '      klickbar START GAME-knapp med hover-tick/klick-ljud och fade-overgang (Fas 2.5),
 '      dodsskarm + full reset vid R/SPACE (Fas 2.6), crosshair i playing (Fas 2.7),
 '      fiender: PATROLL/JAKT/ANFALL-AI med LOS + BFS-flowfield, närstridsskada,
@@ -125,14 +126,13 @@ pkX(2) = 14.5: pkY(2) = 1.5: pkActive(2) = 1
 pkX(3) = 5.5: pkY(3) = 7.5: pkActive(3) = 1
 pkX(4) = 6.5: pkY(4) = 14.5: pkActive(4) = 1
 
-' Fas 2: ammo + skjutning + HP-regen (samma array-pool-mönster som medkit)
+' Fas 2: ammo + skjutning (ingen HP-regen; samma array-pool-mönster som medkit)
 DIM amX(10), amY(10), amActive(10)
 ammo = 20
 lastShotTime = -1        ' cooldown 0.3 s mellan skott
 tracerTime = -1          ' tracer-flash synlig 2-3 frames
 flashTime = -1           ' träff-flash
 flashDist = 99
-lastDamageTime = Timer   ' HP-regen börjar först 5 s efter senaste skada
 amX(0) = 3.5: amY(0) = 4.5: amActive(0) = 1
 amX(1) = 12.5: amY(1) = 4.5: amActive(1) = 1
 amX(2) = 6.5: amY(2) = 9.5: amActive(2) = 1
@@ -300,7 +300,6 @@ Do
                 If i <= 2 Then amActive(i) = 1 Else amActive(i) = 0
             Next i
             Gosub SpawnEnemies   ' Fas 3: fiender respawnas också vid full reset
-            lastDamageTime = Timer
             hpMsg$ = "": hpMsgTime = 0
             lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
             fading = 0: deathTime = 0
@@ -335,7 +334,6 @@ Do
         hpMsg$ = strDmgDebug$
         hpMsgTime = Timer
         PlaySound SND_HURT
-        lastDamageTime = Timer   ' G räknas som skada: resetta regen-grace
     End If
     If k$ = Chr$(0) + "K" Or _KeyDown(19200) Then angle = angle - turnStep * speed
     If k$ = Chr$(0) + "M" Or _KeyDown(19712) Then angle = angle + turnStep * speed
@@ -568,12 +566,10 @@ Do
                 If evol! > 0.5 Then evol! = 0.5
                 PlaySoundVol SND_ESTEP, evol!
             End If
-            ' närstridsskada (oförändrad mekanik från Fas 3): dist<0.8, cooldown 0.7 s,
-            ' lastDamageTime uppdateras -> HP-regen blockas (samma grace som Fas 2)
+            ' närstridsskada (oförändrad mekanik från Fas 3): dist<0.8, cooldown 0.7 s
             If edist < 0.8 And Timer - enLastHit(i) >= 0.7 Then
                 enLastHit(i) = Timer
                 hp = hp - enDmg(i)
-                lastDamageTime = Timer
                 hpMsg$ = "-" + Str$(enDmg(i)) + " HP"
                 hpMsgTime = Timer
                 PlaySound SND_HURT
@@ -648,13 +644,11 @@ Do
         End If
     End If
 
-    ' ======== HP-REGEN: +1 HP/s, först efter 5 s grace sedan senaste skada ========
-    If Timer - lastDamageTime >= 5 Then
-        hp = hp + dt
-        If hp > 100 Then hp = 100
-    End If
+    ' HP-REGEN BORTTAGEN (2026-11-23, Andrés beslut): HP ändras ENDAST via
+    ' fiende-skada (-X), medkit-pickup (+25, cap 100 kvar) och G-debug.
+    ' Medkits är enda botemedlet.
 
-    ' ======== DÖD (Fas 2.6): hp<=0 i playing -> dead; ingen regen/resurrection efter detta ======
+    ' ======== DÖD (Fas 2.6): hp<=0 i playing -> dead; ingen resurrection efter detta ======
     If hp <= 0 Then
         hp = 0
         state$ = "dead"
@@ -1257,15 +1251,26 @@ SelftestDrive:
                 testPhase = 4: testT0 = Timer: testFlag = 0
             End If
         Case 4   ' FÖRLORAD SYN: spelaren gömmer sig (2.5,12.5) -> >2s -> sista kända -> 5s -> PATROLL
+                 ' (passar även på att verifiera INGEN HP-regen: hp ska vara oförändrad)
             If testFlag = 0 Then
                 testFlag = 1
                 px = 2.5: py = 12.5
+                hpAt4 = hp   ' ingen fiende når spelaren här -> hp måste vara samma vid PASS
                 stMsg$ = "fas4: spelaren gömmer sig (2.5,12.5), väntar på återgång PATROLL"
                 Gosub STLog
             End If
             If enState(0) = 0 Then
-                stMsg$ = "PASS fas4-forlorad-syn-atergang-PATROLL efter " + LTrim$(Str$(Int((Timer - testT0) * 10) / 10)) + "s"
-                Gosub STLog
+                If hp = hpAt4 Then
+                    stMsg$ = "PASS fas4-forlorad-syn-atergang-PATROLL efter " + LTrim$(Str$(Int((Timer - testT0) * 10) / 10)) + "s (hp oförändrad " + Str$(Int(hp)) + ", ingen regen)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas4-regen-detected: hp " + Str$(Int(hpAt4)) + " -> " + Str$(Int(hp)) + " utan skada"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
                 ' förbered gamla Fas 3-kombattestet (fas5-8)
                 px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 20
                 enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1
