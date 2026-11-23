@@ -115,7 +115,7 @@ Const strShots$ = "SKOTT:"                         ' resultatskärm
 Const strDmg$ = "SKADA:"                           ' resultatskärm
 Const strEscMenu$ = "ESC = MENY"                       ' resultatskärm, nederst
 Const strNextMap$ = "VALFRI TANGENT = VIDARE"          ' resultatskärm, nederst
-Const strLockHint$ = "KLICKA FÖR ATT LÅSA MUSEN"       ' HUD tills första klicket (Wayland)
+Const strLockHint$ = "KLICKA FÖR ATT LÅSA MUSEN (musen försvinner då)"  ' HUD tills första klicket (Wayland)
 ' ============================================================================
 
 ceilingCol& = _RGB32(24, 24, 48)
@@ -305,6 +305,7 @@ Do
             If fa >= 1 Then
                 state$ = "playing"
                 _MOUSEHIDE _DISABLE   ' pointer-lock (återställd; Wayland: låset går först vid musklick)
+                _MOUSEMOVE RW \ 2, RH \ 2   ' centrera pekaren direkt (hjälper låset + gömning)
                 lockHint = 1
                 fadeT0 = Timer
                 fading = 2
@@ -418,6 +419,7 @@ Do
             state$ = "playing"
             fading = 2: fadeT0 = Timer
             _MOUSEHIDE _DISABLE   ' pointer-lock även efter continue (Wayland: lås vid första klicket)
+            _MOUSEMOVE RW \ 2, RH \ 2   ' centrera pekaren direkt vid continue också
             lockHint = 1
         End If
         ' rendera resultatskärmen
