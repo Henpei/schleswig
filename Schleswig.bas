@@ -113,9 +113,10 @@ Const strWin$ = "KARTAN KLAR"                      ' resultatskärm: titel
 Const strTime$ = "TID:"                            ' resultatskärm: mm:ss
 Const strShots$ = "SKOTT:"                         ' resultatskärm
 Const strDmg$ = "SKADA:"                           ' resultatskärm
-Const strEscMenu$ = "ESC = MENY"                       ' resultatskärm, nederst
-Const strNextMap$ = "KLICKA FÖR ATT FORTSÄTTA"         ' resultatskärm: musklick = nästa karta (Wayland-lås)
-Const strLockHint$ = "KLICKA FÖR ATT LÅSA MUSEN (musen försvinner då)"  ' HUD tills första klicket (Wayland)
+Const strEscMenu$ = "ESC = MENY"                       ' resultatmeny, nederst
+Const strNextMap$ = "VIDARE"                           ' resultatmeny: knapp 1 (ny runda)
+Const strMainMenu$ = "HUVUDMENY"                       ' resultatmeny: knapp 2
+' (strLockHint$ borttagen 2026-11-23: Wayland-låset ska bara SKE vid klick — ingen hint-text)
 ' ============================================================================
 
 ceilingCol& = _RGB32(24, 24, 48)
@@ -383,16 +384,29 @@ Do
         End If
         _Display
     ElseIf state$ = "result" Then
-        ' RESULT-SCREEN: AI/fysik/tid FRYST (denna gren kör aldrig fiende-logik).
-        ' FIX 1: vidare triggas av MUSKLICK (vänsterknapp) — samma klick ger
-        ' Wayland pointer-lock direkt, så pekaren hinner aldrig synas.
-        ' ESC (tangent) = meny kvar. k$ pollas i loop-toppen; musen pollas här.
+        ' RESULTATMENY: riktig meny, samma knapp-stil som huvudmenyn (samma
+        ' btnW/btnH, hover, fill/border). Musen är VÄLKOMMEN synlig här.
+        ' AI/fysik/tid fryst (egen gren). Knappar: VIDARE / HUVUDMENY. ESC=meny.
+        resBw = btnW: resBh = btnH
+        resB1X0 = (RW - resBw) \ 2: resB1Y0 = RH \ 2 + 60
+        resB1X1 = resB1X0 + resBw: resB1Y1 = resB1Y0 + resBh     ' VIDARE
+        resB2X0 = (RW - resBw) \ 2: resB2Y0 = RH \ 2 + 130
+        resB2X1 = resB2X0 + resBw: resB2Y1 = resB2Y0 + resBh     ' HUVUDMENY
         mb = 0
         While _MouseInput: WEND
+        mx = _MouseX: my = _MouseY
         If _MouseButton(1) Then mb = 1
-        If selftest And testPhase = 12 And testFlag = 2 Then mb = 1   ' simulerat klick (efter fas12a sett result)
-        If k$ = Chr$(27) Or _KeyDown(27) Then
-            ' ESC = avsluta till menyn
+        ' selftest fas12: simulera knapp-klick (testFlag=2 -> VIDARE, 4 -> HUVUDMENY)
+        If selftest And testPhase = 12 Then
+            If testFlag = 2 Then mx = (resB1X0 + resB1X1) \ 2: my = (resB1Y0 + resB1Y1) \ 2: mb = 1
+            If testFlag = 4 Then mx = (resB2X0 + resB2X1) \ 2: my = (resB2Y0 + resB2Y1) \ 2: mb = 1
+        End If
+        hoverR = 0
+        If mx >= resB1X0 And mx <= resB1X1 And my >= resB1Y0 And my <= resB1Y1 Then hoverR = 1
+        If mx >= resB2X0 And mx <= resB2X1 And my >= resB2Y0 And my <= resB2Y1 Then hoverR = 2
+        If (k$ = Chr$(27) Or _KeyDown(27)) Or (mb And hoverR = 2) Then
+            ' ESC eller HUVUDMENY -> huvudmenyn (full reset)
+            escCool = Timer
             hp = 100: ammo = 5
             px = 8.5: py = 4.5: angle = 0: pitch = 0
             For i = 0 To 10
@@ -404,11 +418,13 @@ Do
             lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
             fading = 0: deathTime = 0: hover = 0: prevHover = 0: winPending = 0: winTime = -1
             runT0 = Timer: shotsFired = 0: dmgTaken = 0
-            escCool = Timer   ' FIX 2: markera att ESC precis hanterats i result
             state$ = "menu"
             _MOUSESHOW
-        ElseIf mb Then
-            ' musklick = nästa karta (ny run direkt, samma karta ännu)
+        ElseIf mb And hoverR = 1 Then
+            ' VIDARE: lås/göm musen FÖRST (samma klick = Wayland lock-gest),
+            ' centrera, sedan ny runda direkt
+            _MOUSEHIDE _DISABLE
+            _MOUSEMOVE RW \ 2, RH \ 2
             hp = 100: ammo = 5
             px = 8.5: py = 4.5: angle = 0: pitch = 0
             For i = 0 To 10
@@ -422,15 +438,12 @@ Do
             runT0 = Timer: shotsFired = 0: dmgTaken = 0
             state$ = "playing"
             fading = 2: fadeT0 = Timer
-            _MOUSEHIDE _DISABLE   ' pointer-lock även efter continue (Wayland: lås vid första klicket)
-            _MOUSEMOVE RW \ 2, RH \ 2   ' centrera pekaren direkt vid continue också
-            lockHint = 1
         End If
-        ' rendera resultatskärmen
+        ' rendera resultatmenyn: statistik + två knappar (samma stil som huvudmenyn)
         _Dest display&
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
-        Line (RW \ 2 - 860, RH \ 2 - 190)-(RW \ 2 + 859, RH \ 2 + 189), _RGB32(255, 200, 0), B
-        t% = CurRunTime%              ' fryst tid i result (bugg 1: tickar ej vidare)
+        Line (RW \ 2 - 860, RH \ 2 - 215)-(RW \ 2 + 859, RH \ 2 + 214), _RGB32(255, 200, 0), B
+        t% = winTime                 ' ALLTID fryst tid i result (regressionsfix: ej CurRunTime här)
         mm% = t% \ 60: ss% = t% - mm% * 60
         sc$ = strScore$ + " " + LTrim$(Str$(score))
         bs2$ = strBest$ + " " + LTrim$(Str$(bestScore))
@@ -438,21 +451,42 @@ Do
         sh$ = strShots$ + " " + LTrim$(Str$(shotsFired))
         dm$ = strDmg$ + " " + LTrim$(Str$(dmgTaken))
         Color _RGB32(255, 200, 0)
-        _PrintString ((RW - Len(strWin$) * 8) \ 2, RH \ 2 - 120), strWin$
+        _PrintString ((RW - Len(strWin$) * 8) \ 2, RH \ 2 - 140), strWin$
         Color _RGB32(255, 255, 255)
-        _PrintString ((RW - Len(tm$) * 8) \ 2, RH \ 2 - 70), tm$
-        _PrintString ((RW - Len(sh$) * 8) \ 2, RH \ 2 - 45), sh$
-        _PrintString ((RW - Len(dm$) * 8) \ 2, RH \ 2 - 20), dm$
-        _PrintString ((RW - Len(sc$) * 8) \ 2, RH \ 2 + 5), sc$
+        _PrintString ((RW - Len(tm$) * 8) \ 2, RH \ 2 - 95), tm$
+        _PrintString ((RW - Len(sh$) * 8) \ 2, RH \ 2 - 70), sh$
+        _PrintString ((RW - Len(dm$) * 8) \ 2, RH \ 2 - 45), dm$
+        _PrintString ((RW - Len(sc$) * 8) \ 2, RH \ 2 - 20), sc$
         Color _RGB32(150, 150, 150)
-        _PrintString ((RW - Len(bs2$) * 8) \ 2, RH \ 2 + 30), bs2$
+        _PrintString ((RW - Len(bs2$) * 8) \ 2, RH \ 2 - 0), bs2$
         If newRecord Then
             Color _RGB32(255, 80, 80)
-            _PrintString ((RW - Len(strNewRec$) * 8) \ 2, RH \ 2 + 55), strNewRec$
+            _PrintString ((RW - Len(strNewRec$) * 8) \ 2, RH \ 2 + 25), strNewRec$
         End If
+        ' knapp 1: VIDARE (samma ritning som huvudmenyns knapp)
+        If hoverR = 1 Then
+            Line (resB1X0, resB1Y0)-(resB1X1, resB1Y1), _RGB32(255, 200, 0), BF
+            btnTxt& = _RGB32(20, 20, 20)
+        Else
+            Line (resB1X0, resB1Y0)-(resB1X1, resB1Y1), _RGB32(30, 30, 70), BF
+            btnTxt& = _RGB32(255, 255, 255)
+        End If
+        Line (resB1X0, resB1Y0)-(resB1X1, resB1Y1), _RGB32(255, 255, 255), B
+        Color btnTxt&
+        _PrintString (resB1X0 + (resBw - Len(strNextMap$) * 8) \ 2, resB1Y0 + (resBh - 16) \ 2), strNextMap$
+        ' knapp 2: HUVUDMENY
+        If hoverR = 2 Then
+            Line (resB2X0, resB2Y0)-(resB2X1, resB2Y1), _RGB32(255, 200, 0), BF
+            btnTxt& = _RGB32(20, 20, 20)
+        Else
+            Line (resB2X0, resB2Y0)-(resB2X1, resB2Y1), _RGB32(30, 30, 70), BF
+            btnTxt& = _RGB32(255, 255, 255)
+        End If
+        Line (resB2X0, resB2Y0)-(resB2X1, resB2Y1), _RGB32(255, 255, 255), B
+        Color btnTxt&
+        _PrintString (resB2X0 + (resBw - Len(strMainMenu$) * 8) \ 2, resB2Y0 + (resBh - 16) \ 2), strMainMenu$
         Color _RGB32(150, 150, 150)
-        _PrintString ((RW - Len(strEscMenu$) * 8) \ 2, RH \ 2 + 150), strEscMenu$
-        _PrintString ((RW - Len(strNextMap$) * 8) \ 2, RH \ 2 + 170), strNextMap$
+        _PrintString ((RW - Len(strEscMenu$) * 8) \ 2, RH \ 2 + 195), strEscMenu$
         _Display
         If selftest Then Gosub SelftestDrive   ' fas12: observera state=result här
     Else
@@ -1112,12 +1146,7 @@ Do
     scHud$ = strScore$ + " " + LTrim$(Str$(CalcScore&))
     Color _RGB32(255, 255, 0)
     _PrintString (RW - Len(scHud$) * 8 - 8, 4), scHud$
-    ' muslås-hint: QB64-PE exponerar ingen lås-status, så visa texten tills
-    ' första musklicket efter run-start (Wayland engagerar låset vid klick)
-    If lockHint = 1 Then
-        Color _RGB32(255, 255, 120)
-        _PrintString ((RW - Len(strLockHint$) * 8) \ 2, 28), strLockHint$
-    End If
+    ' (muslås-hint borttagen — Wayland låser vid första klicket, ingen text behövs)
 
     ' HP-ruta nertill vänster: bar-längd + siffra (tydligt även utan färgseende)
     ' HUD-koordinaterna är RELATIVA RW/RH (hudY = RH-28 osv; vid 1920x1080 samma värden som tidigare)
@@ -1638,32 +1667,35 @@ SelftestDrive:
                     End
                 End If
             End If
-        Case 12  ' SEGER-TRIGGER-TEST: (a) kill-all -> state "result", (b) inga fiender lever,
-                 ' (c) result-skärmen reagerar på (simulerat) tangenttryck -> omladdning
+        Case 12  ' RESULTATMENY-TEST: (a) kill-all -> result + fryst winTime + 0 levande,
+                 ' (b) klick VIDARE -> playing, (c) kill-all igen + klick HUVUDMENY -> menu
             If testFlag = 0 Then
-                testFlag = 1
+                testFlag = 1: testT0 = Timer: wt1 = -1
                 For i = 0 To 10: enActive(i) = 0: Next i   ' kill-all simulerat
                 winPending = 0
-                stMsg$ = "fas12: alla fiender döda, väntar på result-state"
+                stMsg$ = "fas12: alla fiender döda, väntar på result"
                 Gosub STLog
             End If
             If testFlag = 1 And state$ = "result" Then
-                testFlag = 2: testT0 = Timer
-                alive12 = 0
-                For i = 0 To 10
-                    If enActive(i) Then alive12 = alive12 + 1
-                Next i
-                If alive12 = 0 Then
-                    stMsg$ = "PASS fas12a-killall-result (state=result, levande fiender=0)"
-                Else
-                    stMsg$ = "FAIL fas12a levande fiender=" + Str$(alive12)
-                    Gosub STLog
-                    stMsg$ = "SELFTEST FAIL"
-                    Gosub STLog
-                    ShutdownSound
-                    End
+                If wt1 < 0 Then wt1 = winTime: wtT = Timer
+                If Timer - wtT >= 0.6 Then
+                    alive12 = 0
+                    For i = 0 To 10
+                        If enActive(i) Then alive12 = alive12 + 1
+                    Next i
+                    If winTime = wt1 And alive12 = 0 Then
+                        stMsg$ = "PASS fas12a-killall-result-fryst (state=result, levande=0, winTime=" + Str$(wt1) + " fryst)"
+                        Gosub STLog
+                        testFlag = 2: testT0 = Timer   ' result-grenen injicerar VIDARE-klick
+                    Else
+                        stMsg$ = "FAIL fas12a winTime " + Str$(wt1) + "->" + Str$(winTime) + " levande=" + Str$(alive12)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
                 End If
-                Gosub STLog
             ElseIf testFlag = 1 And Timer - testT0 >= 3 Then
                 stMsg$ = "FAIL fas12a state=" + state$ + " (förväntade result)"
                 Gosub STLog
@@ -1672,18 +1704,42 @@ SelftestDrive:
                 ShutdownSound
                 End
             End If
-            If testFlag = 2 And Timer - testT0 >= 0.5 Then
-                If state$ = "playing" Then
-                    stMsg$ = "PASS fas12b-result-reagerar-pa-klick (simulerat musklick -> ny runda, state=playing)"
-                    Gosub STLog
-                    stMsg$ = "SELFTEST OK"
-                    Gosub STLog
-                Else
-                    stMsg$ = "FAIL fas12b state=" + state$ + " (förväntade playing efter klick)"
-                    Gosub STLog
-                    stMsg$ = "SELFTEST FAIL"
-                    Gosub STLog
-                End If
+            If testFlag = 2 And state$ = "playing" Then
+                stMsg$ = "PASS fas12b-vidare-klick (klick på VIDARE -> state=playing)"
+                Gosub STLog
+                For i = 0 To 10: enActive(i) = 0: Next i   ' kill-all igen för fas12c
+                winPending = 0
+                testFlag = 3: testT0 = Timer
+            ElseIf testFlag = 2 And Timer - testT0 >= 3 Then
+                stMsg$ = "FAIL fas12b state=" + state$ + " (förväntade playing efter VIDARE-klick)"
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 3 And state$ = "result" Then
+                testFlag = 4: testT0 = Timer   ' result-grenen injicerar HUVUDMENY-klick
+            ElseIf testFlag = 3 And Timer - testT0 >= 3 Then
+                stMsg$ = "FAIL fas12c-pre state=" + state$ + " (förväntade result igen)"
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 4 And state$ = "menu" Then
+                stMsg$ = "PASS fas12c-huvudmeny-klick (klick på HUVUDMENY -> state=menu)"
+                Gosub STLog
+                stMsg$ = "SELFTEST OK"
+                Gosub STLog
+                ShutdownSound
+                End
+            ElseIf testFlag = 4 And Timer - testT0 >= 3 Then
+                stMsg$ = "FAIL fas12c state=" + state$ + " (förväntade menu efter HUVUDMENY-klick)"
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
                 ShutdownSound
                 End
             End If
