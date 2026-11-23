@@ -4,10 +4,12 @@
 ' VAD: Wolfenstein/Doom-liknande raycaster (DDA) med titelmeny, mouselook (yaw),
 '      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning + HP-regen (Fas 2),
 '      klickbar START GAME-knapp med hover-tick/klick-ljud och fade-overgang (Fas 2.5),
-'      dodsskarm + full reset vid R/SPACE (Fas 2.6), crosshair i playing (Fas 2.7).
+'      dodsskarm + full reset vid R/SPACE (Fas 2.6), crosshair i playing (Fas 2.7),
+'      fiender: jakt-AI, närstridsskada, skott-träff, billboard-sprites (Fas 3).
 '
 ' KÖRINSTRUKTIONER:
 '   ./Raycaster
+'   ./Raycaster selftest   = autoplay-selftest (logg: /tmp/raycaster_selftest.log)
 '   SPACE = starta spelet (från titelmenyn), ESC = avsluta (fungerar i båda lägen)
 '   WASD = gå/strafe, musen = titta runt. Muslåset (pointer lock) aktiveras
 '   FÖRST när state = "playing" -- i menyn är pekaren synlig.
@@ -106,6 +108,31 @@ amX(0) = 3.5: amY(0) = 4.5: amActive(0) = 1
 amX(1) = 12.5: amY(1) = 4.5: amActive(1) = 1
 amX(2) = 6.5: amY(2) = 9.5: amActive(2) = 1
 
+' Fas 3: fiende-pool (samma array-pool-mönster som pickups): pos, aktiv flagga,
+' hp (3 träffar), skada, hastighet. Startlägen sätts i subrutinen SpawnEnemies.
+DIM enX(10), enY(10), enActive(10), enHP(10), enDmg(10), enSpd(10), enLastHit(10)
+' Fas 3 selftest/autoplay: ./raycaster selftest -> scriptat scenario, loggas till fil
+selftest = 0
+cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, bara LTrim$/RTrim$
+If cmdArg$ = "selftest" Then selftest = 1
+testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer
+If selftest Then
+    stF = FreeFile
+    Open "/tmp/raycaster_selftest.log" For Output As #stF
+    Close #stF
+    state$ = "playing"          ' hoppa över menyn direkt
+    _MOUSEHIDE _DISABLE
+    Gosub SpawnEnemies
+    ' deterministiskt scenario: EN fiende rakt fram i korridoren (rad 4 är öppen)
+    For i = 1 To 10: enActive(i) = 0: Next i
+    enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1
+    enHP(0) = 3: enDmg(0) = 10: enSpd(0) = 2: enLastHit(0) = 0
+    stMsg$ = "selftest start: fas1 jakt": Gosub STLog
+    testPhase = 1: testT0 = Timer
+Else
+    Gosub SpawnEnemies
+End If
+
 frames = 0
 fpsShow = 0
 lastTime = Timer
@@ -189,6 +216,12 @@ Do
         _Display
     ElseIf state$ = "dead" Then
         If k$ = Chr$(27) Or _KeyDown(27) Then End
+        ' Fas 3 selftest: fas 4 = spelaren har dött av fiende -> rapportera och avsluta
+        If selftest And testPhase = 4 Then
+            stMsg$ = "PASS fas4-spelare-kan-do (hp=0, state=dead)": Gosub STLog
+            stMsg$ = "SELFTEST OK": Gosub STLog
+            End
+        End If
         If k$ = "r" Or k$ = "R" Or k$ = " " Or _KeyDown(Asc("R")) Or _KeyDown(32) Then
             ' reset ALLT -> tillbaka till menyn
             hp = 100: ammo = 20
@@ -197,6 +230,7 @@ Do
                 If i <= 4 Then pkActive(i) = 1 Else pkActive(i) = 0
                 If i <= 2 Then amActive(i) = 1 Else amActive(i) = 0
             Next i
+            Gosub SpawnEnemies   ' Fas 3: fiender respawnas också vid full reset
             lastDamageTime = Timer
             hpMsg$ = "": hpMsgTime = 0
             lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
@@ -264,19 +298,27 @@ Do
         If Mid$(mapRow$(Int(ny + Sgn(ny - py) * 0.2)), Int(px) + 1, 1) <> "#" Then py = ny
     End If
 
-    If _MouseButton(1) Then dummy = _MouseMovementX
-    ' VARFÖR värdena läses INUTI loopen: libqb pushar ett "reset-event"
-    ' (nollställning) direkt efter varje rörelse-/hjul-event. Om man bara gjorde
-    ' WHILE _MOUSEINPUT: WEND och sedan läste av, skulle _MOUSEMOVEMENTX/Y alltid
-    ' bli 0 (reset-eventet blir kvar som senast poppat). Därför ackumuleras här.
-    mdx = 0: mdy = 0
-    While _MouseInput
-        mdx = mdx + _MouseMovementX
-        mdy = mdy + _MouseMovementY
-    Wend
-    mmx = mdx
-    mmy = mdy
-    If Abs(mmx) > 300 Then mmx = 0
+    If selftest Then
+        ' Fas 3 autoplay/selftest: scriptad input istället för riktig mus/tangentbord
+        mdx = 0: mdy = 0: mmx = 0: mmy = 0
+        fireBtn = 0
+        Gosub SelftestDrive
+    Else
+        If _MouseButton(1) Then dummy = _MouseMovementX
+        ' VARFÖR värdena läses INUTI loopen: libqb pushar ett "reset-event"
+        ' (nollställning) direkt efter varje rörelse-/hjul-event. Om man bara gjorde
+        ' WHILE _MOUSEINPUT: WEND och sedan läste av, skulle _MOUSEMOVEMENTX/Y alltid
+        ' bli 0 (reset-eventet blir kvar som senast poppat). Därför ackumuleras här.
+        mdx = 0: mdy = 0
+        While _MouseInput
+            mdx = mdx + _MouseMovementX
+            mdy = mdy + _MouseMovementY
+        Wend
+        mmx = mdx
+        mmy = mdy
+        If Abs(mmx) > 300 Then mmx = 0
+        fireBtn = _MouseButton(1)
+    End If
     angle = angle + mmx * mouseSens * speed
     ' pitch = vertikal lutning i pixlar. Minus här: mus UPP (mdy<0) ska ge titta upp.
     pitch = pitch - mdy * pitchSens
@@ -308,8 +350,34 @@ Do
         End If
     Next i
 
-    ' ======== SKJUTNING: vänster musknapp, cooldown 0.3 s ========
-    If _MouseButton(1) And Timer - lastShotTime >= 0.3 Then
+    ' ======== FIENDER (Fas 3): jakt-AI mot spelaren + närstridsskada ========
+    For i = 0 To 10
+        If enActive(i) Then
+            edx = enX(i) - px
+            edy = enY(i) - py
+            edist = Sqr(edx * edx + edy * edy)
+            If edist > 0.75 Then
+                ' rörelse rakt MOT spelaren (px-enX = -edx); samma väggkollisions-
+                ' mönster som spelaren (kolla målcellen med 0.2 tiles marginal per axel)
+                nex = enX(i) - edx / edist * enSpd(i) * dt
+                ney = enY(i) - edy / edist * enSpd(i) * dt
+                If Mid$(mapRow$(Int(enY(i))), Int(nex + Sgn(nex - enX(i)) * 0.2) + 1, 1) <> "#" Then enX(i) = nex
+                If Mid$(mapRow$(Int(ney + Sgn(ney - enY(i)) * 0.2)), Int(enX(i)) + 1, 1) <> "#" Then enY(i) = ney
+            End If
+            ' skada spelaren vid kort avstånd: -enDmg HP, cooldown 0.7 s.
+            ' lastDamageTime uppdateras -> HP-regen blockas (samma grace som Fas 2).
+            If edist < 0.8 And Timer - enLastHit(i) >= 0.7 Then
+                enLastHit(i) = Timer
+                hp = hp - enDmg(i)
+                lastDamageTime = Timer
+                hpMsg$ = "-" + Str$(enDmg(i)) + " HP"
+                hpMsgTime = Timer
+            End If
+        End If
+    Next i
+
+    ' ======== SKJUTNING: vänster musknapp (fireBtn), cooldown 0.3 s ========
+    If fireBtn And Timer - lastShotTime >= 0.3 Then
         lastShotTime = Timer
         If ammo > 0 Then
             ammo = ammo - 1
@@ -332,6 +400,38 @@ Do
             If sdx < sdy Then hitDist = sdx - ddx Else hitDist = sdy - ddy
             If hitDist < 0.2 Then hitDist = 0.2
             flashDist = hitDist
+            ' Fas 3: fiende-träff — närmaste aktiva fienden inom vinkeltolerans
+            ' (halv bredd 0.35 tiles sedd från spelaren) OCH närmare än vägg-träffen
+            ' tar 1 skada; hp=0 -> fienden dör (enActive=0)
+            bestE = -1
+            bestD = hitDist
+            For i = 0 To 10
+                If enActive(i) Then
+                    fdx = enX(i) - px
+                    fdy = enY(i) - py
+                    fdist = Sqr(fdx * fdx + fdy * fdy)
+                    If fdist > 0.05 And fdist < bestD Then
+                        fang = _ATan2(fdy, fdx) - angle
+                        While fang > 3.14159265: fang = fang - 6.2831853: Wend
+                        While fang < -3.14159265: fang = fang + 6.2831853: Wend
+                        If Abs(fang) <= Atn(0.35 / fdist) Then
+                            bestE = i
+                            bestD = fdist
+                        End If
+                    End If
+                End If
+            Next i
+            If bestE >= 0 Then
+                enHP(bestE) = enHP(bestE) - 1
+                flashDist = bestD
+                If enHP(bestE) <= 0 Then
+                    enActive(bestE) = 0
+                    hpMsg$ = "FIENDE DÖD"
+                Else
+                    hpMsg$ = "TRÄFF"
+                End If
+                hpMsgTime = Timer
+            End If
             flashTime = Timer
         Else
             hpMsg$ = "CLICK"
@@ -492,6 +592,51 @@ Do
         End If
     Next i
 
+    ' fiende-sprites (Fas 3): enkelt stående blockmonster, samma projektion +
+    ' vägg-ocklusion som pickup-sprites (jämför edist mot wallDist per kolumn)
+    For i = 0 To 10
+        If enActive(i) Then
+            edx = enX(i) - px
+            edy = enY(i) - py
+            edist = Sqr(edx * edx + edy * edy)
+            If edist > 0.05 Then
+                eang = _ATan2(edy, edx) - angle
+                While eang > 3.14159265: eang = eang - 6.2831853: Wend
+                While eang < -3.14159265: eang = eang + 6.2831853: Wend
+                If Abs(eang) < fovCut Then
+                    ecx = RW / 2 * (1 + Tan(eang) / planeDist)
+                    ew = RW / edist * 0.6      ' bredd i px
+                    eh = RH / edist * 0.9      ' höjd i px (står på golvet)
+                    ebase = midY + RH / (2 * edist) + pitch   ' golvlinje vid edist
+                    ey0 = ebase - eh
+                    ey1 = ebase
+                    If ey0 < 0 Then ey0 = 0
+                    If ey1 > RH - 1 Then ey1 = RH - 1
+                    ex0 = Int(ecx - ew / 2): ex1 = Int(ecx + ew / 2)
+                    If ex0 < 0 Then ex0 = 0
+                    If ex1 > RW - 1 Then ex1 = RW - 1
+                    ' avståndsskuggning som väggarna, skalad till kroppsfärgen
+                    eshade = 255 - edist * 15
+                    If eshade < 40 Then eshade = 40
+                    ebody& = _RGB32(Int(170 * eshade / 255), Int(35 * eshade / 255), Int(35 * eshade / 255))
+                    If ey1 > ey0 And ex1 >= ex0 Then
+                        For sx = ex0 To ex1
+                            If edist < wallDist(sx) Then Line (sx, ey0)-(sx, ey1), ebody&
+                        Next sx
+                        ' två svarta ögon upptill när fienden syns tillräckligt stor
+                        If ew > 16 Then
+                            eo = Int(ew * 0.12)
+                            If eo < 2 Then eo = 2
+                            eoy = Int(ey0 + eh * 0.15)
+                            Line (Int(ecx - ew * 0.2) - eo, eoy)-(Int(ecx - ew * 0.2) + eo, eoy + eo * 2), _RGB32(0, 0, 0), BF
+                            Line (Int(ecx + ew * 0.2) - eo, eoy)-(Int(ecx + ew * 0.2) + eo, eoy + eo * 2), _RGB32(0, 0, 0), BF
+                        End If
+                    End If
+                End If
+            End If
+        End If
+    Next i
+
     ' ======== HUD: debug-rad, HP-bar, ammo, transient meddelande ======
 
     _Dest display&
@@ -560,6 +705,12 @@ Do
     End If
 
     frames = frames + 1
+    ' selftest-heartbeat: en rad/s så vi ser att loopen lever och var den står
+    If selftest And Timer - testHb >= 1 Then
+        testHb = Timer
+        stMsg$ = "alive phase=" + Str$(testPhase) + " state=" + state$ + " hp=" + Str$(Int(hp)) + " en0=(" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + ") act=" + Str$(enActive(0))
+        Gosub STLog
+    End If
     If curTime - lastTime >= 1 Then
         fpsShow = Int(frames / (curTime - lastTime))
         _Title "Raycaster - FPS: " + LTrim$(Str$(fpsShow))
@@ -567,4 +718,88 @@ Do
         lastTime = curTime
     End If
 LOOP
+
+' ======== SUBRUTINER (Fas 3) ========
+' SpawnEnemies: startlägen för fiende-poolen (öppna rutor på kartan).
+' Anropas vid init och vid full reset (R i dead-läget).
+SpawnEnemies:
+    For i = 0 To 10
+        enActive(i) = 0
+        enHP(i) = 3          ' 3 träffar tar död på en fiende
+        enDmg(i) = 10        ' skada per närstridsslag
+        enSpd(i) = 0.45      ' tiles/s (långsammare än spelaren -> går att överleva)
+        enLastHit(i) = 0
+    Next i
+    enX(0) = 13.5: enY(0) = 4.5:  enActive(0) = 1: enSpd(0) = 0.5    ' korridoren framför start
+    enX(1) = 10.5: enY(1) = 9.5:  enActive(1) = 1: enSpd(1) = 0.4
+    enX(2) = 2.5:  enY(2) = 12.5: enActive(2) = 1: enSpd(2) = 0.35
+    enX(3) = 5.5:  enY(3) = 1.5:  enActive(3) = 1: enSpd(3) = 0.55
+    Return
+
+' STLog: append:a en rad till selftest-loggen (fil + konsol)
+STLog:
+    stF = FreeFile
+    Open "/tmp/raycaster_selftest.log" For Append As #stF
+    Print #stF, stMsg$
+    Close #stF
+    Print stMsg$
+    Return
+
+' SelftestDrive: scriptat autoplay-scenario (endast när selftest=1).
+' fas1 fiende jagar -> fas2 fiende skadar -> fas3 fiende dör av skott ->
+' fas4 spelare kan dö (kollas i dead-grenen)
+SelftestDrive:
+    Select Case testPhase
+        Case 1   ' jakt: fiende 0 (3 tiles bort, spd=2) ska närma sig spelaren
+            If Timer - testT0 >= 1.5 Then
+                sd = Sqr((enX(0) - px) ^ 2 + (enY(0) - py) ^ 2)
+                If sd < 2.2 And sd > 0.3 Then
+                    stMsg$ = "PASS fas1-jagar dist=" + LTrim$(Str$(sd))
+                Else
+                    stMsg$ = "FAIL fas1-jagar dist=" + LTrim$(Str$(sd))
+                End If
+                Gosub STLog
+                testPhase = 2: testT0 = Timer
+            End If
+        Case 2   ' skada: fienden i närstrid ska ha slagit på spelaren (hp<100)
+            If hp < 100 Then
+                stMsg$ = "PASS fas2-skadar hp=" + LTrim$(Str$(Int(hp)))
+                Gosub STLog
+                testPhase = 3: testT0 = Timer
+            ElseIf Timer - testT0 >= 4 Then
+                stMsg$ = "FAIL fas2-skadar hp=" + LTrim$(Str$(Int(hp)))
+                Gosub STLog
+                testPhase = 3: testT0 = Timer
+            End If
+        Case 3   ' skott: sikta mot fienden och skjut tills den dör (hp=3 -> 3 träffar)
+            If enActive(0) = 0 Then
+                stMsg$ = "PASS fas3-dod-av-skott (enHP gick 3->0)"
+                Gosub STLog
+                ' fas 4: låt en ny fiende döda spelaren (hp sätts lågt för snabbhet)
+                hp = 25
+                enX(1) = px + 1: enY(1) = py: enActive(1) = 1
+                enHP(1) = 3: enDmg(1) = 10: enSpd(1) = 2: enLastHit(1) = 0
+                fireBtn = 0
+                testPhase = 4: testT0 = Timer
+            Else
+                angle = _ATan2(enY(0) - py, enX(0) - px)
+                dirX = Cos(angle): dirY = Sin(angle)
+                fireBtn = 1   ' cooldown 0.3 s i skjutblocket begränsar eldhastigheten
+                If Timer - testDbg >= 0.5 Then
+                    testDbg = Timer
+                    ed0 = Sqr((enX(0) - px) ^ 2 + (enY(0) - py) ^ 2)
+                    stMsg$ = "fas3 fdist=" + LTrim$(Str$(Int(ed0 * 100) / 100)) + " enHP=" + Str$(enHP(0)) + " ammo=" + Str$(ammo) + " hp=" + Str$(Int(hp)) + " ang=" + LTrim$(Str$(Int(angle * 57.2958)))
+                    Gosub STLog
+                End If
+            End If
+        Case 4   ' vänta på state$="dead" (själva PASS:en skrivs i dead-grenen)
+            If Timer - testT0 >= 6 Then
+                stMsg$ = "FAIL fas4-spelare-dor state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                End
+            End If
+    End Select
+    Return
 
