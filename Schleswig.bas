@@ -257,11 +257,15 @@ Do
         _Display
     ElseIf state$ = "dead" Then
         If k$ = Chr$(27) Or _KeyDown(27) Then End
-        ' Fas 3.1 selftest: fas 8 = spelaren har dött av fiende -> rapportera och avsluta
+        ' Fas 3.1 selftest: fas 8 = spelaren har dött av fiende -> fas 9 spawn-audit -> avsluta
         If selftest And testPhase = 8 Then
             stMsg$ = "PASS fas8-spelare-kan-do (hp=0, state=dead)": Gosub STLog
-            stMsg$ = "SELFTEST OK": Gosub STLog
-            End
+            ' fas 9: spawn-audit pa AKTA startlage (SpawnEnemies) innan vi avslutar
+            state$ = "playing"
+            hp = 100: ammo = 20
+            px = 8.5: py = 4.5: angle = 0: pitch = 0
+            Gosub SpawnEnemies
+            testPhase = 9: testT0 = Timer: testFlag = 0
         End If
         If k$ = "r" Or k$ = "R" Or k$ = " " Or _KeyDown(Asc("R")) Or _KeyDown(32) Then
             ' reset ALLT -> tillbaka till menyn
@@ -402,11 +406,11 @@ Do
             fx = enX(i): fy = enY(i): tx = px: ty = py
             Gosub LOSCheck
             enSeen(i) = losOK
-            If losOK And edist < 8 Then
+            If losOK And edist < 6 Then
                 anySee = 1
                 enLastSeen(i) = Timer
                 enLx(i) = px: enLy(i) = py
-                If edist >= 0.8 Then enState(i) = 1     ' fri sikt + inom 8 celler -> JAKT
+                If edist >= 0.8 Then enState(i) = 1     ' fri sikt + inom 6 celler -> JAKT
             End If
             If edist < 0.8 Then enState(i) = 2           ' ANFALL vid kort avstånd
         End If
@@ -888,14 +892,19 @@ SpawnEnemies:
         enTx(i) = 0: enTy(i) = 0
     Next i
     bfsForX = -1: bfsForY = -1
-    enX(0) = 13.5: enY(0) = 4.5:  enActive(0) = 1: enSpd(0) = 0.5    ' korridoren framför start
-    enLx(0) = enX(0): enLy(0) = enY(0): enTx(0) = 13: enTy(0) = 4
+    ' Spawn-balans (2026-11-23): en0/en3 flyttade bort från startspawn (8.5,4.5) -
+    ' tidigare hade en0 (13.5,4.5) fri LOS i rad 4 (dist 5) och en3 (5.5,1.5) fri LOS
+    ' via (6,2)(7,3)(8,4) (dist 4.2) -> JAKT direkt vid spelstart. Nu bakom vägg OCH
+    ' dist >= 6 (LOS-tröskeln): en0 nere höger (LOS bruten av vägg 12,8, dist 7.1),
+    ' en3 övre vänster hörnet (LOS bruten av vägg 4,2, dist 6.7). en1/en2 oförändrade.
+    enX(0) = 13.5: enY(0) = 9.5:  enActive(0) = 1: enSpd(0) = 0.5
+    enLx(0) = enX(0): enLy(0) = enY(0): enTx(0) = 13: enTy(0) = 9
     enX(1) = 10.5: enY(1) = 9.5:  enActive(1) = 1: enSpd(1) = 0.4
     enLx(1) = enX(1): enLy(1) = enY(1): enTx(1) = 10: enTy(1) = 9
     enX(2) = 2.5:  enY(2) = 12.5: enActive(2) = 1: enSpd(2) = 0.35
     enLx(2) = enX(2): enLy(2) = enY(2): enTx(2) = 2: enTy(2) = 12
-    enX(3) = 5.5:  enY(3) = 1.5:  enActive(3) = 1: enSpd(3) = 0.55
-    enLx(3) = enX(3): enLy(3) = enY(3): enTx(3) = 5: enTy(3) = 1
+    enX(3) = 2.5:  enY(3) = 1.5:  enActive(3) = 1: enSpd(3) = 0.55
+    enLx(3) = enX(3): enLy(3) = enY(3): enTx(3) = 2: enTy(3) = 1
     Return
 
 ' LOSCheck: DDA-stråle från (fx,fy) till (tx,ty); losOK=1 om ingen väggcell på vägen
@@ -961,6 +970,7 @@ STLog:
 SelftestDrive:
     ' Fas 3.1: fas1 patrull -> fas2 upptäckt -> fas3 jakt runt hörn -> fas4 förlorad->PATROLL
     ' därefter gamla Fas 3-kombattestet: fas5 jakt -> fas6 skada -> fas7 dör av skott -> fas8 spelare dör
+    ' fas 9 = spawn-audit: akta SpawnEnemies, ingen fiende far se spelaren vid start (LOS<tröskel)
     Select Case testPhase
         Case 1   ' PATROLL: ingen LOS (10.5,6.5)->(8.5,4.5) -> stanna i PATROLL men vandra mot mål
             If Timer - testT0 >= 1.2 Then
@@ -1096,6 +1106,40 @@ SelftestDrive:
                 Gosub STLog
                 stMsg$ = "SELFTEST FAIL"
                 Gosub STLog
+                End
+            End If
+        Case 9   ' SPAWN-AUDIT: akta SpawnEnemies-layout, ingen aktiv fiende far ha
+                 ' fri LOS inom tröskeln (6) till spelaren vid spelstart
+            If testFlag = 0 Then
+                testFlag = 1
+                stMsg$ = "fas9: spawn-audit, akta SpawnEnemies, väntar 2s"
+                Gosub STLog
+            End If
+            If Timer - testT0 >= 2 Then
+                bad = 0: audit$ = ""
+                For i = 0 To 10
+                    If enActive(i) Then
+                        fdx = px - enX(i): fdy = py - enY(i)
+                        fdist = Sqr(fdx * fdx + fdy * fdy)
+                        fx = enX(i): fy = enY(i): tx = px: ty = py
+                        Gosub LOSCheck
+                        If (losOK And fdist < 6) Or enState(i) <> 0 Then
+                            bad = bad + 1
+                            audit$ = audit$ + " en" + Str$(i) + "(d=" + LTrim$(Str$(Int(fdist * 100) / 100)) + ",los=" + Str$(losOK) + ",st=" + Str$(enState(i)) + ")"
+                        End If
+                    End If
+                Next i
+                If bad = 0 Then
+                    stMsg$ = "PASS fas9-spawn-audit (ingen fiende ser spelaren vid start)"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST OK"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas9-spawn-audit:" + audit$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                End If
                 End
             End If
     End Select
