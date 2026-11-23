@@ -50,6 +50,26 @@ DIM SHARED lockEngaged       ' livstids-lås: 1 efter första EngageLock, låses
 DIM SHARED lockEngages       ' räknare: antal _MOUSEHIDE _DISABLE (ska bli exakt 1 per session)
 DIM SHARED lockDestroys      ' räknare: antal unlock (_MOUSESHOW) — ska vara 0 tills app-exit
 DIM SHARED vCurX, vCurY      ' PARKED: mouse experiment aa26eee — virtuell pekare obrukbar (inga aktiva anrop)
+' Fas 4C: weapon viewmodel (Wolfenstein-style musket, bottom of screen). All
+' render-only — projectile physics / hit radius / ammo logic are untouched.
+' gunX/gunY = smoothed offset (px) from the rest position; recoil = kick (px,
+' decays per frame); muzzleT/shakeT = remaining frame counters; bobPhase =
+' walk-cycle phase; turnDelta/anglePrev = per-frame turn (rad) for sway.
+' (DIM/Const BEFORE first use: the sprite buffer is drawn in init below.)
+Const gunBobAmp = 6          ' walk bob amplitude (px) — spec 4-8
+Const gunBobRate = 16        ' bob phase advance per cell walked
+Const gunSwayGain = 300      ' px sway per rad of turnDelta (before clamp)
+Const gunSwayMax = 16        ' hard sway clamp (px) — spec 12-20
+Const gunLerp! = 0.25        ' per-frame lerp toward target offset (soft return)
+Const gunRecoil = 20         ' recoil kick on shot (px up/back) — spec 15-25
+Const gunRecoilDecay! = 0.82 ' recoil decay per frame
+Const gunMuzzleFrames = 3    ' muzzle flash visible frames after a shot — spec 2-3
+Const gunShakeFrames = 2     ' screen shake frames after a shot — spec 1-2
+Const gunShakeAmp = 3        ' screen shake amplitude (px)
+DIM gunX, gunY, recoil, muzzleT, shakeT, bobPhase, turnDelta, anglePrev
+DIM gunSway, gunTX, gunTY, movedCells   ' Fas 4C working vars (selftest reads gunSway/gunX)
+DIM gunBW, gunBH, gunBuf&, gunBaseX, gunRendered   ' sprite buffer + rest pos + selftest counter
+DIM inj16r, gr16a, gr16b, gunX0, minGunX, mf16n, ej16, c16done   ' Fas 4C selftest working vars
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
@@ -78,6 +98,31 @@ For cy = 0 To cursorSize - 1
     Line (ccx - chw, cy)-(ccx + chw, cy), _RGB32(255, 200, 0)            ' amber kärna
 Next cy
 _Dest display&
+' Fas 4C: procedural musket viewmodel sprite (no external art — LINE/rect
+' primitives only). Buffer ~16% RW x ~34% RH (~1/3 of screen height), transparent
+' background. Barrel = dark gunmetal tube in the upper part + lighter muzzle tip;
+' flintlock = small gray hook; stock = tapered two-tone brown wedge below.
+gunBW = Int(RW * 0.16): If gunBW < 48 Then gunBW = 48
+gunBH = Int(RH * 0.34): If gunBH < 96 Then gunBH = 96
+gunBuf& = _NewImage(gunBW, gunBH, 32)
+_Dest gunBuf&
+Line (0, 0)-(gunBW - 1, gunBH - 1), _RGBA32(0, 0, 0, 0), BF   ' transparent background
+bxx0 = gunBW \ 2 - Int(gunBW * 0.09): bxx1 = gunBW \ 2 + Int(gunBW * 0.09)
+Line (bxx0, 0)-(bxx1, Int(gunBH * 0.6)), _RGB32(45, 45, 52), BF          ' barrel: dark gunmetal
+Line (bxx0, 0)-(bxx0 + Int(gunBW * 0.03) + 1, Int(gunBH * 0.6)), _RGB32(85, 85, 98)  ' barrel highlight (volume)
+Line (bxx0 - 1, 0)-(bxx1 + 1, Int(gunBH * 0.07)), _RGB32(155, 155, 165), BF  ' muzzle: lighter metal tip
+Line (bxx1 + 1, Int(gunBH * 0.38))-(bxx1 + Int(gunBW * 0.16), Int(gunBH * 0.52)), _RGB32(125, 125, 135), BF  ' flintlock hook
+For gy16 = Int(gunBH * 0.55) To gunBH - 1   ' stock: widens toward the bottom (butt)
+    gw16 = Int(gunBW * 0.16 + gunBW * 0.30 * (gy16 - gunBH * 0.55) / (gunBH * 0.45))
+    gsx0 = gunBW \ 2 - gw16 \ 2 - Int(gunBW * 0.06): gsx1 = gsx0 + gw16
+    If gsx0 < 0 Then gsx0 = 0
+    If gsx1 > gunBW - 1 Then gsx1 = gunBW - 1
+    gmid = gsx0 + gw16 \ 2
+    Line (gsx0, gy16)-(gmid, gy16), _RGB32(96, 60, 28)     ' dark wood (shadow side)
+    Line (gmid, gy16)-(gsx1, gy16), _RGB32(140, 92, 44)    ' light wood (lit side)
+Next gy16
+_Dest display&
+gunBaseX = RW \ 2 + Int(RW * 0.06)   ' Fas 4C rest position: slightly right of center, bottom
 ' btnX0..btnY1 sätts i meny-grenen via BtnGeom med GEMENSAM bredd per meny
 ' (längsta label + padding — alla knappar inom en meny lika brede).
 ' pendingStart: fortsättning från result går samma START-väg som meny-START (se meny-grenen)
@@ -138,7 +183,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "157eedb"
+Const strBuild$ = "be22cc0"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -301,6 +346,7 @@ Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0
 winPending = 0: winT0 = 0: runTimeFrozen = -1: escCool = -99
 lockEngaged = 0: lockEngages = 0: lockDestroys = 0   ' låset engageras vid FÖRSTA fade-slutet (StartRun-vägen), INTE vid init
+gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: bobPhase = 0: turnDelta = 0: anglePrev = 0: gunSway = 0: gunRendered = 0   ' Fas 4C viewmodel init
 vCurX = RW \ 2: vCurY = RH \ 2   ' PARKED: mouse experiment aa26eee (obrukbar)
 If _FileExists(".schleswig_scores.txt") Then
     f = FreeFile
@@ -606,6 +652,8 @@ Do
         If _MouseButton(1) Then mb = 1
         ' selftest fas12: simulera klick (testFlag=2 -> fortsätt till nästa runda)
         If selftest And testPhase = 12 And testFlag = 2 Then mb = 1
+        ' selftest fas16: leave result via the normal CONTINUE path -> playing
+        If selftest And testPhase = 16 And testFlag = 0 Then mb = 1
         If (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then
             ' ESC i result -> PAUS (resumeState=result; FORTSÄTT återgår hit)
             resumeState$ = "result"
@@ -670,6 +718,8 @@ Do
             If testFlag = 9 And inj9 = 0 Then k$ = Chr$(13): inj9 = 1
             If testFlag = 11 And inj11 = 0 Then k$ = Chr$(13): inj11 = 1
         End If
+        ' selftest fas16c: resume from pause via ESC once the guard window passed
+        If selftest And testPhase = 16 And testFlag = 7 And inj16r = 0 And Timer - escCool > 0.4 And Timer - testT0 > 0.6 Then k$ = Chr$(27): inj16r = 1
         While _MouseInput: WEND   ' töm muskön (rörelse ägs av playing)
         ' 3 knappar, uniform bredd (längsta label + 2*padX), staplade under titeln
         padX = Int(btnFontSize * 0.9): If padX < 12 Then padX = 12
@@ -712,7 +762,7 @@ Do
     Else
 
     ' ESC i playing -> PAUS (inte längre End; avsluta sker via pausmenyn)
-    If k$ = Chr$(27) Or _KeyDown(27) Or (selftest And testPhase = 13 And (testFlag = 6 Or testFlag = 10)) Then
+    If k$ = Chr$(27) Or _KeyDown(27) Or (selftest And testPhase = 13 And (testFlag = 6 Or testFlag = 10)) Or (selftest And testPhase = 16 And testFlag = 6) Then
         resumeState$ = "playing"
         pauseT0 = Timer
         escCool = Timer
@@ -740,6 +790,7 @@ Do
     If k$ = "d" Or k$ = "D" Or _KeyDown(Asc("D")) Or _KeyDown(Asc("d")) Then mvR = 1
     If k$ = Chr$(0) + "K" Or _KeyDown(19200) Then turnL = 1
     If k$ = Chr$(0) + "M" Or _KeyDown(19712) Then turnR = 1
+    anglePrev = angle   ' Fas 4C: captured before turn input -> turnDelta covers keys+mouse
     If turnL Then angle = angle - turnStep * speed
     If turnR Then angle = angle + turnStep * speed
 
@@ -802,6 +853,22 @@ Do
         If fireBtn Then lockHint = 0   ' första klicket i rundan
     End If
     angle = angle + mmx * mouseSens * speed
+    turnDelta = angle - anglePrev   ' Fas 4C: weapon sway input (rad this frame, keys+mouse)
+    ' Fas 4C: viewmodel update (render-only). Bob synced to cells walked this
+    ' frame; sway OPPOSITE to turnDelta, hard-clamped; recoil decays; gunX/gunY
+    ' lerp toward the combined target so the gun "lags behind" the rotation.
+    movedCells = Sqr((px - ox) ^ 2 + (py - oy) ^ 2)
+    bobPhase = bobPhase + movedCells * gunBobRate
+    gunSway = -turnDelta * gunSwayGain
+    If gunSway > gunSwayMax Then gunSway = gunSwayMax
+    If gunSway < -gunSwayMax Then gunSway = -gunSwayMax
+    recoil = recoil * gunRecoilDecay!
+    If muzzleT > 0 Then muzzleT = muzzleT - 1
+    If shakeT > 0 Then shakeT = shakeT - 1
+    gunTX = gunSway
+    gunTY = Sin(bobPhase) * gunBobAmp - recoil
+    gunX = gunX + (gunTX - gunX) * gunLerp!
+    gunY = gunY + (gunTY - gunY) * gunLerp!
     ' pitch = vertikal lutning i pixlar. Minus här: mus UPP (mdy<0) ska ge titta upp.
     pitch = pitch - mdy * pitchSens
     If pitch > RH * 0.9 Then pitch = RH * 0.9
@@ -1095,6 +1162,7 @@ Do
             spSrcType = -1: spTX = 0: spTY = 0: spLandT = 0
             Gosub SpawnProjectile
             flashTime = Timer
+            recoil = gunRecoil: muzzleT = gunMuzzleFrames: shakeT = gunShakeFrames   ' Fas 4C: recoil kick + muzzle flash + screen shake
         Else
             hpMsg$ = "CLICK"
             hpMsgTime = Timer
@@ -1500,7 +1568,34 @@ Do
     ' ======== HUD: debug-rad, HP-bar, ammo, transient meddelande ======
 
     _Dest display&
-    _PutImage (0, 0)-(RW - 1, RH - 1), buf&
+    ' Fas 4C: screen shake — while shakeT>0 the 3D buffer is blitted offset by a
+    ' few px over a black fill (1-2 frames after a shot).
+    If shakeT > 0 Then
+        Line (0, 0)-(RW - 1, RH - 1), _RGB32(0, 0, 0), BF
+        If shakeT Mod 2 = 0 Then shkX = gunShakeAmp: shkY = -gunShakeAmp Else shkX = -gunShakeAmp: shkY = gunShakeAmp
+        _PutImage (shkX, shkY)-(RW - 1 + shkX, RH - 1 + shkY), buf&
+    Else
+        _PutImage (0, 0)-(RW - 1, RH - 1), buf&
+    End If
+    ' Fas 4C: weapon viewmodel — bottom layer, UNDER the HUD (HUD is drawn below,
+    ' so ammo/HP stay readable). This code is only reachable in the playing
+    ' branch, so the gun is never rendered in menu/result/paused/dead.
+    If gunBuf& <> 0 Then   ' <>0: handles can be negative in QB64-PE
+        gunScrX = gunBaseX - gunBW \ 2 + Int(gunX)
+        gunScrY = RH - gunBH + Int(gunY)
+        _PutImage (gunScrX, gunScrY), gunBuf&
+        gunRendered = gunRendered + 1   ' selftest fas16c counter
+        ' muzzle flash: bright triangle at the barrel tip while muzzleT>0 (2-3 frames)
+        If muzzleT > 0 Then
+            gunMFx = gunScrX + gunBW \ 2: gunMFy = gunScrY + Int(gunBH * 0.03)
+            gunMFsz = Int(RH * 0.05): If gunMFsz < 8 Then gunMFsz = 8
+            ' muzzle flash = small cross/plätt at the barrel tip (LINE takes 2 points only)
+            Line (gunMFx - gunMFsz, gunMFy)-(gunMFx + gunMFsz, gunMFy), _RGB32(255, 240, 150)
+            Line (gunMFx, gunMFy - gunMFsz)-(gunMFx, gunMFy + gunMFsz), _RGB32(255, 240, 150)
+            Line (gunMFx - gunMFsz \ 2, gunMFy)-(gunMFx + gunMFsz \ 2, gunMFy), _RGB32(255, 255, 255)
+            Line (gunMFx, gunMFy - gunMFsz \ 2)-(gunMFx, gunMFy + gunMFsz \ 2), _RGB32(255, 255, 255)
+        End If
+    End If
     ' crosshair (Fas 2.7): centrerad på (RW\2, RH\2) = tracer-epicentrum.
     ' Ritordning: efter värld+sprites (ovan), före HUD och fade-overlay.
     ' Mörk outline först (tjockare), sedan vit kärna -> syns mot både ljusa och mörka väggar.
@@ -1908,6 +2003,7 @@ StartRun:
     Gosub SpawnEnemies
     hpMsg$ = "": hpMsgTime = 0
     lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
+    gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: bobPhase = 0: turnDelta = 0: gunSway = 0: anglePrev = angle   ' Fas 4C viewmodel reset
     deathTime = 0: hover = 0: prevHover = 0: winPending = 0: runTimeFrozen = -1   ' VIDARE: reset tid 0 (ej fryst)
     runT0 = Timer: shotsFired = 0: dmgTaken = 0
     ' SKYDD mot fastnad rörelse efter övergång (t.ex. VIDARE): nollställ ALLE
@@ -3186,8 +3282,199 @@ SelftestDrive:
                 If state$ = "result" Or Timer - testT0 >= 4 Then
                     stMsg$ = "PASS fas15f-end (splash-killall -> result again, no crash; full round loop OK)"
                     Gosub STLog
-                    testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger)
+                    testPhase = 16: testT0 = Timer: testFlag = 0   ' continue to fas16 (weapon viewmodel), then fas12 (win trigger)
                 End If
+            End If
+        Case 16  ' FAS 4C weapon viewmodel: (a) recoil trigger + decay, (b) sway
+                 ' direction + soft return, (c) render guard (not drawn in pause),
+                 ' (d) muzzle flash true 2-3 frames then false
+            hp = 100   ' keep the player alive while the test runs
+            If testFlag = 0 And state$ = "playing" Then
+                ' park all enemies in a far corner, disarmed — nothing may interfere
+                For ej16 = 0 To 10
+                    If enActive(ej16) Then
+                        enX(ej16) = 1.5: enY(ej16) = 14.5: enSpd(ej16) = 0
+                        enState(ej16) = 0: enFireT(ej16) = Timer + 99: enZigT(ej16) = Timer + 99
+                    End If
+                Next ej16
+                px = 8.5: py = 4.5: angle = 0: ammo = 20: lastShotTime = -1
+                gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: turnDelta = 0: gunSway = 0
+                gunX0 = gunX: minGunX = gunX: mf16n = 0: c16done = 0
+                fireBtn = 1   ' one shot this frame -> recoil/muzzle/shake set in the shooting block
+                stMsg$ = "fas16: one shot fired — expect recoil>10, muzzleT>0, shakeT>0 next frame"
+                Gosub STLog
+                testFlag = 1: testT0 = Timer
+            ElseIf testFlag = 0 And Timer - testT0 >= 6 Then
+                stMsg$ = "FAIL fas16-start state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 1 Then
+                If recoil > 10 And muzzleT > 0 And shakeT > 0 Then
+                    stMsg$ = "PASS fas16a-recoil-trigger (recoil=" + LTrim$(Str$(Int(recoil * 10) / 10)) + " muzzleT=" + Str$(muzzleT) + " shakeT=" + Str$(shakeT) + " right after 1 shot)"
+                    Gosub STLog
+                    testFlag = 2: testT0 = Timer: mf16n = 0
+                ElseIf Timer - testT0 >= 1 Then
+                    stMsg$ = "FAIL fas16a-recoil recoil=" + LTrim$(Str$(Int(recoil * 10) / 10)) + " muzzleT=" + Str$(muzzleT) + " shakeT=" + Str$(shakeT)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                If muzzleT > 0 Then mf16n = mf16n + 1
+                If muzzleT = 0 Then
+                    If mf16n >= 2 And mf16n <= 5 Then
+                        stMsg$ = "PASS fas16d-muzzle-flash-frames (muzzleT>0 for " + Str$(mf16n) + " frames after the shot, then 0; recoil=" + LTrim$(Str$(Int(recoil * 10) / 10)) + " decaying)"
+                        Gosub STLog
+                        testFlag = 3: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL fas16d-muzzle-frames mf16n=" + Str$(mf16n)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 2 Then
+                    stMsg$ = "FAIL fas16d-timeout muzzleT=" + Str$(muzzleT)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 3 Then
+                If recoil < 5 Then
+                    stMsg$ = "PASS fas16a-recoil-decay (recoil -> " + LTrim$(Str$(Int(recoil * 10) / 10)) + " < 5 within " + LTrim$(Str$(Int((Timer - testT0) * 10) / 10)) + "s — lerp-back OK)"
+                    Gosub STLog
+                    testFlag = 4: testT0 = Timer: minGunX = gunX0
+                ElseIf Timer - testT0 >= 3 Then
+                    stMsg$ = "FAIL fas16a-decay recoil=" + LTrim$(Str$(Int(recoil * 10) / 10))
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 4 Then
+                mmx = 25   ' simulated mouse turn right -> sway must go OPPOSITE (negative)
+                If gunX < minGunX Then minGunX = gunX
+                If minGunX < gunX0 - 4 Or Timer - testT0 >= 1.5 Then
+                    If minGunX < gunX0 - 4 Then
+                        stMsg$ = "fas16b: turn right -> gunX " + LTrim$(Str$(Int(gunX0 * 10) / 10)) + " -> min " + LTrim$(Str$(Int(minGunX * 10) / 10)) + " (opposite sway OK); release and wait for return"
+                        Gosub STLog
+                        testFlag = 5: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL fas16b-sway gunX0=" + LTrim$(Str$(Int(gunX0 * 10) / 10)) + " minGunX=" + LTrim$(Str$(Int(minGunX * 10) / 10)) + " gunSway=" + LTrim$(Str$(Int(gunSway * 10) / 10)) + " turnDelta=" + LTrim$(Str$(Int(turnDelta * 1000) / 1000))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+            End If
+            If testFlag = 5 Then
+                If Abs(gunX - gunX0) < 3 Then
+                    stMsg$ = "PASS fas16b-sway-return (turn stopped -> |gunX-gunX0| < 3 within " + LTrim$(Str$(Int((Timer - testT0) * 10) / 10)) + "s, gunX=" + LTrim$(Str$(Int(gunX * 10) / 10)) + ")"
+                    Gosub STLog
+                    testFlag = 6: testT0 = Timer
+                ElseIf Timer - testT0 >= 2 Then
+                    stMsg$ = "FAIL fas16b-return gunX=" + LTrim$(Str$(Int(gunX * 10) / 10)) + " gunX0=" + LTrim$(Str$(Int(gunX0 * 10) / 10))
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 6 And state$ = "paused" Then
+                ' NOTE: the pause-transition frame still runs the playing render once
+                ' (state$ flips mid-branch), so gr16a is recorded on the first FULL
+                ' paused frame in flag 7, not here.
+                testFlag = 7: testT0 = Timer: inj16r = 0: c16done = 0: gr16a = -1
+                stMsg$ = "fas16c: paused — gunRendered must stay static while paused"
+                Gosub STLog
+            ElseIf testFlag = 6 And state$ = "playing" And Timer - testT0 >= 3 Then
+                stMsg$ = "FAIL fas16c-pause state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 7 Then
+                ' Record gr16a only on a call AFTER the transition call (the flag 6->7
+                ' block and this block run in the SAME call on the transition frame,
+                ' BEFORE that frame's playing render — t>0.02 skips that call).
+                If state$ = "paused" And gr16a = -1 And Timer - testT0 > 0.02 Then gr16a = gunRendered
+                If state$ = "paused" And Timer - testT0 >= 0.4 And c16done = 0 Then
+                    c16done = 1
+                    If gunRendered = gr16a Then
+                        stMsg$ = "PASS fas16c-not-rendered-in-pause (gunRendered static at " + Str$(gr16a) + " over 0.4s+ of pause)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas16c-pause-static gunRendered " + Str$(gr16a) + " -> " + Str$(gunRendered)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+                If state$ = "playing" Then
+                    If c16done = 0 Then
+                        stMsg$ = "FAIL fas16c-resume-before-check state=" + state$
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    gr16b = gunRendered
+                    testFlag = 8: testT0 = Timer
+                ElseIf Timer - testT0 >= 4 Then
+                    stMsg$ = "FAIL fas16c-timeout state=" + state$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 8 And state$ = "playing" Then
+                ' CurRunTime% >= 2: fas12a requires a real frozen time (wt1 >= 1);
+                ' this wave's runT0 was reset at StartRun and the pause is already
+                ' subtracted, so wait until at least 2 unpaused seconds elapsed.
+                If Timer - testT0 >= 0.3 And CurRunTime% >= 2 Then
+                    If gunRendered > gr16b Then
+                        stMsg$ = "PASS fas16c-rendered-in-playing (gunRendered " + Str$(gr16b) + " -> " + Str$(gunRendered) + " after resume)"
+                        Gosub STLog
+                        testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger -> menu -> SELFTEST OK)
+                    Else
+                        stMsg$ = "FAIL fas16c-playing-static gr16b=" + Str$(gr16b) + " gunRendered=" + Str$(gunRendered)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+            ElseIf testFlag = 8 And Timer - testT0 >= 8 Then
+                stMsg$ = "FAIL fas16c-resume state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
             End If
     End Select
     Return
