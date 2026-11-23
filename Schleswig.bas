@@ -106,9 +106,14 @@ Const strFps$ = "FPS:"                             ' debug-rad + fönstertitel
 Const strDmgDebug$ = "-5 HP"                       ' debug-knapp G
 Const strMedkit$ = "+25 HP"                        ' medkit-pickup
 Const strAmmoPick$ = "+10 AMMO"                    ' ammo-pickup
-Const strScore$ = "SCORE:"                         ' dödsskärm: score-rad
-Const strBest$ = "BÄSTA:"                          ' dödsskärm: bästa score
-Const strNewRec$ = "NY REKORD!"                    ' dödsskärm: vid nytt rekord
+Const strScore$ = "SCORE:"                         ' dödsskärm/HUD: score-rad
+Const strBest$ = "BÄSTA:"                          ' dödsskärm/resultat: bästa score
+Const strNewRec$ = "NY REKORD!"                    ' dödsskärm/resultat: vid nytt rekord
+Const strWin$ = "KARTAN KLAR"                      ' resultatskärm: titel
+Const strTime$ = "TID:"                            ' resultatskärm: mm:ss
+Const strShots$ = "SKOTT:"                         ' resultatskärm
+Const strDmg$ = "SKADA:"                           ' resultatskärm
+Const strNextMap$ = "TRYCK VALFRI TANGENT FÖR NÄSTA KARTA"  ' resultatskärm, nederst
 ' ============================================================================
 
 ceilingCol& = _RGB32(24, 24, 48)
@@ -170,6 +175,7 @@ DIM enAlertT(10), enStepAcc(10)   ' används även i huvudloopen -> globala
 ' Highscore (dödsskärm): score = 10000 - 10*s - 25*skott - 50*skada (min 0).
 ' DIM SHARED: används även i CalcScore& (sub-lokala annars, se ljud-debuggen).
 DIM SHARED shotsFired, dmgTaken, runT0, bestScore, score, newRecord
+DIM winPending, winT0        ' seger-trigger: alla fiender döda -> vänta 1 s -> result
 DIM stepAcc                   ' ackumulerad gångsträcka (spelarfotsteg)
 DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
 ' Fas 3 selftest/autoplay: ./schleswig/schleswig selftest -> scriptat scenario, loggas till fil
@@ -180,6 +186,7 @@ testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFla
 Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 ' Highscore: nollställ counters, ladda bästa score från lokal fil (.schleswig_scores.txt)
 shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0
+winPending = 0: winT0 = 0
 If _FileExists(".schleswig_scores.txt") Then
     f = FreeFile
     Open ".schleswig_scores.txt" For Input As #f
@@ -192,7 +199,7 @@ If selftest Then
     Close #stF
     state$ = "playing"          ' hoppa över menyn direkt
     _MOUSEHIDE _DISABLE
-    runT0 = Timer: shotsFired = 0: dmgTaken = 0   ' highscore-counters i selftest
+    runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0   ' highscore-counters i selftest
     Gosub SpawnEnemies
     ' Fas 3.1-scenario: EN fiende i PATROLL utan LOS till spelaren (10.5,6.5)->(8.5,4.5)
     For i = 1 To 10: enActive(i) = 0: Next i
@@ -229,6 +236,7 @@ Do
     If k$ = Chr$(0) Then k$ = Chr$(0) + InKey$
 
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
+    If selftest And (state$ = "menu" Or state$ = "result") Then Gosub SelftestDrive   ' fas12 kör även utanför playing
     If state$ = "menu" Or state$ = "fadeout" Then
         If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) Then End
         While _MouseInput: WEND   ' töm muskön så _MouseX/Y/_MouseButton blir färska här
@@ -291,7 +299,7 @@ Do
                 _MOUSEHIDE _DISABLE
                 fadeT0 = Timer
                 fading = 2
-                runT0 = Timer: shotsFired = 0: dmgTaken = 0   ' ny runda börjar
+                runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0   ' ny runda börjar
             End If
         End If
         _Display
@@ -364,6 +372,53 @@ Do
             End If
         End If
         _Display
+    ElseIf state$ = "result" Then
+        ' RESULT-SCREEN: AI/fysik/tid FRYST (denna gren kör aldrig fiende-logik);
+        ' enda aktiva är tangenttryck -> ladda om kartan (enda kartan finns ännu)
+        k$ = InKey$
+        If selftest And testPhase = 12 And testFlag = 2 Then k$ = "x"   ' simulerat tangenttryck (efter fas12a sett result)
+        If k$ <> "" Then
+            hp = 100: ammo = 20
+            px = 8.5: py = 4.5: angle = 0: pitch = 0
+            For i = 0 To 10
+                If i <= 4 Then pkActive(i) = 1 Else pkActive(i) = 0
+                If i <= 2 Then amActive(i) = 1 Else amActive(i) = 0
+            Next i
+            Gosub SpawnEnemies
+            hpMsg$ = "": hpMsgTime = 0
+            lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
+            fading = 0: deathTime = 0: hover = 0: prevHover = 0: winPending = 0
+            state$ = "menu"
+            _MOUSESHOW
+        End If
+        ' rendera resultatskärmen
+        _Dest display&
+        Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
+        Line (RW \ 2 - 860, RH \ 2 - 190)-(RW \ 2 + 859, RH \ 2 + 189), _RGB32(255, 200, 0), B
+        t% = Int(Timer - runT0)
+        mm% = t% \ 60: ss% = t% - mm% * 60
+        sc$ = strScore$ + " " + LTrim$(Str$(score))
+        bs2$ = strBest$ + " " + LTrim$(Str$(bestScore))
+        tm$ = strTime$ + " " + LTrim$(Str$(mm%)) + ":" + LTrim$(Str$(ss%))
+        sh$ = strShots$ + " " + LTrim$(Str$(shotsFired))
+        dm$ = strDmg$ + " " + LTrim$(Str$(dmgTaken))
+        Color _RGB32(255, 200, 0)
+        _PrintString ((RW - Len(strWin$) * 8) \ 2, RH \ 2 - 120), strWin$
+        Color _RGB32(255, 255, 255)
+        _PrintString ((RW - Len(tm$) * 8) \ 2, RH \ 2 - 70), tm$
+        _PrintString ((RW - Len(sh$) * 8) \ 2, RH \ 2 - 45), sh$
+        _PrintString ((RW - Len(dm$) * 8) \ 2, RH \ 2 - 20), dm$
+        _PrintString ((RW - Len(sc$) * 8) \ 2, RH \ 2 + 5), sc$
+        Color _RGB32(150, 150, 150)
+        _PrintString ((RW - Len(bs2$) * 8) \ 2, RH \ 2 + 30), bs2$
+        If newRecord Then
+            Color _RGB32(255, 80, 80)
+            _PrintString ((RW - Len(strNewRec$) * 8) \ 2, RH \ 2 + 55), strNewRec$
+        End If
+        Color _RGB32(150, 150, 150)
+        _PrintString ((RW - Len(strNextMap$) * 8) \ 2, RH \ 2 + 150), strNextMap$
+        _Display
+        If selftest Then Gosub SelftestDrive   ' fas12: observera state=result här
     Else
 
     If k$ = Chr$(27) Or _KeyDown(27) Then End
@@ -691,6 +746,33 @@ Do
     ' fiende-skada (-X), medkit-pickup (+25, cap 100 kvar) och G-debug.
     ' Medkits är enda botemedlet.
 
+    ' ======== SEGER-TRIGGER (kill-all): alla fiender döda i 1 s -> result ======
+    ' (winPending nollställs direkt om någon fiende lever — annars triggar ett
+    '  dödsfall precis innan ett respawn, t.ex. i selftestet)
+    alive = 0
+    For i = 0 To 10
+        If enActive(i) Then alive = alive + 1
+    Next i
+    If alive > 0 Then
+        winPending = 0
+    ElseIf winPending = 0 Then
+        winPending = 1: winT0 = Timer
+    ElseIf Timer - winT0 >= 1 Then
+        If selftest Then stMsg$ = "WIN-TRIG phase=" + Str$(testPhase) + " t=" + LTrim$(Str$(Int((Timer - winT0) * 10) / 10)): Gosub STLog
+        state$ = "result"
+        _MOUSESHOW
+        score = CalcScore&
+        newRecord = 0
+        If selftest = 0 And score > bestScore Then
+            bestScore = score
+            newRecord = 1
+            f = FreeFile
+            Open ".schleswig_scores.txt" For Output As #f
+            Print #f, bestScore
+            Close #f
+        End If
+    End If
+
     ' ======== DÖD (Fas 2.6): hp<=0 i playing -> dead; ingen resurrection efter detta ======
     If hp <= 0 Then
         hp = 0
@@ -987,6 +1069,10 @@ Do
     Line (cx - ct, cy + cg)-(cx + ct, cy + ca + cg), _RGB32(255, 255, 255), BF
     Color _RGB32(255, 255, 0)
     _PrintString (0, 0), strFps$ + Str$(fpsShow) + " mmx:" + Str$(mmx) + " mmy:" + Str$(mmy) + " ang:" + Str$(Int(angle * 57.2958)) + " x:" + LTrim$(Str$(px)) + " y:" + LTrim$(Str$(py)) + " pitch:" + Str$(Int(pitch))
+    ' HUD: live SCORE i övre HÖGRA hörnet (FPS-debug är övre vänstra, HP/ammo nere) — ingen kollision
+    scHud$ = strScore$ + " " + LTrim$(Str$(CalcScore&))
+    Color _RGB32(255, 255, 0)
+    _PrintString (RW - Len(scHud$) * 8 - 8, 4), scHud$
 
     ' HP-ruta nertill vänster: bar-längd + siffra (tydligt även utan färgseende)
     ' HUD-koordinaterna är RELATIVA RW/RH (hudY = RH-28 osv; vid 1920x1080 samma värden som tidigare)
@@ -1039,7 +1125,7 @@ Do
     ' selftest-heartbeat: en rad/s så vi ser att loopen lever och var den står
     If selftest And Timer - testHb >= 1 Then
         testHb = Timer
-        stMsg$ = "alive phase=" + Str$(testPhase) + " state=" + state$ + " hp=" + Str$(Int(hp)) + " en0=(" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + ") st=" + Str$(enState(0)) + " act=" + Str$(enActive(0))
+        stMsg$ = "alive phase=" + Str$(testPhase) + " state=" + state$ + " hp=" + Str$(Int(hp)) + " en0=(" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + ") st=" + Str$(enState(0)) + " act=" + Str$(enActive(0)) + " en1act=" + Str$(enActive(1)) + " winP=" + Str$(winPending)
         Gosub STLog
     End If
     If curTime - lastTime >= 1 Then
@@ -1276,6 +1362,7 @@ SelftestDrive:
     ' fas 9 = spawn-audit: akta SpawnEnemies, ingen fiende far se spelaren vid start (LOS<tröskel)
     ' fas 10 = occlusion-audit: pixel-check (POINT) att ögon döljs bakom vägg och pickups rätt
     ' fas 11 = ljud-register-test: PlaySound för alla id, tillstånd ska vara oförändrat
+    ' fas 12 = seger-trigger: kill-all -> result-state, inga levande fiender, tangent -> omladdning
     Select Case testPhase
         Case 1   ' PATROLL: ingen LOS (10.5,6.5)->(8.5,4.5) -> stanna i PATROLL men vandra mot mål
             If Timer - testT0 >= 1.2 Then
@@ -1485,10 +1572,59 @@ SelftestDrive:
                 If hp = sh0 And state$ = sst0$ And ammo = sam0 And enState(0) = sen0 Then
                     stMsg$ = "PASS fas11-ljud-register (alla " + Str$(SND_COUNT) + " id anropade, tillstånd oförändrat, ingen krasch)"
                     Gosub STLog
+                    ' fas 12: seger-trigger-test (kill-all -> result -> tangent -> omladdning)
+                    testPhase = 12: testT0 = Timer: testFlag = 0
+                Else
+                    stMsg$ = "FAIL fas11-ljud-register hp=" + Str$(Int(hp)) + " state=" + state$ + " ammo=" + Str$(ammo)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+        Case 12  ' SEGER-TRIGGER-TEST: (a) kill-all -> state "result", (b) inga fiender lever,
+                 ' (c) result-skärmen reagerar på (simulerat) tangenttryck -> omladdning
+            If testFlag = 0 Then
+                testFlag = 1
+                For i = 0 To 10: enActive(i) = 0: Next i   ' kill-all simulerat
+                winPending = 0
+                stMsg$ = "fas12: alla fiender döda, väntar på result-state"
+                Gosub STLog
+            End If
+            If testFlag = 1 And state$ = "result" Then
+                testFlag = 2: testT0 = Timer
+                alive12 = 0
+                For i = 0 To 10
+                    If enActive(i) Then alive12 = alive12 + 1
+                Next i
+                If alive12 = 0 Then
+                    stMsg$ = "PASS fas12a-killall-result (state=result, levande fiender=0)"
+                Else
+                    stMsg$ = "FAIL fas12a levande fiender=" + Str$(alive12)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                Gosub STLog
+            ElseIf testFlag = 1 And Timer - testT0 >= 3 Then
+                stMsg$ = "FAIL fas12a state=" + state$ + " (förväntade result)"
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 2 And Timer - testT0 >= 0.5 Then
+                If state$ = "menu" Then
+                    stMsg$ = "PASS fas12b-result-reagerar-pa-tangent (state=menu, karta omladdad)"
+                    Gosub STLog
                     stMsg$ = "SELFTEST OK"
                     Gosub STLog
                 Else
-                    stMsg$ = "FAIL fas11-ljud-register hp=" + Str$(Int(hp)) + " state=" + state$ + " ammo=" + Str$(ammo)
+                    stMsg$ = "FAIL fas12b state=" + state$ + " (förväntade menu efter tangent)"
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
                     Gosub STLog
