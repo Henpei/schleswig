@@ -1051,7 +1051,9 @@ InitSounds:
     sndWave(SND_ENDIE) = 3: sndF0!(SND_ENDIE) = 400: sndF1!(SND_ENDIE) = 70: sndDur!(SND_ENDIE) = 0.3: sndVol!(SND_ENDIE) = 0.22
     sndWave(SND_PICKUP) = 4: sndF0!(SND_PICKUP) = 660: sndF1!(SND_PICKUP) = 990: sndDur!(SND_PICKUP) = 0.15: sndVol!(SND_PICKUP) = 0.18
     sndWave(SND_HURT) = 2: sndF0!(SND_HURT) = 110: sndF1!(SND_HURT) = 65: sndDur!(SND_HURT) = 0.12: sndVol!(SND_HURT) = 0.28
-    sndWave(SND_ALERT) = 5: sndF0!(SND_ALERT) = 880: sndF1!(SND_ALERT) = 587: sndDur!(SND_ALERT) = 0.24: sndVol!(SND_ALERT) = 0.2
+    ' ALERT får vara TYDLIG (undantag från låg-volym-kappan): hård "dun-DUM-DUM",
+    ' 620->930 Hz stigande, 350 ms, vol 0.45 (2026-11-23, Andrés önskemål)
+    sndWave(SND_ALERT) = 6: sndF0!(SND_ALERT) = 620: sndF1!(SND_ALERT) = 930: sndDur!(SND_ALERT) = 0.35: sndVol!(SND_ALERT) = 0.45
     sndWave(SND_STEP) = 1: sndF0!(SND_STEP) = 0: sndF1!(SND_STEP) = 0: sndDur!(SND_STEP) = 0.045: sndVol!(SND_STEP) = 0.1
     sndWave(SND_ESTEP) = 1: sndF0!(SND_ESTEP) = 0: sndF1!(SND_ESTEP) = 0: sndDur!(SND_ESTEP) = 0.05: sndVol!(SND_ESTEP) = 0.12
     stepAcc = 0
@@ -1079,8 +1081,21 @@ Function GenSample# (id%, i%, n%)
         Case 4   ' sinus med svep (pickup, uppstigande pling)
             f# = f0# + (f1# - f0#) * (t# / dur#)
             GenSample# = Sin(6.2831853 * f# * t#) * env#
-        Case 5   ' två-ton fyrkant (detect-alert: första halvan f0, andra f1)
+        Case 5   ' två-ton fyrkant (första halvan f0, andra f1)
             If t# < dur# / 2 Then f# = f0# Else f# = f1#
+            If Sin(6.2831853 * f# * t#) >= 0 Then GenSample# = env# Else GenSample# = -env#
+        Case 6   ' ALERT "dun-DUM-DUM": låg sub-ton (110 Hz) först, sedan två stigande
+                 ' hårda fyrkantstoner f0->f1. Front-loadad attack: full vol direkt,
+                 ' decay bara i sista 15% (inget mjukt fade-in).
+            If t# < dur# * 0.25 Then
+                f# = 110
+            ElseIf t# < dur# * 0.6 Then
+                f# = f0#
+            Else
+                f# = f1#
+            End If
+            If t# > dur# * 0.85 Then env# = (dur# - t#) / (dur# * 0.15)
+            If env# < 0 Then env# = 0
             If Sin(6.2831853 * f# * t#) >= 0 Then GenSample# = env# Else GenSample# = -env#
         Case Else
             GenSample# = 0
@@ -1088,7 +1103,8 @@ Function GenSample# (id%, i%, n%)
 End Function
 
 ' PlaySoundVol: genererar PCM för ljud id% och pushar till raw-pipen i ett
-' _SNDRAWBATCH-anrop. Korta, svaga retro-beeps (volym <= 0.3 i registret).
+' _SNDRAWBATCH-anrop. Korta, svaga retro-beeps (volym <= 0.28 i registret;
+' undantag: SND_ALERT 0.45 — medvetet tydlig).
 Sub PlaySoundVol (id%, vol!)
     sndCalls = sndCalls + 1
     If sndPipe& <= 0 Then Exit Sub
