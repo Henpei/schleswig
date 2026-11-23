@@ -91,7 +91,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "db02739"
+Const strBuild$ = "b74c1f0"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -184,7 +184,6 @@ DIM SHARED shotsFired, dmgTaken, runT0, bestScore, score, newRecord
 DIM winPending, winT0        ' seger-trigger: alla fiender döda -> vänta 1 s -> result
 DIM winTime                  ' FRYST run-tid (s) vid seger; -1 = ej fryst (live)
 DIM escCool                  ' FIX 2: ESC cooldown så held ESC från result inte avslutar i menu
-DIM lockDelay                ' >0: antal frames kvar innan _MOUSEHIDE _DISABLE körs (Wayland lock-gest)
 DIM lockHint                 ' 1 = visa 'klicka för att låsa musen' (tills första klicket i rundan)
 DIM stepAcc                   ' ackumulerad gångsträcka (spelarfotsteg)
 DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
@@ -210,7 +209,7 @@ If selftest Then
     state$ = "playing"          ' hoppa över menyn direkt
     LogMouse "HIDE_DISABLE selftest-init"
     _MOUSEHIDE _DISABLE
-    lockHint = 1: lockDelay = 0
+    lockHint = 1
     runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0: winTime = -1   ' highscore-counters i selftest
     Gosub SpawnEnemies
     ' Fas 3.1-scenario: EN fiende i PATROLL utan LOS till spelaren (10.5,6.5)->(8.5,4.5)
@@ -262,12 +261,12 @@ Do
             If hover = 1 Then SOUND 1500, 1   ' hover-tick
         End If
         If state$ = "menu" And k$ = " " Then
-            state$ = "fadeout": fadeT0 = Timer
+            Gosub StartRun
             SOUND 300, 2: SOUND 150, 3        ' klick/plopp
         End If
         If state$ = "menu" And hover = 1 Then
             If _MouseButton(1) Then
-                state$ = "fadeout": fadeT0 = Timer
+                Gosub StartRun
                 SOUND 300, 2: SOUND 150, 3
             End If
         End If
@@ -296,14 +295,13 @@ Do
             Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, Int(fa * 255)), BF
             If fa >= 1 Then
                 state$ = "playing"
-                LogMouse "HIDE_DISABLE menu->playing (efter fade)"
-                _MOUSEHIDE _DISABLE   ' pointer-lock (återställd; Wayland: låset går först vid musklick)
-                LogMouse "MOUSEMOVE center menu->playing"
-                _MOUSEMOVE RW \ 2, RH \ 2   ' centrera pekaren direkt (hjälper låset + gömning)
-                lockHint = 1: lockDelay = 0
+                LogMouse "HIDE_DISABLE StartRun fade-klar"
+                _MOUSEHIDE _DISABLE   ' pointer-lock när faden är klar (samma för båda vägarna)
+                LogMouse "MOUSEMOVE center StartRun"
+                _MOUSEMOVE RW \ 2, RH \ 2
+                lockHint = 1
                 fadeT0 = Timer
                 fading = 2
-                runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0: winTime = -1   ' ny runda börjar
             End If
         End If
         _Display
@@ -416,23 +414,9 @@ Do
             _MOUSESHOW
             state$ = "menu"
         ElseIf mb And hoverR = 1 Then
-            ' VIDARE: ny runda direkt. Själva låset (_MOUSEHIDE _DISABLE) FÖRDRÖJS
-            ' några frames (lockDelay) — samma mönster som meny-vägen (fade mellan
-            ' klick och lock); Wayland behöver se klick-gesten först (DEL B-test c).
-            lockDelay = 4
-            hp = 100: ammo = 5
-            px = 8.5: py = 4.5: angle = 0: pitch = 0
-            For i = 0 To 10
-                If i <= 4 Then pkActive(i) = 1 Else pkActive(i) = 0
-                If i <= 2 Then amActive(i) = 1 Else amActive(i) = 0
-            Next i
-            Gosub SpawnEnemies
-            hpMsg$ = "": hpMsgTime = 0
-            lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
-            deathTime = 0: hover = 0: prevHover = 0: winPending = 0: winTime = -1
-            runT0 = Timer: shotsFired = 0: dmgTaken = 0
-            state$ = "playing"
-            fading = 2: fadeT0 = Timer
+            ' VIDARE: samma StartRun som huvudmenyns START (fade + lås vid fade-slut)
+            Gosub StartRun
+            SOUND 300, 2: SOUND 150, 3
         End If
         ' rendera resultatmenyn: statistik + två knappar (samma stil som huvudmenyn)
         _Dest display&
@@ -535,19 +519,7 @@ Do
         mmy = mdy
         If Abs(mmx) > 300 Then mmx = 0
         fireBtn = _MouseButton(1)
-        If fireBtn Then lockHint = 0   ' första klicket i rundan -> lås engagerat (Wayland), dölj hint
-        ' Fördröjt muslås efter VIDARE (result-vägen): samma mönster som
-        ' meny-vägen (många frames mellan klick och lock pga fade) — Wayland
-        ' behöver se klick-gesten innan _DISABLE (DEL B-test c).
-        If lockDelay > 0 Then
-            lockDelay = lockDelay - 1
-            If lockDelay = 0 Then
-                LogMouse "HIDE_DISABLE result-VIDARE (fördröjd)"
-                _MOUSEHIDE _DISABLE
-                LogMouse "MOUSEMOVE center result-VIDARE (fördröjd)"
-                _MOUSEMOVE RW \ 2, RH \ 2
-            End If
-        End If
+        If fireBtn Then lockHint = 0   ' första klicket i rundan
     End If
     angle = angle + mmx * mouseSens * speed
     ' pitch = vertikal lutning i pixlar. Minus här: mus UPP (mdy<0) ska ge titta upp.
@@ -1372,6 +1344,26 @@ Sub ShutdownSound
     Close #sndDbg
 End Sub
 
+' StartRun: GEMENSAM övergång till ny runda — används av huvudmenyns START
+' och resultatmenyns VIDARE (samma väg = samma muslås-beteende).
+' Sätter fadeout; när faden är klar (i menu/fadeout-grenen) går state till
+' playing och musen låses (_MOUSEHIDE _DISABLE).
+StartRun:
+    hp = 100: ammo = 5
+    px = 8.5: py = 4.5: angle = 0: pitch = 0
+    For i = 0 To 10
+        If i <= 4 Then pkActive(i) = 1 Else pkActive(i) = 0
+        If i <= 2 Then amActive(i) = 1 Else amActive(i) = 0
+    Next i
+    Gosub SpawnEnemies
+    hpMsg$ = "": hpMsgTime = 0
+    lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
+    deathTime = 0: hover = 0: prevHover = 0: winPending = 0: winTime = -1
+    runT0 = Timer: shotsFired = 0: dmgTaken = 0
+    state$ = "fadeout"
+    fadeT0 = Timer
+    Return
+
 ' LogMouse: mus-diagnos till /tmp/schleswig_mouse.log (frame + state + anrop)
 Sub LogMouse (msg$)
     mf = FreeFile
@@ -1385,6 +1377,7 @@ End Sub
 '   normal: fill RGB(30,30,70), text RGB(255,255,255), vit kant, svart skugga
 '   hover:  fill RGB(255,200,0) (amber), text RGB(0,0,0), vit kant, ingen skugga
 Sub DrawButton (bx0, by0, bx1, by1, label$, hovered)
+    _PRINTMODE _KeepBackground   ' FIX 1: transparent text-bakgrund (ingen svart ruta bakom label)
     bw = bx1 - bx0: bh = by1 - by0
     If hovered Then
         Line (bx0, by0)-(bx1, by1), _RGB32(255, 200, 0), BF
