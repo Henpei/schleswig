@@ -114,7 +114,7 @@ Const strTime$ = "TID:"                            ' resultatskärm: mm:ss
 Const strShots$ = "SKOTT:"                         ' resultatskärm
 Const strDmg$ = "SKADA:"                           ' resultatskärm
 Const strEscMenu$ = "ESC = MENY"                       ' resultatskärm, nederst
-Const strNextMap$ = "VALFRI TANGENT = VIDARE"          ' resultatskärm, nederst
+Const strNextMap$ = "KLICKA FÖR ATT FORTSÄTTA"         ' resultatskärm: musklick = nästa karta (Wayland-lås)
 Const strLockHint$ = "KLICKA FÖR ATT LÅSA MUSEN (musen försvinner då)"  ' HUD tills första klicket (Wayland)
 ' ============================================================================
 
@@ -384,9 +384,13 @@ Do
         _Display
     ElseIf state$ = "result" Then
         ' RESULT-SCREEN: AI/fysik/tid FRYST (denna gren kör aldrig fiende-logik).
-        ' Tangentfix (bugg 2): k$ pollas redan i loop-toppen (InKey$ där) — här
-        ' får vi INTE polla igen (det tömmer buffern). ESC = meny, övriga = vidare.
-        If selftest And testPhase = 12 And testFlag = 2 Then k$ = "x"   ' simulerat tangenttryck (efter fas12a sett result)
+        ' FIX 1: vidare triggas av MUSKLICK (vänsterknapp) — samma klick ger
+        ' Wayland pointer-lock direkt, så pekaren hinner aldrig synas.
+        ' ESC (tangent) = meny kvar. k$ pollas i loop-toppen; musen pollas här.
+        mb = 0
+        While _MouseInput: WEND
+        If _MouseButton(1) Then mb = 1
+        If selftest And testPhase = 12 And testFlag = 2 Then mb = 1   ' simulerat klick (efter fas12a sett result)
         If k$ = Chr$(27) Or _KeyDown(27) Then
             ' ESC = avsluta till menyn
             hp = 100: ammo = 5
@@ -403,8 +407,8 @@ Do
             escCool = Timer   ' FIX 2: markera att ESC precis hanterats i result
             state$ = "menu"
             _MOUSESHOW
-        ElseIf k$ <> "" Then
-            ' alla övriga tangenter = nästa karta (ny run direkt, samma karta ännu)
+        ElseIf mb Then
+            ' musklick = nästa karta (ny run direkt, samma karta ännu)
             hp = 100: ammo = 5
             px = 8.5: py = 4.5: angle = 0: pitch = 0
             For i = 0 To 10
@@ -426,7 +430,7 @@ Do
         _Dest display&
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
         Line (RW \ 2 - 860, RH \ 2 - 190)-(RW \ 2 + 859, RH \ 2 + 189), _RGB32(255, 200, 0), B
-        t% = winTime                 ' fryst tid (bugg 1: tickar ej vidare i result)
+        t% = CurRunTime%              ' fryst tid i result (bugg 1: tickar ej vidare)
         mm% = t% \ 60: ss% = t% - mm% * 60
         sc$ = strScore$ + " " + LTrim$(Str$(score))
         bs2$ = strBest$ + " " + LTrim$(Str$(bestScore))
@@ -1166,7 +1170,7 @@ Do
     ' selftest-heartbeat: en rad/s så vi ser att loopen lever och var den står
     If selftest And Timer - testHb >= 1 Then
         testHb = Timer
-        stMsg$ = "alive phase=" + Str$(testPhase) + " state=" + state$ + " hp=" + Str$(Int(hp)) + " en0=(" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + ") st=" + Str$(enState(0)) + " act=" + Str$(enActive(0)) + " en1act=" + Str$(enActive(1)) + " winP=" + Str$(winPending)
+        stMsg$ = "alive phase=" + Str$(testPhase) + " state=" + state$ + " hp=" + Str$(Int(hp)) + " en0=(" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + ") st=" + Str$(enState(0)) + " act=" + Str$(enActive(0)) + " en1act=" + Str$(enActive(1)) + " winP=" + Str$(winPending) + " winT=" + Str$(winTime)
         Gosub STLog
     End If
     If curTime - lastTime >= 1 Then
@@ -1211,15 +1215,20 @@ SpawnEnemies:
     enLx(3) = enX(3): enLy(3) = enY(3): enTx(3) = 2: enTy(3) = 1
     Return
 
+' CurRunTime%: aktuell run-tid i sekunder — EN plats för regeln:
+' LIVE under spel (HUD-score tickar), FRYST (winTime) först i state=result.
+Function CurRunTime%
+    If state$ = "result" And winTime >= 0 Then
+        CurRunTime% = winTime
+    Else
+        CurRunTime% = Int(Timer - runT0)
+    End If
+End Function
+
 ' CalcScore&: score = 10000 - 5*s - 10*skott - 25*skada, min 0 (formel v2,
 ' beslut 2026-11-23; anti-negativt skydd: score kan aldrig bli < 0).
-' s är LIVE under spel men FRYST vid seger (winTime, satt vid state=result).
 Function CalcScore&
-    If winTime >= 0 Then
-        s% = winTime
-    Else
-        s% = Int(Timer - runT0)
-    End If
+    s% = CurRunTime%
     sc& = 10000 - 5 * s% - 10 * shotsFired - 25 * dmgTaken
     If sc& < 0 Then sc& = 0
     CalcScore& = sc&
@@ -1665,12 +1674,12 @@ SelftestDrive:
             End If
             If testFlag = 2 And Timer - testT0 >= 0.5 Then
                 If state$ = "playing" Then
-                    stMsg$ = "PASS fas12b-result-reagerar-pa-tangent (valfri tangent -> ny runda, state=playing)"
+                    stMsg$ = "PASS fas12b-result-reagerar-pa-klick (simulerat musklick -> ny runda, state=playing)"
                     Gosub STLog
                     stMsg$ = "SELFTEST OK"
                     Gosub STLog
                 Else
-                    stMsg$ = "FAIL fas12b state=" + state$ + " (förväntade playing efter tangent)"
+                    stMsg$ = "FAIL fas12b state=" + state$ + " (förväntade playing efter klick)"
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
                     Gosub STLog

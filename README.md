@@ -38,7 +38,8 @@ field), procedural sound (shot/hit/enemy death/pickup/hurt/detect-alert/
 footsteps via a data-driven registry), death screen with highscore
 (score = 10000 - 10*s - 25*shots - 50*damage, best saved to
 .schleswig_scores.txt; score = 10000 - 5*s - 10*shots - 25*damage), live score
-in the HUD, a win screen on kill-all
+in the HUD, a win screen on kill-all (click to continue — Wayland locks the
+mouse on that click)
 (result screen with time/shots/damage/score/best), and a 12-phase scripted
 self-test.
 
