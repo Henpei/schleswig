@@ -157,11 +157,15 @@ Const SND_ALERT = 6           ' detect-alert: två-ton (PATROLL->JAKT)
 Const SND_STEP = 7            ' fotsteg spelare
 Const SND_ESTEP = 8           ' fotsteg fiende (volym efter avstånd)
 Const SND_COUNT = 8
-DIM sndWave(SND_COUNT), sndF0!(SND_COUNT), sndF1!(SND_COUNT), sndDur!(SND_COUNT), sndVol!(SND_COUNT)
-DIM sndBuf!(SND_RATE)         ' PCM-buffer, max 1 s per ljud
-DIM sndPipe&                  ' raw pipe; <=0 = ingen ljudenhet (headless) -> tyst no-op
-DIM enAlertT(10), enStepAcc(10)
+' OBS: DIM SHARED är NÖDVÄNDIGT här — variabler som bara används inuti SUBs
+' (InitSounds/GenSample#/PlaySoundVol) blir annars sub-lokala i QB64-PE och
+' sndPipe& läser alltid 0 där -> alla ljud tysta no-op (ljud-debug 2026-11-23).
+DIM SHARED sndWave(SND_COUNT), sndF0!(SND_COUNT), sndF1!(SND_COUNT), sndDur!(SND_COUNT), sndVol!(SND_COUNT)
+DIM SHARED sndBuf!(SND_RATE)  ' PCM-buffer, max 1 s per ljud
+DIM SHARED sndPipe&           ' raw pipe; <=0 = ingen ljudenhet (headless) -> tyst no-op
+DIM enAlertT(10), enStepAcc(10)   ' används även i huvudloopen -> globala
 DIM stepAcc                   ' ackumulerad gångsträcka (spelarfotsteg)
+DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
 ' Fas 3 selftest/autoplay: ./schleswig/schleswig selftest -> scriptat scenario, loggas till fil
 selftest = 0
 cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, bara LTrim$/RTrim$
@@ -1038,6 +1042,16 @@ SpawnEnemies:
 ' PlaySound* blir då tysta no-op och kraschar aldrig.
 InitSounds:
     sndPipe& = _SNDOPENRAW
+    sndCalls = 0
+    ' Ljud-debug (2026-11-23): vid ogiltigt handtag skrivs varning till konsol
+    ' OCH till /tmp/schleswig_snd.log (Print når ej stdout i headless-miljö).
+    Print "SND: pipe handle="; sndPipe&
+    If sndPipe& <= 0 Then Print "SND: audio init FAILED, handle="; sndPipe&; " -> alla PlaySound blir tysta no-op"
+    sndDbg = FreeFile
+    Open "/tmp/schleswig_snd.log" For Output As #sndDbg
+    Print #sndDbg, "SND init: pipe handle="; sndPipe&
+    If sndPipe& <= 0 Then Print #sndDbg, "SND: audio init FAILED, handle="; sndPipe&
+    Close #sndDbg
     sndWave(SND_SHOT) = 1: sndF0!(SND_SHOT) = 0: sndF1!(SND_SHOT) = 0: sndDur!(SND_SHOT) = 0.06: sndVol!(SND_SHOT) = 0.25
     sndWave(SND_HIT) = 2: sndF0!(SND_HIT) = 220: sndF1!(SND_HIT) = 160: sndDur!(SND_HIT) = 0.09: sndVol!(SND_HIT) = 0.18
     sndWave(SND_ENDIE) = 3: sndF0!(SND_ENDIE) = 400: sndF1!(SND_ENDIE) = 70: sndDur!(SND_ENDIE) = 0.3: sndVol!(SND_ENDIE) = 0.22
@@ -1082,6 +1096,7 @@ End Function
 ' PlaySoundVol: genererar PCM för ljud id% och pushar till raw-pipen i ett
 ' _SNDRAWBATCH-anrop. Korta, svaga retro-beeps (volym <= 0.3 i registret).
 Sub PlaySoundVol (id%, vol!)
+    sndCalls = sndCalls + 1
     If sndPipe& <= 0 Then Exit Sub
     If id% < 1 Or id% > SND_COUNT Then Exit Sub
     n% = Int(sndDur!(id%) * SND_RATE)
@@ -1094,6 +1109,13 @@ Sub PlaySoundVol (id%, vol!)
         sndBuf!(i%) = s#
     Next i%
     _SNDRAWBATCH sndBuf!(), 1, sndPipe&, n%
+    ' ljud-debug: logga anrop (fotsteg bara via räknare, annars blir logen brusig)
+    If id% <> SND_STEP And id% <> SND_ESTEP Then
+        sndDbg = FreeFile
+        Open "/tmp/schleswig_snd.log" For Append As #sndDbg
+        Print #sndDbg, "PlaySound id="; id%; " vol="; vol!; " n="; n%; " pipe="; sndPipe&; " calls="; sndCalls
+        Close #sndDbg
+    End If
 End Sub
 
 ' PlaySound: standardvolym. Används av alla spel-händelser via registret.
@@ -1109,6 +1131,10 @@ Sub ShutdownSound
         _SNDCLOSE sndPipe&
         sndPipe& = 0
     End If
+    sndDbg = FreeFile
+    Open "/tmp/schleswig_snd.log" For Append As #sndDbg
+    Print #sndDbg, "SND shutdown: totala PlaySound-anrop="; sndCalls
+    Close #sndDbg
 End Sub
 
 ' LOSCheck: DDA-stråle från (fx,fy) till (tx,ty); losOK=1 om ingen väggcell på vägen
