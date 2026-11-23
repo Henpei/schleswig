@@ -112,7 +112,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "78a7d23"
+Const strBuild$ = "1a9c382"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -907,6 +907,14 @@ Do
                     enActive(bestE) = 0
                     hpMsg$ = "FIENDE DÖD"
                     PlaySound SND_ENDIE
+                    ' TID-FYS vid EXAKT sista killen: räkna levande NU (efter denna
+                    ' död-registrering); om 0 -> frys run-tiden här, första gången.
+                    ' Rundstart/spawn-gap kan ALDRIG nudda detta (ingen kill här).
+                    aliveNow = 0
+                    For j = 0 To 10
+                        If enActive(j) Then aliveNow = aliveNow + 1
+                    Next j
+                    If aliveNow = 0 Then Gosub FreezeAtLastKill
                 Else
                     hpMsg$ = "TRÄFF"
                     PlaySound SND_HIT
@@ -935,9 +943,9 @@ Do
     If alive > 0 Then
         winPending = 0
     Else
-        ' TID-FYS: sista fienden död -> tiden FRYSES DIREKT vid kill-ögonblicket
-        ' (runTimeFrozen); winPending-väntan på 1 s innan result visas är kvar.
-        If runTimeFrozen < 0 Then runTimeFrozen = Int(Timer - runT0)
+        ' OBS: runTimeFrozen sätts INTE här — detta villkor kan vara sant även vid
+        ' rundstart/spawn-gap (alive==0 utan kill). Freeze sker ENDAST i
+        ' FreezeAtLastKill (anropas från sista-kill-blocket ovan).
         If winPending = 0 Then
             winPending = 1: winT0 = Timer
         ElseIf Timer - winT0 >= 1 Then
@@ -1371,6 +1379,14 @@ SpawnEnemies:
     enLx(2) = enX(2): enLy(2) = enY(2): enTx(2) = 2: enTy(2) = 12
     enX(3) = 2.5:  enY(3) = 1.5:  enActive(3) = 1: enSpd(3) = 0.55
     enLx(3) = enX(3): enLy(3) = enY(3): enTx(3) = 2: enTy(3) = 1
+    Return
+
+' FreezeAtLastKill: ENDA stället där runTimeFrozen sätts — anropas när en
+' död-registrering (kill-blocket) gör antal levande == 0, samt av selftestets
+' simulerade kill-all. Guard: bara första gången (runTimeFrozen < 0), så
+' rundstart/spawn-gap (alive==0 utan kill) kan aldrig frysa tiden.
+FreezeAtLastKill:
+    If runTimeFrozen < 0 Then runTimeFrozen = Int(Timer - runT0)
     Return
 
 ' CurRunTime%: aktuell run-tid i sekunder — EN plats för regeln:
@@ -1972,6 +1988,7 @@ SelftestDrive:
             If testFlag = 0 Then
                 testFlag = 1: testT0 = Timer: wt1 = -1
                 For i = 0 To 10: enActive(i) = 0: Next i   ' kill-all simulerat
+                Gosub FreezeAtLastKill   ' samma freeze-punkt som riktig sista-kill
                 winPending = 0
                 stMsg$ = "fas12: alla fiender döda, väntar på result"
                 Gosub STLog
@@ -1983,12 +2000,14 @@ SelftestDrive:
                     For i = 0 To 10
                         If enActive(i) Then alive12 = alive12 + 1
                     Next i
-                    If runTimeFrozen = wt1 And alive12 = 0 Then
-                        stMsg$ = "PASS fas12a-killall-result-fryst (state=result, levande=0, runTimeFrozen=" + Str$(wt1) + " fryst)"
+                    ' wt1 >= 1 krävs: fryst tid måste vara ett verkligt tidsvärde
+                    ' (inte ~0 från rundstart/spawn-gap) — annars blir tidsstraffet 0
+                    If runTimeFrozen = wt1 And alive12 = 0 And wt1 >= 1 Then
+                        stMsg$ = "PASS fas12a-killall-result-fryst (state=result, levande=0, runTimeFrozen=" + Str$(wt1) + " fryst vid kill, >=1s, score=" + Str$(CalcScore&) + " < 10000 => tidsstraff aktivt)"
                         Gosub STLog
                         testFlag = 2: testT0 = Timer: sr0 = startRuns   ' result-grenen injicerar VIDARE-klick; spara räknare
                     Else
-                        stMsg$ = "FAIL fas12a runTimeFrozen " + Str$(wt1) + "->" + Str$(runTimeFrozen) + " levande=" + Str$(alive12)
+                        stMsg$ = "FAIL fas12a runTimeFrozen " + Str$(wt1) + "->" + Str$(runTimeFrozen) + " levande=" + Str$(alive12) + " (wt1>=1 krävs)"
                         Gosub STLog
                         stMsg$ = "SELFTEST FAIL"
                         Gosub STLog
@@ -2008,11 +2027,13 @@ SelftestDrive:
                 ' SKYDD-check: inga rörelse-flaggor får överleva VIDARE-övergången
                 ' BEVIS: VIDARE måste ha gått MENY-START-vägen — startRuns (räknare
                 ' i StartRun) ska ha ökat med exakt +1 sedan VIDARE-klicket.
-                If mvF = 0 And mvB = 0 And mvL = 0 And mvR = 0 And turnL = 0 And turnR = 0 And fireBtn = 0 And startRuns = sr0 + 1 Then
-                    stMsg$ = "PASS fas12b-vidare-klick (VIDARE -> state=playing via MENY-START-vägen: startRuns " + Str$(sr0) + "->" + Str$(startRuns) + " (+1), rörelse-flaggor=0 vid start)"
+                ' runTimeFrozen = -1 vid playing-start: rundstart efter VIDARE får
+                ' INTE vara fryst (~0) — det var buggen (alive==0 utan kill fryyste)
+                If mvF = 0 And mvB = 0 And mvL = 0 And mvR = 0 And turnL = 0 And turnR = 0 And fireBtn = 0 And startRuns = sr0 + 1 And runTimeFrozen = -1 Then
+                    stMsg$ = "PASS fas12b-vidare-klick (VIDARE -> state=playing via MENY-START-vägen: startRuns " + Str$(sr0) + "->" + Str$(startRuns) + " (+1), rörelse-flaggor=0, runTimeFrozen=-1 ej fryst vid start)"
                     Gosub STLog
                 Else
-                    stMsg$ = "FAIL fas12b-rorelse/startRuns mvF=" + Str$(mvF) + " mvB=" + Str$(mvB) + " mvL=" + Str$(mvL) + " mvR=" + Str$(mvR) + " turnL=" + Str$(turnL) + " turnR=" + Str$(turnR) + " fireBtn=" + Str$(fireBtn) + " startRuns=" + Str$(startRuns) + " (väntade " + Str$(sr0 + 1) + ")"
+                    stMsg$ = "FAIL fas12b-rorelse/startRuns/frz mvF=" + Str$(mvF) + " mvB=" + Str$(mvB) + " mvL=" + Str$(mvL) + " mvR=" + Str$(mvR) + " turnL=" + Str$(turnL) + " turnR=" + Str$(turnR) + " fireBtn=" + Str$(fireBtn) + " startRuns=" + Str$(startRuns) + " (väntade " + Str$(sr0 + 1) + ") runTimeFrozen=" + Str$(runTimeFrozen) + " (väntade -1)"
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
                     Gosub STLog
@@ -2020,6 +2041,7 @@ SelftestDrive:
                     End
                 End If
                 For i = 0 To 10: enActive(i) = 0: Next i   ' kill-all igen för fas12c
+                Gosub FreezeAtLastKill   ' samma freeze-punkt som riktig sista-kill
                 winPending = 0
                 testFlag = 3: testT0 = Timer
             ElseIf testFlag = 2 And Timer - testT0 >= 3 Then
