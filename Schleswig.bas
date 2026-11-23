@@ -40,13 +40,21 @@ RH = _Height(display&)
 planeDist = 0.66 * (16 / 9) / (RW / RH)
 fovCut = 0.66 * (RW / RH) / (16 / 9)
 buf& = _NewImage(RW, RH, 32)
-DIM SHARED fontBuf&          ' knapptext renderas här och skalas 2x vid ritning
-fontBuf& = _NewImage(512, 40, 32)
+DIM SHARED btnFont&          ' TTF-font för knapptext (ca 2x HUD-fonten); 0 = ej laddad
+DIM SHARED btnFontSize       ' px-storlek, skalad med RH (32 vid 1080p = 2x HUD 16px)
 DIM mouseShown               ' guard: _MOUSESHOW max EN gång per state-övergång
-' Fas 2.5: meny-knapp + ljud + fade-overgang (knappgeometri relativ RW/RH)
-btnW = Int(RW * 420 / 1920): btnH = Int(RH * 90 / 1080)   ' större knappar (2x-text)
-btnX0 = (RW - btnW) \ 2: btnY0 = RH \ 2 + Int(RH * 40 / 1080)
-btnX1 = btnX0 + btnW: btnY1 = btnY0 + btnH
+' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
+' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
+' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
+btnFontSize = Int(RH * 32 / 1080): If btnFontSize < 16 Then btnFontSize = 16
+btnFont& = 0
+fontCand$ = "schleswig/LiberationMono-Regular.ttf"     ' CWD = QB64pe-rot (dokumenterat körsätt)
+If Not _FileExists(fontCand$) Then fontCand$ = "LiberationMono-Regular.ttf"   ' CWD = repo-rot
+If Not _FileExists(fontCand$) Then fontCand$ = "/home/andre/QB64pe/schleswig/LiberationMono-Regular.ttf"
+If Not _FileExists(fontCand$) Then fontCand$ = "/home/andre/QB64pe/tests/compile_tests/font/LiberationMono-Regular.ttf"
+If Not _FileExists(fontCand$) Then fontCand$ = "/usr/share/fonts/TTF/DejaVuSansMono.ttf"
+If _FileExists(fontCand$) Then btnFont& = _LoadFont(fontCand$, btnFontSize, "MONOSPACE")
+' btnX0..btnY1 sätts nu per label via BtnGeom (bredd = _PrintWidth + padding) i meny-grenen
 hover = 0: prevHover = 0
 fading = 0: fadeT0 = 0   ' fading: 0=nej, 2=fade-in i playing
 deathTime = 0            ' Fas 2.6: när state$ = "dead"
@@ -94,7 +102,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "47bb6cc"
+Const strBuild$ = "e3b879c"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -226,6 +234,12 @@ If selftest Then
     enTx(0) = 10: enTy(0) = 5: enPatrolT(0) = Timer   ' deterministiskt patrullmål
     bfsForX = -1: bfsForY = -1
     stMsg$ = "selftest start: fas1 patrull (10.5,6.5)": Gosub STLog
+    If btnFont& > 0 Then
+        stMsg$ = "knappfont: " + fontCand$ + " size=" + Str$(btnFontSize) + " handle=" + Str$(btnFont&) + " (TTF ~2x)"
+    Else
+        stMsg$ = "knappfont: FALLBACK inbyggd font (ingen TTF hittades) size=" + Str$(btnFontSize)
+    End If
+    Gosub STLog
     testPhase = 1: testT0 = Timer
 Else
     Gosub SpawnEnemies
@@ -258,6 +272,9 @@ Do
         If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then End
         While _MouseInput: WEND   ' töm muskön så _MouseX/Y/_MouseButton blir färska här
         mx = _MouseX: my = _MouseY
+        ' knapp-geometri från label-bredd + padding (knappen skalar med texten)
+        menuBtnTop = RH \ 2 + Int(RH * 40 / 1080)
+        BtnGeom strStartBtn$, RW \ 2, menuBtnTop, btnX0, btnY0, btnX1, btnY1
         hover = 0
         If mx >= btnX0 And mx <= btnX1 And my >= btnY0 And my <= btnY1 Then hover = 1
         If hover <> prevHover Then
@@ -310,6 +327,16 @@ Do
             End If
         End If
         _Display
+        ' selftest fas12d: huvudmenyn har renderat EN frame med DrawButton (stor
+        ' TTF-text) utan krasch -> SELFTEST OK. (Resultatmenyn täcks av fas12a-c.)
+        If selftest And testPhase = 12 And testFlag = 5 Then
+            stMsg$ = "PASS fas12d-meny-renderad (DrawButton stor TTF-text, ingen krasch)"
+            Gosub STLog
+            stMsg$ = "SELFTEST OK"
+            Gosub STLog
+            ShutdownSound
+            End
+        End If
     ElseIf state$ = "dead" Then
         If k$ = Chr$(27) Or _KeyDown(27) Then End
         ' Fas 3.1 selftest: fas 8 = spelaren har dött av fiende -> fas 9 spawn-audit -> avsluta
@@ -382,13 +409,15 @@ Do
         _Display
     ElseIf state$ = "result" Then
         ' RESULTATMENY: riktig meny, samma knapp-stil som huvudmenyn (samma
-        ' btnW/btnH, hover, fill/border). Musen är VÄLKOMMEN synlig här.
+        ' DrawButton-widget, hover, fill/border). Musen är VÄLKOMMEN synlig här.
         ' AI/fysik/tid fryst (egen gren). Knappar: VIDARE / HUVUDMENY. ESC=meny.
-        resBw = btnW: resBh = btnH
-        resB1X0 = (RW - resBw) \ 2: resB1Y0 = RH \ 2 + 60
-        resB1X1 = resB1X0 + resBw: resB1Y1 = resB1Y0 + resBh     ' VIDARE
-        resB2X0 = (RW - resBw) \ 2: resB2Y0 = RH \ 2 + 130
-        resB2X1 = resB2X0 + resBw: resB2Y1 = resB2Y0 + resBh     ' HUVUDMENY
+        ' Knapparnas rect sätts från label + padding (BtnGeom), staplade under statistiken.
+        resTop1 = RH \ 2 + Int(RH * 30 / 1080)
+        BtnGeom strNextMap$, RW \ 2, resTop1, resB1X0, resB1Y0, resB1X1, resB1Y1   ' VIDARE
+        resTop2 = resB1Y1 + Int(RH * 14 / 1080)
+        BtnGeom strMainMenu$, RW \ 2, resTop2, resB2X0, resB2Y0, resB2X1, resB2Y1   ' HUVUDMENY
+        resEscY = resB2Y1 + Int(RH * 18 / 1080)
+        resPanelHalf = (resB2Y1 + Int(RH * 40 / 1080)) - RH \ 2   ' panel rymmer allt
         mb = 0
         While _MouseInput: WEND
         mx = _MouseX: my = _MouseY
@@ -426,7 +455,7 @@ Do
         ' rendera resultatmenyn: statistik + två knappar (samma stil som huvudmenyn)
         _Dest display&
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
-        Line (RW \ 2 - 860, RH \ 2 - 215)-(RW \ 2 + 859, RH \ 2 + 214), _RGB32(255, 200, 0), B
+        Line (RW \ 2 - 860, RH \ 2 - resPanelHalf)-(RW \ 2 + 859, RH \ 2 + resPanelHalf - 1), _RGB32(255, 200, 0), B
         t% = winTime                 ' ALLTID fryst tid i result (regressionsfix: ej CurRunTime här)
         mm% = t% \ 60: ss% = t% - mm% * 60
         sc$ = strScore$ + " " + LTrim$(Str$(score))
@@ -435,23 +464,23 @@ Do
         sh$ = strShots$ + " " + LTrim$(Str$(shotsFired))
         dm$ = strDmg$ + " " + LTrim$(Str$(dmgTaken))
         Color _RGB32(255, 200, 0)
-        _PrintString ((RW - Len(strWin$) * 8) \ 2, RH \ 2 - 140), strWin$
+        _PrintString ((RW - Len(strWin$) * 8) \ 2, RH \ 2 - Int(RH * 185 / 1080)), strWin$
         Color _RGB32(255, 255, 255)
-        _PrintString ((RW - Len(tm$) * 8) \ 2, RH \ 2 - 95), tm$
-        _PrintString ((RW - Len(sh$) * 8) \ 2, RH \ 2 - 70), sh$
-        _PrintString ((RW - Len(dm$) * 8) \ 2, RH \ 2 - 45), dm$
-        _PrintString ((RW - Len(sc$) * 8) \ 2, RH \ 2 - 20), sc$
+        _PrintString ((RW - Len(tm$) * 8) \ 2, RH \ 2 - Int(RH * 145 / 1080)), tm$
+        _PrintString ((RW - Len(sh$) * 8) \ 2, RH \ 2 - Int(RH * 120 / 1080)), sh$
+        _PrintString ((RW - Len(dm$) * 8) \ 2, RH \ 2 - Int(RH * 95 / 1080)), dm$
+        _PrintString ((RW - Len(sc$) * 8) \ 2, RH \ 2 - Int(RH * 70 / 1080)), sc$
         Color _RGB32(150, 150, 150)
-        _PrintString ((RW - Len(bs2$) * 8) \ 2, RH \ 2 - 0), bs2$
+        _PrintString ((RW - Len(bs2$) * 8) \ 2, RH \ 2 - Int(RH * 45 / 1080)), bs2$
         If newRecord Then
             Color _RGB32(255, 80, 80)
-            _PrintString ((RW - Len(strNewRec$) * 8) \ 2, RH \ 2 + 25), strNewRec$
+            _PrintString ((RW - Len(strNewRec$) * 8) \ 2, RH \ 2 - Int(RH * 20 / 1080)), strNewRec$
         End If
         ' två knappar via samma widget som huvudmenyn (samma palett)
         DrawButton resB1X0, resB1Y0, resB1X1, resB1Y1, strNextMap$, (hoverR = 1)
         DrawButton resB2X0, resB2Y0, resB2X1, resB2Y1, strMainMenu$, (hoverR = 2)
         Color _RGB32(150, 150, 150)
-        _PrintString ((RW - Len(strEscMenu$) * 8) \ 2, RH \ 2 + 195), strEscMenu$
+        _PrintString ((RW - Len(strEscMenu$) * 8) \ 2, resEscY), strEscMenu$
         Color _RGB32(110, 110, 140)
         _PrintString (RW - Len(ver$ + " " + strBuild$) * 8 - 16, RH - 24), ver$ + " " + strBuild$
         _Display
@@ -1377,10 +1406,30 @@ Sub LogMouse (msg$)
     Close #mf
 End Sub
 
+' BtnGeom: beräknar knapp-rektangel utifrån label — boxen skalar med texten.
+' cx = mitt-x, topY = övre kant; x0/y0/x1/y1 returneras (QB64 skickar by-ref).
+' Bredd = _PrintWidth(label$) + 2*padX, höjd = _FontHeight + 2*padY (ca 1,2-1,5x
+' ursprunglig knapp-höjd när texten är 2x). Fungerar även utan TTF (fallback).
+Sub BtnGeom (label$, cx, topY, x0, y0, x1, y1)
+    f& = _Font              ' spara nuvarande font
+    If btnFont& > 0 Then _Font btnFont&
+    tw = _PrintWidth(label$)
+    th = _FontHeight
+    _Font f&                ' återställ direkt — mätningen är klar
+    padX = Int(btnFontSize * 0.9): If padX < 12 Then padX = 12
+    padY = Int(btnFontSize * 5 / 8): If padY < 8 Then padY = 8
+    bw2 = tw + padX * 2: bh2 = th + padY * 2
+    x0 = cx - bw2 \ 2: y0 = topY
+    x1 = x0 + bw2: y1 = y0 + bh2
+End Sub
+
 ' DrawButton: EN knapp-widget för huvudmenyn + resultatmenyn (samma palett).
 ' Palett (hover-kontrast, beslut 2026-11-23):
 '   normal: fill RGB(30,30,70), text RGB(255,255,255), vit kant, svart skugga
 '   hover:  fill RGB(255,200,0) (amber), text RGB(0,0,0), vit kant, ingen skugga
+' Stor text via riktig TTF-font (_FONT btnFont&, ~2x HUD) — INGEN _PutImage/
+' fontBuf (bild-skalning kraschade "Invalid expression" i denna QB64-PE-version).
+' _FONT och _PRINTMODE återställs ALLTID innan Sub avslutas — inget spill.
 Sub DrawButton (bx0, by0, bx1, by1, label$, hovered)
     bw = bx1 - bx0: bh = by1 - by0
     If hovered Then
@@ -1391,22 +1440,21 @@ Sub DrawButton (bx0, by0, bx1, by1, label$, hovered)
         tc& = _RGB32(255, 255, 255)
     End If
     Line (bx0, by0)-(bx1, by1), _RGB32(255, 255, 255), B
-    ' större text: label renderas i fontBuf& (transparent bg) och skalas 2x via _PutImage
-    _Dest fontBuf&
-    _PrintMode _KeepBackground   ' transparent text-bakgrund (ingen svart ruta)
-    Line (0, 0)-(511, 39), _RGBA32(0, 0, 0, 0), BF
+    f& = _Font              ' spara nuvarande font (aldrig tömd, alltid återställd)
+    If btnFont& > 0 Then _Font btnFont&   ' stor TTF-text; 0 = fallback inbyggd font
+    _PrintMode _KeepBackground   ' transparent text-bakgrund (ingen ruta bakom label)
+    tw = _PrintWidth(label$): th = _FontHeight
+    tx = bx0 + (bw - tw) \ 2
+    ty = by0 + (bh - th) \ 2
+    so = btnFontSize \ 16: If so < 1 Then so = 1   ' skugg-offset skalad med fonten
     If hovered = 0 Then
         Color _RGB32(0, 0, 0)
-        _PrintString (2, 2), label$   ' skugga bara i normal-läge
+        _PrintString (tx + so, ty + so), label$   ' skugga bara i normal-läge
     End If
     Color tc&
-    _PrintString (0, 0), label$
-    _Dest display&
-    _PrintMode _FillBackground
-    sw = Len(label$) * 8 + 3: sh = 34
-    tx = bx0 + (bw - sw * 2) \ 2
-    ty = by0 + (bh - sh * 2) \ 2
-    _PutImage (tx, ty)-(tx + sw * 2 - 1, ty + sh * 2 - 1), fontBuf&, (0, 0)-(sw - 1, sh - 1)
+    _PrintString (tx, ty), label$
+    _PrintMode _FillBackground   ' återställ default-läge
+    _Font f&                     ' återställ föregående font — inget _FONT-spill
 End Sub
 
 ' LOSCheck: DDA-stråle från (fx,fy) till (tx,ty); losOK=1 om ingen väggcell på vägen
@@ -1760,12 +1808,17 @@ SelftestDrive:
             If testFlag = 4 And state$ = "menu" Then
                 stMsg$ = "PASS fas12c-huvudmeny-klick (klick på HUVUDMENY -> state=menu)"
                 Gosub STLog
-                stMsg$ = "SELFTEST OK"
+                testFlag = 5: testT0 = Timer   ' låt meny-branchen rendera EN frame (fas12d) innan End
+            ElseIf testFlag = 4 And Timer - testT0 >= 3 Then
+                stMsg$ = "FAIL fas12c state=" + state$ + " (förväntade menu efter HUVUDMENY-klick)"
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
                 Gosub STLog
                 ShutdownSound
                 End
-            ElseIf testFlag = 4 And Timer - testT0 >= 3 Then
-                stMsg$ = "FAIL fas12c state=" + state$ + " (förväntade menu efter HUVUDMENY-klick)"
+            End If
+            If testFlag = 5 And Timer - testT0 >= 3 Then
+                stMsg$ = "FAIL fas12d state=" + state$ + " (meny-branchen renderade ej inom 3s)"
                 Gosub STLog
                 stMsg$ = "SELFTEST FAIL"
                 Gosub STLog
