@@ -102,7 +102,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "e3b879c"
+Const strBuild$ = "f9e203c"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -373,6 +373,7 @@ Do
             Gosub SpawnEnemies   ' Fas 3: fiender respawnas också vid full reset
             hpMsg$ = "": hpMsgTime = 0
             lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
+            mvF = 0: mvB = 0: mvL = 0: mvR = 0: turnL = 0: turnR = 0: fireBtn = 0: _KeyClear
             fading = 0: deathTime = 0
             hover = 0: prevHover = 0
             state$ = "menu"
@@ -442,13 +443,23 @@ Do
             Gosub SpawnEnemies
             hpMsg$ = "": hpMsgTime = 0
             lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
+            mvF = 0: mvB = 0: mvL = 0: mvR = 0: turnL = 0: turnR = 0: fireBtn = 0: _KeyClear
             fading = 0: deathTime = 0: hover = 0: prevHover = 0: winPending = 0: winTime = -1
             runT0 = Timer: shotsFired = 0: dmgTaken = 0
             LogMouse "SHOW result-ESC/HUVUDMENY->menu"
             If mouseShown = 0 Then _MOUSESHOW: mouseShown = 1   ' guard: show en gång per övergång
             state$ = "menu"
         ElseIf mb And hoverR = 1 Then
-            ' VIDARE: samma StartRun som huvudmenyns START (fade + lås vid fade-slut)
+            ' VIDARE: lås pekaren DIREKT vid klicket (samma frame) — Wayland
+            ' beviljar pointer-lock av mus-gesten (klicket). Då är mode=DISABLED
+            ' under HELA faden och GLFW-interna enter-drivna set_cursor(show) i
+            ' wl_window.c (processPointerEnterSurface -> _glfwSetCursorWayland vid
+            ' mode=NORMAL) kan inte återvisa pekaren under faden.
+            ' _MOUSEMOVE-centreringen ligger kvar vid fade-slut. mouseShown-guarden
+            ' behålls. HUVUDMENY/ESC visar pekaren i menyn som tidigare (ingen DISABLE där).
+            LogMouse "HIDE_DISABLE vid VIDARE-klick (direkt, ej vid fade-slut)"
+            _MOUSEHIDE _DISABLE
+            mouseShown = 0
             Gosub StartRun
             SOUND 300, 2: SOUND 150, 3
         End If
@@ -497,32 +508,43 @@ Do
         hpMsgTime = Timer
         PlaySound SND_HURT
     End If
-    If k$ = Chr$(0) + "K" Or _KeyDown(19200) Then angle = angle - turnStep * speed
-    If k$ = Chr$(0) + "M" Or _KeyDown(19712) Then angle = angle + turnStep * speed
+    ' RÖRELSE-FLAGGOR: sätts FRESH varje frame från tangentbordet (k$ + _KeyDown).
+    ' Nollställs vid ALLA state-övergångar (StartRun + reset-blocken) så inget
+    ' rörelse-state överlever en övergång — annars kan spelaren gå framåt
+    ' automatiskt efter VIDARE (fastnat _KeyDown/key-repeat över övergången).
+    mvF = 0: mvB = 0: mvL = 0: mvR = 0: turnL = 0: turnR = 0
+    If k$ = "w" Or k$ = "W" Or _KeyDown(Asc("W")) Or _KeyDown(Asc("w")) Then mvF = 1
+    If k$ = "s" Or k$ = "S" Or _KeyDown(Asc("S")) Or _KeyDown(Asc("s")) Then mvB = 1
+    If k$ = "a" Or k$ = "A" Or _KeyDown(Asc("A")) Or _KeyDown(Asc("a")) Then mvL = 1
+    If k$ = "d" Or k$ = "D" Or _KeyDown(Asc("D")) Or _KeyDown(Asc("d")) Then mvR = 1
+    If k$ = Chr$(0) + "K" Or _KeyDown(19200) Then turnL = 1
+    If k$ = Chr$(0) + "M" Or _KeyDown(19712) Then turnR = 1
+    If turnL Then angle = angle - turnStep * speed
+    If turnR Then angle = angle + turnStep * speed
 
     dirX = Cos(angle)
     dirY = Sin(angle)
     ox = px: oy = py   ' före rörelse, för fotstegs-ackumulatorn
 
-    If k$ = "w" Or k$ = "W" Or _KeyDown(Asc("W")) Or _KeyDown(Asc("w")) Then
+    If mvF Then
         nx = px + dirX * moveStep * speed
         ny = py + dirY * moveStep * speed
         If Mid$(mapRow$(Int(py)), Int(nx + Sgn(nx - px) * 0.2) + 1, 1) <> "#" Then px = nx
         If Mid$(mapRow$(Int(ny + Sgn(ny - py) * 0.2)), Int(px) + 1, 1) <> "#" Then py = ny
     End If
-    If k$ = "s" Or k$ = "S" Or _KeyDown(Asc("S")) Or _KeyDown(Asc("s")) Then
+    If mvB Then
         nx = px - dirX * moveStep * speed
         ny = py - dirY * moveStep * speed
         If Mid$(mapRow$(Int(py)), Int(nx + Sgn(nx - px) * 0.2) + 1, 1) <> "#" Then px = nx
         If Mid$(mapRow$(Int(ny + Sgn(ny - py) * 0.2)), Int(px) + 1, 1) <> "#" Then py = ny
     End If
-    If k$ = "a" Or k$ = "A" Or _KeyDown(Asc("A")) Or _KeyDown(Asc("a")) Then
+    If mvL Then
         nx = px + dirY * moveStep * 0.6 * speed
         ny = py - dirX * moveStep * 0.6 * speed
         If Mid$(mapRow$(Int(py)), Int(nx + Sgn(nx - px) * 0.2) + 1, 1) <> "#" Then px = nx
         If Mid$(mapRow$(Int(ny + Sgn(ny - py) * 0.2)), Int(px) + 1, 1) <> "#" Then py = ny
     End If
-    If k$ = "d" Or k$ = "D" Or _KeyDown(Asc("D")) Or _KeyDown(Asc("d")) Then
+    If mvR Then
         nx = px - dirY * moveStep * 0.6 * speed
         ny = py + dirX * moveStep * 0.6 * speed
         If Mid$(mapRow$(Int(py)), Int(nx + Sgn(nx - px) * 0.2) + 1, 1) <> "#" Then px = nx
@@ -1394,6 +1416,11 @@ StartRun:
     lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
     deathTime = 0: hover = 0: prevHover = 0: winPending = 0: winTime = -1
     runT0 = Timer: shotsFired = 0: dmgTaken = 0
+    ' SKYDD mot fastnad rörelse efter övergång (t.ex. VIDARE): nollställ ALLE
+    ' rörelse-flaggor INNAN state=fadeout och töm tangentbords-buffertarna
+    ' (INKEY$/_KEYHIT) så inga key-repeats från föregående skärm överlever.
+    mvF = 0: mvB = 0: mvL = 0: mvR = 0: turnL = 0: turnR = 0: fireBtn = 0
+    _KeyClear
     state$ = "fadeout"
     fadeT0 = Timer
     Return
@@ -1782,8 +1809,18 @@ SelftestDrive:
                 End
             End If
             If testFlag = 2 And state$ = "playing" Then
-                stMsg$ = "PASS fas12b-vidare-klick (klick på VIDARE -> state=playing)"
-                Gosub STLog
+                ' SKYDD-check: inga rörelse-flaggor får överleva VIDARE-övergången
+                If mvF = 0 And mvB = 0 And mvL = 0 And mvR = 0 And turnL = 0 And turnR = 0 And fireBtn = 0 Then
+                    stMsg$ = "PASS fas12b-vidare-klick (klick på VIDARE -> state=playing, rörelse-flaggor=0 vid start)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas12b-rorelse-flaggor mvF=" + Str$(mvF) + " mvB=" + Str$(mvB) + " mvL=" + Str$(mvL) + " mvR=" + Str$(mvR) + " turnL=" + Str$(turnL) + " turnR=" + Str$(turnR) + " fireBtn=" + Str$(fireBtn)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
                 For i = 0 To 10: enActive(i) = 0: Next i   ' kill-all igen för fas12c
                 winPending = 0
                 testFlag = 3: testT0 = Timer
