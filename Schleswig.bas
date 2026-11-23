@@ -138,7 +138,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "97688f7"
+Const strBuild$ = "5f4178b"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -221,12 +221,36 @@ Const ET_FOOT = 0
 Const ET_OFFICER = 1
 Const ET_MUSKETEER = 2
 Const ET_CAPTAIN = 3
-Const ET_COUNT = 4
+Const ET_GENERAL = 4
+Const ET_COUNT = 5
+Const ET_BOSS_STEP = 5          ' general spawns on waves 5, 10, 15, ... (max 1 per wave)
 DIM etHP(ET_COUNT), etDmg(ET_COUNT), etZigAmp(ET_COUNT), etShoot(ET_COUNT), etSpr(ET_COUNT)
 DIM etSpd!(ET_COUNT), etDodge!(ET_COUNT), etHold!(ET_COUNT), etCol&(ET_COUNT), etName$(ET_COUNT)
+DIM etFireT!(ET_COUNT), etProjSpd!(ET_COUNT), etProjDmg(ET_COUNT)          ' ranged: fire interval, ball speed/dmg
+DIM etMortarT!(ET_COUNT), etSplashR!(ET_COUNT), etSplashDmg(ET_COUNT)       ' mortar: flight time, splash radius/dmg
+DIM etScale!(ET_COUNT), etMinWave(ET_COUNT)                                 ' sprite scale + spawn gating wave
 DIM enType(10), enZigX(10), enZigY(10), enZigT(10), enZigS(10)   ' per-enemy type + zigzag target cell / re-roll timer / side sign
+DIM enFireT(10)                                                   ' Fas 4B: next allowed fire time per enemy (ranged types)
 DIM waveNo, killsTotal                                  ' spawn-wave counter / total kills (captain gate)
 DIM SHARED dodgeSeed&                                   ' dedicated seedable LCG for dodge rolls (read inside Function DodgeRnd#)
+DIM SHARED aiSeed&                                      ' Fas 4B: dedicated seedable LCG for enemy AI spread (Function AiRnd#)
+' Fas 4B: projectile pool (replaces hitscan). Per projectile: position, unit
+' dir, speed (cells/s, dt-scaled), owner (0=player, 1=enemy), damage, type
+' (PR_BALL/PR_MORTAR), source type (for splash params), and for MORTAR the
+' target cell + land time. Cleared on every wave start (SpawnEnemies).
+Const PR_BALL = 1
+Const PR_MORTAR = 2
+Const PR_MAX = 31
+Const plrBallSpd! = 6     ' player musket ball: slow, period-correct
+Const plrBallDmg = 1      ' same damage per hit as the old hitscan (balance unchanged)
+DIM prX(PR_MAX), prY(PR_MAX), prDX(PR_MAX), prDY(PR_MAX), prActive(PR_MAX)
+DIM prSpd!(PR_MAX), prOwner(PR_MAX), prDmg(PR_MAX), prType(PR_MAX), prSrcType(PR_MAX)
+DIM prTX(PR_MAX), prTY(PR_MAX), prLandT(PR_MAX)
+DIM projSpawned                                           ' diagnostics/selftest counter
+DIM pvx, pvy                                              ' player velocity (cells/s) — mortar lead
+' SpawnProjectile caller params (globals, gosub-style):
+DIM spX, spY, spDX, spDY, spSpd!, spOwner, spDmg, spType, spSrcType, spTX, spTY, spLandT, spSlot
+DIM hitE, hitDmg                                          ' EnemyTakeHit params
 ' ======== LJUD (Fas 4): procedurell PCM via _SNDOPENRAW/_SNDRAWBATCH =========
 ' Data-drivet register: id -> vågform/frekvenssvep/längd/volym (InitSounds).
 ' Nya ljud (vapen/fiendetyper) kopplas via registret + GenSample#, INTE via
@@ -240,7 +264,8 @@ Const SND_HURT = 5            ' player-skada: mörk fyrkant
 Const SND_ALERT = 6           ' detect-alert: två-ton (PATROLL->JAKT)
 Const SND_STEP = 7            ' fotsteg spelare
 Const SND_ESTEP = 8           ' fotsteg fiende (volym efter avstånd)
-Const SND_COUNT = 8
+Const SND_BOOM = 9            ' Fas 4B: mortar-landning (långt brus)
+Const SND_COUNT = 9
 ' OBS: DIM SHARED är NÖDVÄNDIGT här — variabler som bara används inuti SUBs
 ' (InitSounds/GenSample#/PlaySoundVol) blir annars sub-lokala i QB64-PE och
 ' sndPipe& läser alltid 0 där -> alla ljud tysta no-op (ljud-debug 2026-11-23).
@@ -264,7 +289,7 @@ DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
 selftest = 0
 cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, bara LTrim$/RTrim$
 If cmdArg$ = "selftest" Then selftest = 1
-If selftest Then Randomize 987654: dodgeSeed& = 987654   ' Fas 4A: seeded RNG in selftest -> deterministic zigzag/dodge tests
+If selftest Then Randomize 987654: dodgeSeed& = 987654: aiSeed& = 13579   ' Fas 4A/4B: seeded RNG in selftest -> deterministic zigzag/dodge/spread tests
 testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFlag = 0
 Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 ' Highscore: nollställ counters, ladda bästa score från lokal fil (.schleswig_scores.txt)
@@ -309,6 +334,7 @@ Else
     Gosub SpawnEnemies
     Randomize Timer
     dodgeSeed& = Int(Timer * 1000000) And &H7FFFFFFF: If dodgeSeed& <= 0 Then dodgeSeed& = 1   ' Fas 4A: random dodge stream in real play
+    aiSeed& = Int(Timer * 7777777) And &H7FFFFFFF: If aiSeed& <= 0 Then aiSeed& = 1         ' Fas 4B: random AI stream in real play
 End If
 
 frames = 0
@@ -741,6 +767,9 @@ Do
         If Mid$(mapRow$(Int(ny + Sgn(ny - py) * 0.2)), Int(px) + 1, 1) <> "#" Then py = ny
     End If
 
+    ' Fas 4B: player velocity (cells/s) — used by the general's mortar lead
+    pvx = (px - ox) / dt: pvy = (py - oy) / dt
+
     ' Fas 4: fotsteg spelare — var 0.5 cell gångavstånd (rytm følger hastigheten)
     stepAcc = stepAcc + Sqr((px - ox) ^ 2 + (py - oy) ^ 2)
     If stepAcc >= 0.5 Then stepAcc = 0: PlaySound SND_STEP
@@ -969,6 +998,39 @@ Do
                 Case 2   ' ANFALL: står kvar och slår (själva skadan kommer nedan)
                     If edist > 1.2 Then enState(i) = 1
             End Select
+            ' Fas 4B: ranged attack (etShoot: 1 = BALL, 2 = MORTAR). Requires LOS
+            ' (enSeen from pass 1) + fire interval per enemy (enFireT).
+            ' Musketeer fires only inside his hold band (3-5 cells); the general
+            ' lobs a MORTAR at the player's PREDICTED position (pos + vel * flygtid).
+            If etShoot(enType(i)) > 0 And enSeen(i) And Timer >= enFireT(i) Then
+                If etShoot(enType(i)) = 1 And edist >= 3 And edist <= 5.5 Then
+                    adx = px - enX(i): ady = py - enY(i)
+                    ad = Sqr(adx * adx + ady * ady): If ad < 0.01 Then adx = 1: ady = 0: ad = 1
+                    spr! = (AiRnd# - 0.5) * 0.12   ' small seeded spread
+                    ca = Cos(spr!): sa = Sin(spr!)
+                    spX = enX(i): spY = enY(i)
+                    spDX = (adx * ca - ady * sa) / ad: spDY = (adx * sa + ady * ca) / ad
+                    spSpd! = etProjSpd!(enType(i)): spOwner = 1
+                    spDmg = etProjDmg(enType(i)): spType = PR_BALL
+                    spSrcType = enType(i): spTX = 0: spTY = 0: spLandT = 0
+                    Gosub SpawnProjectile
+                    PlaySoundVol SND_SHOT, 0.5
+                    enFireT(i) = Timer + etFireT!(enType(i))
+                ElseIf etShoot(enType(i)) = 2 And edist < 12 Then
+                    ft! = etMortarT!(enType(i))
+                    mtx = Int(px + pvx * ft!): mty = Int(py + pvy * ft!)
+                    If mtx < 0 Then mtx = 0: If mtx > 15 Then mtx = 15
+                    If mty < 0 Then mty = 0: If mty > 15 Then mty = 15
+                    If Mid$(mapRow$(mty), mtx + 1, 1) = "#" Then mtx = Int(px): mty = Int(py)
+                    spX = enX(i): spY = enY(i): spDX = 0: spDY = 0: spSpd! = 0
+                    spOwner = 1: spDmg = 0: spType = PR_MORTAR
+                    spSrcType = enType(i): spTX = mtx: spTY = mty
+                    spLandT = Timer + ft!
+                    Gosub SpawnProjectile
+                    PlaySoundVol SND_SHOT, 0.4
+                    enFireT(i) = Timer + etFireT!(enType(i))
+                End If
+            End If
             ' Fas 4: fotsteg fiende — var 0.5 cell rörelse, volym dämpad med avstånd
             enStepAcc(i) = enStepAcc(i) + Sqr((enX(i) - oex) ^ 2 + (enY(i) - oey) ^ 2)
             If enStepAcc(i) >= 0.5 Then
@@ -989,6 +1051,9 @@ Do
             End If
         End If
     Next i
+
+    ' Fas 4B: projectile physics (balls fly + collide, mortars land + splash)
+    Gosub UpdateProjectiles
 
     ' ======== SKJUTNING: vänster musknapp (fireBtn), cooldown 0.3 s ========
     If fireBtn And Timer - lastShotTime >= 0.3 Then
@@ -1015,54 +1080,15 @@ Do
             Loop Until Mid$(mapRow$(mapY), mapX + 1, 1) = "#"
             If sdx < sdy Then hitDist = sdx - ddx Else hitDist = sdy - ddy
             If hitDist < 0.2 Then hitDist = 0.2
-            flashDist = hitDist
-            ' Fas 3: fiende-träff — närmaste aktiva fienden inom vinkeltolerans
-            ' (halv bredd 0.35 tiles sedd från spelaren) OCH närmare än vägg-träffen
-            ' tar 1 skada; hp=0 -> fienden dör (enActive=0)
-            bestE = -1
-            bestD = hitDist
-            For i = 0 To 10
-                If enActive(i) Then
-                    fdx = enX(i) - px
-                    fdy = enY(i) - py
-                    fdist = Sqr(fdx * fdx + fdy * fdy)
-                    If fdist > 0.05 And fdist < bestD Then
-                        fang = _ATan2(fdy, fdx) - angle
-                        While fang > 3.14159265: fang = fang - 6.2831853: Wend
-                        While fang < -3.14159265: fang = fang + 6.2831853: Wend
-                        If Abs(fang) <= Atn(0.35 / fdist) Then
-                            bestE = i
-                            bestD = fdist
-                        End If
-                    End If
-                End If
-            Next i
-            If bestE >= 0 Then
-                enHP(bestE) = enHP(bestE) - 1
-                flashDist = bestD
-                If enHP(bestE) <= 0 Then
-                    enActive(bestE) = 0
-                    killsTotal = killsTotal + 1   ' Fas 4A: total kills gate the captain spawn
-                    hpMsg$ = "ENEMY DOWN"
-                    PlaySound SND_ENDIE
-                    ' TID-FYS vid EXAKT sista killen: räkna levande NU (efter denna
-                    ' död-registrering); om 0 -> frys run-tiden här, första gången.
-                    ' Rundstart/spawn-gap kan ALDRIG nudda detta (ingen kill här).
-                    aliveNow = 0
-                    For j = 0 To 10
-                        If enActive(j) Then aliveNow = aliveNow + 1
-                    Next j
-                    If aliveNow = 0 Then Gosub FreezeAtLastKill
-                Else
-                    hpMsg$ = "HIT"
-                    PlaySound SND_HIT
-                    ' Fas 4A: dodge-on-hit — per-type chance (register etDodge!) of an
-                    ' immediate 1-cell sidestep. Uses the dedicated seedable LCG
-                    ' (DodgeRnd#) so selftest can verify it at a known seed.
-                    If DodgeRnd# < etDodge!(enType(bestE)) Then Gosub EnemyDodge
-                End If
-                hpMsgTime = Timer
-            End If
+            flashDist = hitDist   ' muzzle flash: wall distance only (visual)
+            ' Fas 4B: the player's shot is a real BALL projectile (musket: slow
+            ' ball, period-correct) — same 1 dmg per hit as the old hitscan, so
+            ' balance is unchanged. The ball flies and hits via UpdateProjectiles
+            ' -> EnemyTakeHit (kill bookkeeping + Fas 4A dodge roll live there).
+            spX = px: spY = py: spDX = dirX: spDY = dirY
+            spSpd! = plrBallSpd!: spOwner = 0: spDmg = plrBallDmg: spType = PR_BALL
+            spSrcType = -1: spTX = 0: spTY = 0: spLandT = 0
+            Gosub SpawnProjectile
             flashTime = Timer
         Else
             hpMsg$ = "CLICK"
@@ -1292,8 +1318,8 @@ Do
                 If Abs(eang) < fovCut Then
                     edistP = edist * Cos(eang)   ' perpendikulärt avstånd, samma mått som wallDist
                     ecx = RW / 2 * (1 + Tan(eang) / planeDist)
-                    ew = RW / edist * 0.6      ' bredd i px
-                    eh = RH / edist * 0.9      ' höjd i px (står på golvet)
+                    ew = RW / edist * 0.6 * etScale!(enType(i))      ' bredd i px (Fas 4B: type scale, general is bigger)
+                    eh = RH / edist * 0.9 * etScale!(enType(i))      ' höjd i px (står på golvet)
                     ebase = midY + RH / (2 * edist) + pitch   ' golvlinje vid edist
                     ey0 = ebase - eh
                     ey1 = ebase
@@ -1334,6 +1360,62 @@ Do
                                 For sx = eox2 To eox3
                                     If edistP < wallDist(sx) Then Line (sx, eoy)-(sx, eoy + eo * 2), _RGB32(0, 0, 0)
                                 Next sx
+                            End If
+                        End If
+                    End If
+                End If
+            End If
+        End If
+    Next i
+
+    ' Fas 4B: render flying BALLs (small dot, wall-occluded; white = player's,
+    ' red = enemy's) and MORTAR telegraphs (blinking amber ring on the floor at
+    ' the target cell — visible for the whole flight time).
+    For i = 0 To PR_MAX
+        If prActive(i) Then
+            If prType(i) = PR_BALL Then
+                bdx2 = prX(i) - px: bdy2 = prY(i) - py
+                bdist = Sqr(bdx2 * bdx2 + bdy2 * bdy2)
+                If bdist > 0.05 Then
+                    bang = _ATan2(bdy2, bdx2) - angle
+                    While bang > 3.14159265: bang = bang - 6.2831853: Wend
+                    While bang < -3.14159265: bang = bang + 6.2831853: Wend
+                    If Abs(bang) < fovCut Then
+                        bdistP = bdist * Cos(bang)
+                        bcx2 = RW / 2 * (1 + Tan(bang) / planeDist)
+                        bw2 = RW / bdist * 0.1: bh2 = RH / bdist * 0.1
+                        by0 = midY - bh2 / 2 + pitch: by1 = by0 + bh2
+                        bx0 = Int(bcx2 - bw2 / 2): bx1 = Int(bcx2 + bw2 / 2)
+                        If bx0 < 0 Then bx0 = 0: If bx1 > RW - 1 Then bx1 = RW - 1
+                        If by0 < 0 Then by0 = 0: If by1 > RH - 1 Then by1 = RH - 1
+                        If prOwner(i) = 0 Then bcol& = _RGB32(230, 230, 220) Else bcol& = _RGB32(255, 60, 40)
+                        If by1 > by0 And bx1 >= bx0 Then
+                            For sx = bx0 To bx1
+                                If bdistP < wallDist(sx) Then Line (sx, by0)-(sx, by1), bcol&
+                            Next sx
+                        End If
+                    End If
+                End If
+            Else
+                ' MORTAR telegraph: blinking amber ring at target cell, floor-projected
+                If Int(Timer * 4) Mod 2 = 0 Then
+                    tdx = prTX(i) + 0.5 - px: tdy = prTY(i) + 0.5 - py
+                    tdist = Sqr(tdx * tdx + tdy * tdy)
+                    If tdist > 0.05 Then
+                        tang = _ATan2(tdy, tdx) - angle
+                        While tang > 3.14159265: tang = tang - 6.2831853: Wend
+                        While tang < -3.14159265: tang = tang + 6.2831853: Wend
+                        If Abs(tang) < fovCut Then
+                            tdistP = tdist * Cos(tang)
+                            tcx = Int(RW / 2 * (1 + Tan(tang) / planeDist))
+                            If tcx >= 0 And tcx <= RW - 1 Then
+                                If tdistP < wallDist(tcx) Then
+                                    tgy = midY + RH / (2 * tdistP) + pitch
+                                    trp = RW / tdistP * etSplashR!(prSrcType(i)) * 0.5
+                                    If trp < 4 Then trp = 4
+                                    If trp > RW / 2 Then trp = RW / 2
+                                    If tgy > 0 And tgy < RH Then CIRCLE (tcx, tgy), trp, _RGB32(255, 200, 0)
+                                End If
                             End If
                         End If
                     End If
@@ -1498,15 +1580,17 @@ Do
 LOOP
 
 ' ======== SUBRUTINER (Fas 3 / 3.1) ========
-' InitEnemyTypes (Fas 4A): fills the data-driven enemy-type register.
-' Difficulty via variation, NOT HP swelling. shoot=0 for all types (melee only;
-' ranged weapons arrive in 4B). etCol& is the base body color (distance-shaded
-' at render time); etSpr is the sprite id (single shape for now, used by 4B).
+' InitEnemyTypes (Fas 4A/4B): fills the data-driven enemy-type register.
+' Difficulty via variation, NOT HP swelling. etShoot: 0 = melee only,
+' 1 = fires BALL (musketeer), 2 = fires MORTAR (general). etCol& is the base
+' body color (distance-shaded at render); etSpr sprite id, etScale sprite
+' scale, etMinWave spawn gating wave (general additionally: wave Mod 5 = 0).
 InitEnemyTypes:
-    etName$(ET_FOOT) = "FOOT SOLDIER":  etHP(ET_FOOT) = 3:  etDmg(ET_FOOT) = 10: etSpd!(ET_FOOT) = 0.45: etZigAmp(ET_FOOT) = 1: etDodge!(ET_FOOT) = 0.3: etShoot(ET_FOOT) = 0: etHold!(ET_FOOT) = 0:   etCol&(ET_FOOT) = _RGB32(170, 35, 35):   etSpr(ET_FOOT) = 0
-    etName$(ET_OFFICER) = "OFFICER":    etHP(ET_OFFICER) = 6:  etDmg(ET_OFFICER) = 10: etSpd!(ET_OFFICER) = 0.6:  etZigAmp(ET_OFFICER) = 2: etDodge!(ET_OFFICER) = 0.4: etShoot(ET_OFFICER) = 0: etHold!(ET_OFFICER) = 0:  etCol&(ET_OFFICER) = _RGB32(200, 30, 80):  etSpr(ET_OFFICER) = 0
-    etName$(ET_MUSKETEER) = "MUSKETEER": etHP(ET_MUSKETEER) = 5: etDmg(ET_MUSKETEER) = 10: etSpd!(ET_MUSKETEER) = 0.45: etZigAmp(ET_MUSKETEER) = 1: etDodge!(ET_MUSKETEER) = 0.4: etShoot(ET_MUSKETEER) = 0: etHold!(ET_MUSKETEER) = 4: etCol&(ET_MUSKETEER) = _RGB32(150, 90, 40):  etSpr(ET_MUSKETEER) = 0
-    etName$(ET_CAPTAIN) = "CAPTAIN":    etHP(ET_CAPTAIN) = 12: etDmg(ET_CAPTAIN) = 10: etSpd!(ET_CAPTAIN) = 0.3:  etZigAmp(ET_CAPTAIN) = 0: etDodge!(ET_CAPTAIN) = 0.5:  etShoot(ET_CAPTAIN) = 0: etHold!(ET_CAPTAIN) = 0:   etCol&(ET_CAPTAIN) = _RGB32(230, 180, 40): etSpr(ET_CAPTAIN) = 0
+    etName$(ET_FOOT) = "FOOT SOLDIER":  etHP(ET_FOOT) = 3:  etDmg(ET_FOOT) = 10: etSpd!(ET_FOOT) = 0.45: etZigAmp(ET_FOOT) = 1: etDodge!(ET_FOOT) = 0.3: etShoot(ET_FOOT) = 0: etHold!(ET_FOOT) = 0:   etCol&(ET_FOOT) = _RGB32(170, 35, 35):   etSpr(ET_FOOT) = 0: etScale!(ET_FOOT) = 1:   etMinWave(ET_FOOT) = 1: etFireT!(ET_FOOT) = 0: etProjSpd!(ET_FOOT) = 0: etProjDmg(ET_FOOT) = 0: etMortarT!(ET_FOOT) = 0: etSplashR!(ET_FOOT) = 0: etSplashDmg(ET_FOOT) = 0
+    etName$(ET_OFFICER) = "OFFICER":    etHP(ET_OFFICER) = 6:  etDmg(ET_OFFICER) = 10: etSpd!(ET_OFFICER) = 0.6:  etZigAmp(ET_OFFICER) = 2: etDodge!(ET_OFFICER) = 0.4: etShoot(ET_OFFICER) = 0: etHold!(ET_OFFICER) = 0:  etCol&(ET_OFFICER) = _RGB32(200, 30, 80):  etSpr(ET_OFFICER) = 0: etScale!(ET_OFFICER) = 1.1: etMinWave(ET_OFFICER) = 3: etFireT!(ET_OFFICER) = 0: etProjSpd!(ET_OFFICER) = 0: etProjDmg(ET_OFFICER) = 0: etMortarT!(ET_OFFICER) = 0: etSplashR!(ET_OFFICER) = 0: etSplashDmg(ET_OFFICER) = 0
+    etName$(ET_MUSKETEER) = "MUSKETEER": etHP(ET_MUSKETEER) = 5: etDmg(ET_MUSKETEER) = 10: etSpd!(ET_MUSKETEER) = 0.45: etZigAmp(ET_MUSKETEER) = 1: etDodge!(ET_MUSKETEER) = 0.4: etShoot(ET_MUSKETEER) = 1: etHold!(ET_MUSKETEER) = 4: etCol&(ET_MUSKETEER) = _RGB32(150, 90, 40):  etSpr(ET_MUSKETEER) = 0: etScale!(ET_MUSKETEER) = 1: etMinWave(ET_MUSKETEER) = 4: etFireT!(ET_MUSKETEER) = 1.2: etProjSpd!(ET_MUSKETEER) = 5: etProjDmg(ET_MUSKETEER) = 10: etMortarT!(ET_MUSKETEER) = 0: etSplashR!(ET_MUSKETEER) = 0: etSplashDmg(ET_MUSKETEER) = 0
+    etName$(ET_CAPTAIN) = "CAPTAIN":    etHP(ET_CAPTAIN) = 12: etDmg(ET_CAPTAIN) = 10: etSpd!(ET_CAPTAIN) = 0.3:  etZigAmp(ET_CAPTAIN) = 0: etDodge!(ET_CAPTAIN) = 0.5:  etShoot(ET_CAPTAIN) = 0: etHold!(ET_CAPTAIN) = 0:   etCol&(ET_CAPTAIN) = _RGB32(230, 180, 40): etSpr(ET_CAPTAIN) = 0: etScale!(ET_CAPTAIN) = 1.25: etMinWave(ET_CAPTAIN) = 3: etFireT!(ET_CAPTAIN) = 0: etProjSpd!(ET_CAPTAIN) = 0: etProjDmg(ET_CAPTAIN) = 0: etMortarT!(ET_CAPTAIN) = 0: etSplashR!(ET_CAPTAIN) = 0: etSplashDmg(ET_CAPTAIN) = 0
+    etName$(ET_GENERAL) = "GENERAL":    etHP(ET_GENERAL) = 25: etDmg(ET_GENERAL) = 10: etSpd!(ET_GENERAL) = 0.2:  etZigAmp(ET_GENERAL) = 0: etDodge!(ET_GENERAL) = 0:    etShoot(ET_GENERAL) = 2: etHold!(ET_GENERAL) = 0:   etCol&(ET_GENERAL) = _RGB32(30, 90, 40):   etSpr(ET_GENERAL) = 0: etScale!(ET_GENERAL) = 1.4: etMinWave(ET_GENERAL) = ET_BOSS_STEP: etFireT!(ET_GENERAL) = 3: etProjSpd!(ET_GENERAL) = 0: etProjDmg(ET_GENERAL) = 0: etMortarT!(ET_GENERAL) = 1.8: etSplashR!(ET_GENERAL) = 1.5: etSplashDmg(ET_GENERAL) = 25
     Return
 
 ' SpawnEnemies: startlägen för fiende-poolen (öppna rutor på kartan).
@@ -1529,7 +1613,9 @@ SpawnEnemies:
         enTx(i) = 0: enTy(i) = 0
         enType(i) = ET_FOOT
         enZigX(i) = 0: enZigY(i) = 0: enZigT(i) = 0: enZigS(i) = 1
+        enFireT(i) = 0      ' Fas 4B: ranged fire timer
     Next i
+    For i = 0 To PR_MAX: prActive(i) = 0: Next i   ' Fas 4B: clear projectile pool on wave start
     bfsForX = -1: bfsForY = -1
     ' Spawn-balans (2026-11-23): en0/en3 flyttade bort från startspawn (8.5,4.5) -
     ' tidigare hade en0 (13.5,4.5) fri LOS i rad 4 (dist 5) och en3 (5.5,1.5) fri LOS
@@ -1544,22 +1630,32 @@ SpawnEnemies:
     enLx(2) = enX(2): enLy(2) = enY(2): enTx(2) = 2: enTy(2) = 12
     enX(3) = 2.5:  enY(3) = 1.5:  enActive(3) = 1
     enLx(3) = enX(3): enLy(3) = enY(3): enTx(3) = 2: enTy(3) = 1
-    ' Fas 4A spawn-mix per wave: slots 0-2 always FOOT SOLDIER (majority); slot 3
-    ' weighted officer/musketeer; CAPTAIN only when killsTotal > 5 (never wave 1).
-    ' HP/dmg/speed are applied from the type register (data-driven).
+    ' Fas 4A/4B spawn-mix per wave (gated progression, data-driven via etMinWave):
+    ' slots 0-2 always FOOT SOLDIER (majority). Slot 3 weighted officer/musketeer/
+    ' captain — each gated by its etMinWave AND (captain) killsTotal > 5, so waves
+    ' 1-2 are ALL foot soldiers. Boss waves (waveNo >= 5 and Mod 5 = 0): slot 3 is
+    ' ALWAYS the GENERAL (max 1 per wave). HP/dmg/speed come from the register.
     For sl = 0 To 3
         If sl <= 2 Then
             etPick = ET_FOOT
+        ElseIf waveNo >= ET_BOSS_STEP And (waveNo Mod ET_BOSS_STEP) = 0 Then
+            etPick = ET_GENERAL
         Else
             rl = Rnd
-            etPick = ET_OFFICER
-            If rl >= 0.5 Then etPick = ET_MUSKETEER
-            If killsTotal > 5 And rl >= 0.8 Then etPick = ET_CAPTAIN
+            etPick = ET_FOOT
+            If killsTotal > 5 And waveNo >= etMinWave(ET_CAPTAIN) And rl >= 0.85 Then
+                etPick = ET_CAPTAIN
+            ElseIf waveNo >= etMinWave(ET_MUSKETEER) And rl >= 0.6 Then
+                etPick = ET_MUSKETEER
+            ElseIf waveNo >= etMinWave(ET_OFFICER) And rl >= 0.4 Then
+                etPick = ET_OFFICER
+            End If
         End If
         enType(sl) = etPick
         enHP(sl) = etHP(etPick): enDmg(sl) = etDmg(etPick): enSpd(sl) = etSpd!(etPick)
         enZigX(sl) = Int(enX(sl)): enZigY(sl) = Int(enY(sl)): enZigT(sl) = 0
         enZigS(sl) = 1: If Rnd < 0.5 Then enZigS(sl) = -1
+        enFireT(sl) = 0
     Next sl
     Return
 
@@ -1626,6 +1722,7 @@ InitSounds:
     sndWave(SND_ALERT) = 6: sndF0!(SND_ALERT) = 620: sndF1!(SND_ALERT) = 930: sndDur!(SND_ALERT) = 0.35: sndVol!(SND_ALERT) = 0.45
     sndWave(SND_STEP) = 1: sndF0!(SND_STEP) = 0: sndF1!(SND_STEP) = 0: sndDur!(SND_STEP) = 0.045: sndVol!(SND_STEP) = 0.1
     sndWave(SND_ESTEP) = 1: sndF0!(SND_ESTEP) = 0: sndF1!(SND_ESTEP) = 0: sndDur!(SND_ESTEP) = 0.05: sndVol!(SND_ESTEP) = 0.12
+    sndWave(SND_BOOM) = 1: sndF0!(SND_BOOM) = 0: sndF1!(SND_BOOM) = 0: sndDur!(SND_BOOM) = 0.4: sndVol!(SND_BOOM) = 0.5
     stepAcc = 0
     For i = 0 To 10: enAlertT(i) = -99: enStepAcc(i) = 0: Next i
     Return
@@ -1948,6 +2045,155 @@ EnemyDodge:
     Next dtr
     Return
 
+' AiRnd# (Fas 4B): dedicated seedable LCG for enemy AI randomness (musketeer
+' spread etc.) — separate from global Rnd (consumed by sound) and dodgeSeed&.
+Function AiRnd#
+    aiSeed& = (aiSeed& * 1103515245 + 12345) And &H7FFFFFFF
+    AiRnd# = aiSeed& / 2147483647#
+End Function
+
+' EnemyTakeHit (Fas 4B): shared damage path for an enemy hit by a player ball
+' or mortar splash. Caller sets hitE (enemy index) + hitDmg. Kill bookkeeping
+' (killsTotal, last-kill freeze) + Fas 4A dodge roll on non-lethal hits.
+EnemyTakeHit:
+    enHP(hitE) = enHP(hitE) - hitDmg
+    If enHP(hitE) <= 0 Then
+        enActive(hitE) = 0
+        killsTotal = killsTotal + 1   ' Fas 4A: total kills gate the captain spawn
+        hpMsg$ = "ENEMY DOWN"
+        hpMsgTime = Timer
+        PlaySound SND_ENDIE
+        ' freeze run-time at EXACTLY the last kill (same rule as before)
+        aliveNow = 0
+        For aej = 0 To 10
+            If enActive(aej) Then aliveNow = aliveNow + 1
+        Next aej
+        If aliveNow = 0 Then Gosub FreezeAtLastKill
+    Else
+        hpMsg$ = "HIT"
+        hpMsgTime = Timer
+        PlaySound SND_HIT
+        ' Fas 4A: dodge-on-hit (per-type etDodge!, seedable LCG DodgeRnd#)
+        If DodgeRnd# < etDodge!(enType(hitE)) Then bestE = hitE: Gosub EnemyDodge
+    End If
+    Return
+
+' SpawnProjectile (Fas 4B): adds a projectile to the pool. Caller sets spX/spY,
+' spDX/spDY (unit dir), spSpd!, spOwner (0=player, 1=enemy), spDmg, spType
+' (PR_BALL/PR_MORTAR), spSrcType (shooter's type, splash params), and for
+' MORTAR spTX/spTY (target cell) + spLandT (Timer at landing). Slot in spSlot.
+SpawnProjectile:
+    spSlot = -1
+    spi = 0
+    While spi <= PR_MAX And spSlot = -1
+        If prActive(spi) = 0 Then spSlot = spi
+        spi = spi + 1
+    Wend
+    If spSlot = -1 Then Return
+    prActive(spSlot) = 1
+    prX(spSlot) = spX: prY(spSlot) = spY
+    prDX(spSlot) = spDX: prDY(spSlot) = spDY
+    prSpd!(spSlot) = spSpd!: prOwner(spSlot) = spOwner
+    prDmg(spSlot) = spDmg: prType(spSlot) = spType: prSrcType(spSlot) = spSrcType
+    prTX(spSlot) = spTX: prTY(spSlot) = spTY: prLandT(spSlot) = spLandT
+    projSpawned = projSpawned + 1
+    Return
+
+' UpdateProjectiles (Fas 4B): per-frame projectile physics. BALL: short sub-
+' steps (<=0.1 cell) with wall check, then hit test vs enemies (player-owned)
+' or vs player (enemy-owned). MORTAR: flies over obstacles (NO wall check)
+' until prLandT, then MortarLand splash.
+UpdateProjectiles:
+    For pi = 0 To PR_MAX
+        If prActive(pi) Then
+            If prType(pi) = PR_BALL Then
+                move! = prSpd!(pi) * dt
+                steps = Int(move! / 0.1) + 1
+                stp! = move! / steps
+                dead = 0
+                For s = 1 To steps
+                    nx = prX(pi) + prDX(pi) * stp!
+                    ny = prY(pi) + prDY(pi) * stp!
+                    If nx < 0 Or nx > 15.999 Or ny < 0 Or ny > 15.999 Then dead = 1: s = steps
+                    If dead = 0 Then
+                        If Mid$(mapRow$(Int(ny)), Int(nx) + 1, 1) = "#" Then dead = 1: s = steps
+                    End If
+                    If dead = 0 Then prX(pi) = nx: prY(pi) = ny
+                Next s
+                If dead Then prActive(pi) = 0
+                If prActive(pi) Then
+                    If prOwner(pi) = 0 Then
+                        ' player ball vs enemies
+                        For j = 0 To 10
+                            If enActive(j) And prActive(pi) Then
+                                If Sqr((enX(j) - prX(pi)) ^ 2 + (enY(j) - prY(pi)) ^ 2) < 0.35 Then
+                                    hitE = j: hitDmg = prDmg(pi)
+                                    Gosub EnemyTakeHit
+                                    prActive(pi) = 0
+                                End If
+                            End If
+                        Next j
+                    Else
+                        ' enemy ball vs player
+                        If Sqr((px - prX(pi)) ^ 2 + (py - prY(pi)) ^ 2) < 0.35 Then
+                            hp = hp - prDmg(pi)
+                            If hp < 0 Then hp = 0
+                            dmgTaken = dmgTaken + prDmg(pi)   ' highscore: projektil-skada
+                            hpMsg$ = "-" + Str$(prDmg(pi)) + " HP"
+                            hpMsgTime = Timer
+                            PlaySound SND_HURT
+                            prActive(pi) = 0
+                        End If
+                    End If
+                End If
+            Else
+                ' MORTAR: no wall check during flight; lands at prLandT
+                If Timer >= prLandT(pi) Then
+                    Gosub MortarLand
+                    prActive(pi) = 0
+                End If
+            End If
+        End If
+    Next pi
+    Return
+
+' MortarLand (Fas 4B): splash at (prTX+0.5, prTY+0.5) of projectile pi.
+' Full damage within 0.5 cells, linear falloff to 0 at the splash radius.
+' Hits BOTH the player and all enemies (friendly fire).
+MortarLand:
+    cx = prTX(pi) + 0.5: cy = prTY(pi) + 0.5
+    sR! = etSplashR!(prSrcType(pi))
+    sDmg = etSplashDmg(prSrcType(pi))
+    PlaySound SND_BOOM
+    pd = Sqr((px - cx) ^ 2 + (py - cy) ^ 2)
+    If pd <= sR! Then
+        fd! = 1: If pd > 0.5 Then fd! = 1 - (pd - 0.5) / (sR! - 0.5)
+        If fd! < 0 Then fd! = 0
+        dmg = Int(sDmg * fd!)
+        If dmg > 0 Then
+            hp = hp - dmg: If hp < 0 Then hp = 0
+            dmgTaken = dmgTaken + dmg
+            hpMsg$ = "-" + Str$(dmg) + " HP"
+            hpMsgTime = Timer
+            PlaySound SND_HURT
+        End If
+    End If
+    For j = 0 To 10
+        If enActive(j) Then
+            ed = Sqr((enX(j) - cx) ^ 2 + (enY(j) - cy) ^ 2)
+            If ed <= sR! Then
+                fd! = 1: If ed > 0.5 Then fd! = 1 - (ed - 0.5) / (sR! - 0.5)
+                If fd! < 0 Then fd! = 0
+                dmg = Int(sDmg * fd!)
+                If dmg > 0 Then
+                    hitE = j: hitDmg = dmg
+                    Gosub EnemyTakeHit
+                End If
+            End If
+        End If
+    Next j
+    Return
+
 ' STLog: append:a en rad till selftest-loggen (fil + konsol)
 STLog:
     stF = FreeFile
@@ -1965,6 +2211,7 @@ SelftestDrive:
     ' därefter gamla Fas 3-kombattestet: fas5 jakt -> fas6 skada -> fas7 dör av skott -> fas8 spelare dör
     ' fas 9 = spawn-audit: akta SpawnEnemies, ingen fiende far se spelaren vid start (LOS<tröskel)
     ' fas 14 = Fas 4A enemy types: register data, zigzag offset, dodge-on-hit (seeded), spawn-mix wave 1
+    ' fas 15 = Fas 4B projectiles: ball flight/wall, musketeer fire, mortar telegraph+splash, gating
     ' fas 10 = occlusion-audit: pixel-check (POINT) att ögon döljs bakom vägg och pickups rätt
     ' fas 11 = ljud-register-test: PlaySound för alla id, tillstånd ska vara oförändrat
     ' fas 12 = seger-trigger: kill-all -> result-state, inga levande fiender, tangent -> omladdning
@@ -2404,15 +2651,17 @@ SelftestDrive:
                  ' on a seeded shot vs officer, (d) spawn-mix wave 1: no captain
             If testFlag = 0 Then
                 ' (a) register data
-                okA = (etHP(ET_FOOT) = 3 And etHP(ET_OFFICER) = 6 And etHP(ET_MUSKETEER) = 5 And etHP(ET_CAPTAIN) = 12)
-                okA = okA And (etSpd!(ET_OFFICER) > etSpd!(ET_FOOT) And etSpd!(ET_FOOT) = etSpd!(ET_MUSKETEER) And etSpd!(ET_CAPTAIN) < etSpd!(ET_FOOT))
-                okA = okA And (etZigAmp(ET_FOOT) = 1 And etZigAmp(ET_OFFICER) = 2 And etZigAmp(ET_MUSKETEER) = 1 And etZigAmp(ET_CAPTAIN) = 0)
-                okA = okA And (etDodge!(ET_FOOT) = 0.3 And etDodge!(ET_OFFICER) = 0.4 And etDodge!(ET_MUSKETEER) = 0.4 And etDodge!(ET_CAPTAIN) = 0.5)
-                okA = okA And (etShoot(ET_FOOT) = 0 And etShoot(ET_OFFICER) = 0 And etShoot(ET_MUSKETEER) = 0 And etShoot(ET_CAPTAIN) = 0)
+                okA = (etHP(ET_FOOT) = 3 And etHP(ET_OFFICER) = 6 And etHP(ET_MUSKETEER) = 5 And etHP(ET_CAPTAIN) = 12 And etHP(ET_GENERAL) = 25)
+                okA = okA And (etSpd!(ET_OFFICER) > etSpd!(ET_FOOT) And etSpd!(ET_FOOT) = etSpd!(ET_MUSKETEER) And etSpd!(ET_CAPTAIN) < etSpd!(ET_FOOT) And etSpd!(ET_GENERAL) < etSpd!(ET_CAPTAIN))
+                okA = okA And (etZigAmp(ET_FOOT) = 1 And etZigAmp(ET_OFFICER) = 2 And etZigAmp(ET_MUSKETEER) = 1 And etZigAmp(ET_CAPTAIN) = 0 And etZigAmp(ET_GENERAL) = 0)
+                okA = okA And (etDodge!(ET_FOOT) = 0.3 And etDodge!(ET_OFFICER) = 0.4 And etDodge!(ET_MUSKETEER) = 0.4 And etDodge!(ET_CAPTAIN) = 0.5 And etDodge!(ET_GENERAL) = 0)
+                okA = okA And (etShoot(ET_FOOT) = 0 And etShoot(ET_OFFICER) = 0 And etShoot(ET_CAPTAIN) = 0 And etShoot(ET_MUSKETEER) = 1 And etShoot(ET_GENERAL) = 2)
                 okA = okA And (etHold!(ET_MUSKETEER) >= 3 And etHold!(ET_MUSKETEER) <= 5 And etHold!(ET_FOOT) = 0)
-                okA = okA And (etCol&(ET_CAPTAIN) <> etCol&(ET_FOOT) And etCol&(ET_OFFICER) <> etCol&(ET_FOOT))
+                okA = okA And (etCol&(ET_CAPTAIN) <> etCol&(ET_FOOT) And etCol&(ET_OFFICER) <> etCol&(ET_FOOT) And etCol&(ET_GENERAL) <> etCol&(ET_FOOT))
+                okA = okA And (etMinWave(ET_FOOT) = 1 And etMinWave(ET_OFFICER) = 3 And etMinWave(ET_MUSKETEER) = 4 And etMinWave(ET_GENERAL) = 5)
+                okA = okA And (etMortarT!(ET_GENERAL) >= 1.5 And etMortarT!(ET_GENERAL) <= 2 And etSplashR!(ET_GENERAL) > 1 And etSplashDmg(ET_GENERAL) > 0)
                 If okA Then
-                    stMsg$ = "PASS fas14a-register (HP 3/6/5/12, spd officer>foot=musketeer>captain, zig 1/2/1/0, dodge .3/.4/.4/.5, shoot all 0, musketeer hold 3-5, distinct colors)"
+                    stMsg$ = "PASS fas14a-register (HP 3/6/5/12/25, spd officer>foot=musketeer>captain>general, zig 1/2/1/0/0, dodge .3/.4/.4/.5/0, shoot 0/0/1/0/2, musketeer hold 3-5, minWave 1/3/4/3/5, mortar 1.5-2s splash, distinct colors)"
                     Gosub STLog
                 Else
                     stMsg$ = "FAIL fas14a-register hp=" + Str$(etHP(ET_FOOT)) + "/" + Str$(etHP(ET_OFFICER)) + "/" + Str$(etHP(ET_MUSKETEER)) + "/" + Str$(etHP(ET_CAPTAIN)) + " dodge=" + Str$(etDodge!(ET_FOOT)) + "/" + Str$(etDodge!(ET_CAPTAIN)) + " shoot=" + Str$(etShoot(ET_CAPTAIN)) + " hold=" + Str$(etHold!(ET_MUSKETEER))
@@ -2491,10 +2740,10 @@ SelftestDrive:
                             If enType(i) = ET_MUSKETEER Then musN = musN + 1
                         End If
                     Next i
-                    If capN = 0 And footN >= 3 And offN + musN >= 1 Then
-                        stMsg$ = "PASS fas14d-spawn-mix (wave 1: foot=" + Str$(footN) + " officer=" + Str$(offN) + " musketeer=" + Str$(musN) + " captain=" + Str$(capN) + " of 4 active; killsTotal=0 -> captain impossible)"
+                    If capN = 0 And footN = 4 And offN = 0 And musN = 0 Then
+                        stMsg$ = "PASS fas14d-spawn-mix (wave 1 per 4D gating: all 4 FOOT (foot=" + Str$(footN) + " officer=" + Str$(offN) + " musketeer=" + Str$(musN) + " captain=" + Str$(capN) + "), killsTotal=0 -> captain impossible)"
                         Gosub STLog
-                        testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger)
+                        testPhase = 15: testT0 = Timer: testFlag = 0   ' Fas 4B projectile tests
                     Else
                         stMsg$ = "FAIL fas14d-spawn-mix foot=" + Str$(footN) + " officer=" + Str$(offN) + " musketeer=" + Str$(musN) + " captain=" + Str$(capN)
                         Gosub STLog
@@ -2511,6 +2760,238 @@ SelftestDrive:
                     Gosub STLog
                     ShutdownSound
                     End
+                End If
+            End If
+        Case 15  ' FAS 4B projectiles: (a) BALL flies straight, hits enemy, dies at wall,
+                 ' (b) musketeer fires BALL in LOS+band with interval (seeded), NOT
+                 ' without LOS, (c) mortar: telegraph target + flygtid, splash full at
+                 ' center + falloff at edge + friendly fire, (d) general only on waves
+                 ' 5/10/15 (max 1), (e) waves 1-2 all foot soldiers
+            If testFlag = 0 Then
+                ' (a) setup: one FOOT in open row 4, player ball straight +x
+                For i = 0 To 10: enActive(i) = 0: Next i
+                For i = 0 To PR_MAX: prActive(i) = 0: Next i
+                px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 5
+                enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1
+                enType(0) = ET_FOOT: enHP(0) = etHP(ET_FOOT): enDmg(0) = etDmg(ET_FOOT): enSpd(0) = etSpd!(ET_FOOT)
+                enState(0) = 1: enLastSeen(0) = Timer: enLx(0) = px: enLy(0) = py: enCalmT(0) = 0: enLastHit(0) = 0
+                enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                enTx(0) = 11: enTy(0) = 4: enPatrolT(0) = Timer
+                bfsForX = -1: bfsForY = -1
+                projSpawned = 0
+                spX = px: spY = py: spDX = 1: spDY = 0: spSpd! = plrBallSpd!: spOwner = 0: spDmg = plrBallDmg: spType = PR_BALL
+                spSrcType = -1: spTX = 0: spTY = 0: spLandT = 0
+                Gosub SpawnProjectile
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                If prActive(0) = 0 Or Timer - testT0 >= 2 Then
+                    If enHP(0) = etHP(ET_FOOT) - 1 And prX(0) > 10.5 And prX(0) < 12.5 Then
+                        stMsg$ = "PASS fas15a-ball-hit-enemy (ball flew straight +x, hit foot at prX=" + LTrim$(Str$(Int(prX(0) * 100) / 100)) + ", enHP " + Str$(etHP(ET_FOOT)) + "->" + Str$(enHP(0)) + ", ball died on hit)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas15a-ball-hit-enemy enHP=" + Str$(enHP(0)) + " prX=" + LTrim$(Str$(Int(prX(0) * 100) / 100)) + " active=" + Str$(prActive(0))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' second ball: no enemy -> must fly to the wall (cell 15) and die there
+                    enActive(0) = 0
+                    spX = px: spY = py: spDX = 1: spDY = 0: spSpd! = plrBallSpd!: spOwner = 0: spDmg = plrBallDmg: spType = PR_BALL
+                    spSrcType = -1: spTX = 0: spTY = 0: spLandT = 0
+                    Gosub SpawnProjectile
+                    testFlag = 2: testT0 = Timer
+                End If
+            End If
+            If testFlag = 2 Then
+                If prActive(0) = 0 Or Timer - testT0 >= 2 Then
+                    If prX(0) > 13.5 And prX(0) <= 15.5 And Int(prY(0)) = 4 Then
+                        stMsg$ = "PASS fas15a-ball-dies-at-wall (no enemy: ball flew to prX=" + LTrim$(Str$(Int(prX(0) * 100) / 100)) + " row 4 and died at the wall)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas15a-ball-dies-at-wall prX=" + LTrim$(Str$(Int(prX(0) * 100) / 100)) + " prY=" + LTrim$(Str$(Int(prY(0) * 100) / 100))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' (b) setup: musketeer in LOS + hold band (dist 4), seeded spread
+                    For i = 0 To PR_MAX: prActive(i) = 0: Next i
+                    For i = 0 To 10: enActive(i) = 0: Next i
+                    px = 8.5: py = 4.5: angle = 0: hp = 100
+                    enX(0) = 12.5: enY(0) = 4.5: enActive(0) = 1
+                    enType(0) = ET_MUSKETEER: enHP(0) = etHP(ET_MUSKETEER): enDmg(0) = etDmg(ET_MUSKETEER): enSpd(0) = etSpd!(ET_MUSKETEER)
+                    enState(0) = 1: enLastSeen(0) = Timer: enLx(0) = px: enLy(0) = py: enCalmT(0) = 0: enLastHit(0) = 0
+                    enFireT(0) = 0: enZigT(0) = Timer + 99
+                    enTx(0) = 12: enTy(0) = 4: enPatrolT(0) = Timer
+                    bfsForX = -1: bfsForY = -1
+                    aiSeed& = 424242
+                    projSpawned = 0
+                    testFlag = 3: testT0 = Timer: shots0 = projSpawned
+                End If
+            End If
+            If testFlag = 3 Then
+                If projSpawned > shots0 Or Timer - testT0 >= 2.5 Then
+                    If projSpawned > shots0 And enFireT(0) > Timer Then
+                        stMsg$ = "PASS fas15b-musketeer-fires (LOS + dist 4 in hold band: BALL spawned (projSpawned=" + Str$(projSpawned) + "), interval armed enFireT-Timer=" + LTrim$(Str$(Int((enFireT(0) - Timer) * 10) / 10)) + "s ~ etFireT=" + Str$(etFireT!(ET_MUSKETEER)) + ", seeded spread)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas15b-musketeer-fires projSpawned=" + Str$(projSpawned) + " enFireT(0)-Timer=" + LTrim$(Str$(Int((enFireT(0) - Timer) * 10) / 10))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' no LOS -> no fire: hide the player behind walls
+                    px = 2.5: py = 12.5
+                    shots0 = projSpawned
+                    testFlag = 4: testT0 = Timer
+                End If
+            End If
+            If testFlag = 4 Then
+                If Timer - testT0 >= 1.5 Then
+                    If projSpawned = shots0 Then
+                        stMsg$ = "PASS fas15b-no-los-no-fire (player hidden (2.5,12.5): no BALL spawned in 1.5s)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas15b-no-los-no-fire projSpawned " + Str$(shots0) + "->" + Str$(projSpawned)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' (c) setup: GENERAL lobs a MORTAR at the (still) player; en1 = friendly-fire victim
+                    For i = 0 To PR_MAX: prActive(i) = 0: Next i
+                    For i = 0 To 10: enActive(i) = 0: Next i
+                    px = 8.5: py = 4.5: angle = 0: hp = 100: dmgTaken = 0: ammo = 5
+                    enX(0) = 12.5: enY(0) = 4.5: enActive(0) = 1
+                    enType(0) = ET_GENERAL: enHP(0) = etHP(ET_GENERAL): enDmg(0) = 0: enSpd(0) = etSpd!(ET_GENERAL)
+                    enState(0) = 1: enLastSeen(0) = Timer: enLx(0) = px: enLy(0) = py: enCalmT(0) = 0: enLastHit(0) = 0
+                    enFireT(0) = 0: enZigT(0) = Timer + 99
+                    enTx(0) = 12: enTy(0) = 4: enPatrolT(0) = Timer
+                    enX(1) = 10.5: enY(1) = 4.5: enActive(1) = 1
+                    enType(1) = ET_GENERAL: enHP(1) = etHP(ET_GENERAL): enDmg(1) = 10: enSpd(1) = 0
+                    enState(1) = 1: enLastSeen(1) = 0: enFireT(1) = Timer + 99: enZigT(1) = Timer + 99
+                    enTx(1) = 10: enTy(1) = 4: enPatrolT(1) = Timer
+                    bfsForX = -1: bfsForY = -1
+                    aiSeed& = 777
+                    projSpawned = 0
+                    mortarSeen = 0: mortarLogged = 0: landed = 0: mIdx = -1
+                    testFlag = 5: testT0 = Timer
+                End If
+            End If
+            If testFlag = 5 Then
+                For i = 0 To PR_MAX
+                    If prActive(i) And prType(i) = PR_MORTAR And mIdx = -1 Then mIdx = i: mortarSeen = 1
+                Next i
+                If mortarSeen And mortarLogged = 0 Then
+                    mortarLogged = 1
+                    ft = prLandT(mIdx) - Timer
+                    tgX = prTX(mIdx): tgY = prTY(mIdx)
+                    stMsg$ = "fas15c mortar in flight: flygtid=" + LTrim$(Str$(Int(ft * 100) / 100)) + "s target=(" + Str$(tgX) + "," + Str$(tgY) + ") telegraph active"
+                    Gosub STLog
+                End If
+                If mortarSeen Then
+                    If mIdx >= 0 And prActive(mIdx) = 0 Then landed = 1
+                End If
+                If landed Or Timer - testT0 >= 6 Then
+                    enFireT(0) = Timer + 99   ' stop further mortars during the manual test
+                    If landed And hp <= 76 And hp >= 74 And dmgTaken = 25 And tgX = 8 And tgY = 4 And ft >= 1.4 And ft <= 2.2 Then
+                        stMsg$ = "PASS fas15c-mortar (telegraph at target (8,4), flygtid " + LTrim$(Str$(Int(ft * 100) / 100)) + "s, landed: splash full 25 at center -> hp 100->" + Str$(Int(hp)) + ", dmgTaken=25)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas15c-mortar landed=" + Str$(landed) + " hp=" + Str$(Int(hp)) + " dmgTaken=" + Str$(dmgTaken) + " tg=" + Str$(tgX) + "," + Str$(tgY) + " ft=" + LTrim$(Str$(Int(ft * 100) / 100))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' manual mortar at dist 1.0 from player AND from en1 -> falloff + friendly fire
+                    hpBefore = hp: en1HPBefore = enHP(1)
+                    spX = enX(0): spY = enY(0): spDX = 0: spDY = 0: spSpd! = 0: spOwner = 1: spDmg = 0: spType = PR_MORTAR
+                    spSrcType = ET_GENERAL: spTX = 9: spTY = 4: spLandT = Timer + 0.3
+                    Gosub SpawnProjectile
+                    testFlag = 6: testT0 = Timer
+                End If
+            End If
+            If testFlag = 6 Then
+                ballGone = 1
+                For i = 0 To PR_MAX
+                    If prActive(i) Then ballGone = 0
+                Next i
+                If ballGone Or Timer - testT0 >= 2 Then
+                    pdmg = hpBefore - hp
+                    edmg = en1HPBefore - enHP(1)
+                    If pdmg >= 11 And pdmg <= 14 And edmg >= 11 And edmg <= 14 And enActive(1) = 1 Then
+                        stMsg$ = "PASS fas15c-falloff-friendlyfire (mortar at dist 1.0: falloff dmg=" + Str$(pdmg) + " to player (hp " + Str$(Int(hpBefore)) + "->" + Str$(Int(hp)) + ") AND " + Str$(edmg) + " to enemy en1 (friendly fire, enHP " + Str$(en1HPBefore) + "->" + Str$(enHP(1)) + "), full would be " + Str$(etSplashDmg(ET_GENERAL)) + ")"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas15c-falloff-friendlyfire pdmg=" + Str$(pdmg) + " edmg=" + Str$(edmg) + " en1active=" + Str$(enActive(1)) + " en1hp=" + Str$(enHP(1))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' (d) general gating: waves 1-12, general only on 5/10/15, max 1
+                    okD = -1
+                    For w = 1 To 12
+                        waveNo = w - 1: killsTotal = 99
+                        Gosub SpawnEnemies
+                        genN = 0
+                        For i = 0 To 10
+                            If enActive(i) And enType(i) = ET_GENERAL Then genN = genN + 1
+                        Next i
+                        want = 0: If w >= ET_BOSS_STEP And (w Mod ET_BOSS_STEP) = 0 Then want = 1
+                        If genN <> want Then okD = 0
+                        stMsg$ = "fas15d wave " + Str$(w) + ": generals=" + Str$(genN) + " (want " + Str$(want) + ")"
+                        Gosub STLog
+                        For i = 0 To 10: enActive(i) = 0: Next i
+                    Next w
+                    If okD = -1 Then
+                        stMsg$ = "PASS fas15d-general-gating (waves 1-12: general exactly on waves 5 and 10, never more than 1)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas15d-general-gating"
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' (e) waves 1-2: all foot soldiers
+                    okE = -1
+                    For w = 1 To 2
+                        waveNo = w - 1: killsTotal = 0
+                        Gosub SpawnEnemies
+                        footN = 0: otherN = 0
+                        For i = 0 To 10
+                            If enActive(i) Then
+                                If enType(i) = ET_FOOT Then footN = footN + 1 Else otherN = otherN + 1
+                            End If
+                        Next i
+                        If footN <> 4 Or otherN <> 0 Then okE = 0
+                        For i = 0 To 10: enActive(i) = 0: Next i
+                    Next w
+                    If okE = -1 Then
+                        stMsg$ = "PASS fas15e-gating (waves 1-2: all 4 active enemies are FOOT SOLDIER)"
+                        Gosub STLog
+                        For i = 0 To PR_MAX: prActive(i) = 0: Next i
+                        testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger)
+                    Else
+                        stMsg$ = "FAIL fas15e-gating"
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
                 End If
             End If
     End Select
