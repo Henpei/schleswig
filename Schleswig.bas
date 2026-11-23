@@ -49,7 +49,7 @@ DIM SHARED cursorBuf&, cursorSize   ' pil-sprite-buffer för menyerna (skapas i 
 DIM SHARED lockEngaged       ' livstids-lås: 1 efter första EngageLock, låses ALDRIG upp förrän exit
 DIM SHARED lockEngages       ' räknare: antal _MOUSEHIDE _DISABLE (ska bli exakt 1 per session)
 DIM SHARED lockDestroys      ' räknare: antal unlock (_MOUSESHOW) — ska vara 0 tills app-exit
-DIM SHARED vCurX, vCurY      ' virtuell pekare i menyerna (när lockEngaged=1)
+DIM SHARED vCurX, vCurY      ' PARKED: mouse experiment aa26eee — virtuell pekare obrukbar (inga aktiva anrop)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
@@ -80,10 +80,18 @@ Next cy
 _Dest display&
 ' btnX0..btnY1 sätts i meny-grenen via BtnGeom med GEMENSAM bredd per meny
 ' (längsta label + padding — alla knappar inom en meny lika brede).
-' pendingStart: VIDARE från result går samma START-väg som meny-klicket (se meny-grenen)
+' pendingStart: fortsättning från result går samma START-väg som meny-START (se meny-grenen)
 pendingStart = 0
 startRuns = 0            ' räknare: antal START-vägs-triggeringar via StartRun (diagnos-bevis)
-hover = 0: prevHover = 0
+DIM selIdx               ' meny-markering (tangentdriven): 1=START GAME 2=QUIT GAME; paus: 1..3
+selIdx = 1
+hover = 0: prevHover = 0   ' PARKED: mouse experiment aa26eee (mus-hover i menyer borttagen)
+' LIVSTIDS-LÅS vid APP-START: låset engageras NU, före första meny-framen —
+' compositor-pekaren syns ALDRIG (inga _MOUSESHOW i kodbasen, grep-bevis).
+' Alla menyer är tangentdrivna; virtuell pekare/pil-sprite är parkerad (obrukbar).
+fading = 0: fadeT0 = 0   ' fading: 0=nej, 2=fade-in i playing
+deathTime = 0            ' Fas 2.6: när state$ = "dead"
+dummy = _MouseMovementX
 fading = 0: fadeT0 = 0   ' fading: 0=nej, 2=fade-in i playing
 deathTime = 0            ' Fas 2.6: när state$ = "dead"
 dummy = _MouseMovementX
@@ -130,7 +138,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "6f1b5ad"
+Const strBuild$ = "aa26eee"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -155,7 +163,8 @@ Const strWin$ = "KARTAN KLAR"                      ' resultatskärm: titel
 Const strTime$ = "TID:"                            ' resultatskärm: mm:ss
 Const strShots$ = "SKOTT:"                         ' resultatskärm
 Const strDmg$ = "SKADA:"                           ' resultatskärm
-Const strEscMenu$ = "ESC = MENY"                       ' resultatmeny, nederst
+Const strEscMenu$ = "ESC = PAUS"                       ' resultat-skärm, nederst (ESC -> paus)
+Const strClickCont$ = "CLICK TO CONTINUE"              ' result: fortsätt med klick/SPACE/ENTER (snabb blink)
 Const strPaused$ = "PAUSAD"                            ' pausmeny: titel
 Const strResume$ = "FORTSÄTT"                          ' pausmeny: knapp 1
 Const strRestartRound$ = "RESTART ROND"                ' pausmeny: knapp 2
@@ -230,7 +239,6 @@ DIM SHARED runTimeFrozen     ' FRYST run-tid (s) — sätts vid SJÄLVA sista ki
 DIM SHARED liveScore&        ' LIVE-score-räknare: EN variabel — uppdateras varje playing-frame; HUD/result/highscore läser SAMMA värde
 DIM resumeState$             ' paus: vilket läge återgår till (playing/result)
 DIM pauseT0                  ' paus: när pausen började (runT0 justeras vid resume)
-DIM selIdx                   ' pausmeny: markerad rad (1=FORTSÄTT 2=RESTART 3=AVSLUTA)
 DIM escCool                  ' FIX 2: ESC cooldown så held ESC från result inte avslutar i menu
 DIM lockHint                 ' 1 = visa 'klicka för att låsa musen' (tills första klicket i rundan)
 DIM stepAcc                   ' ackumulerad gångsträcka (spelarfotsteg)
@@ -245,7 +253,13 @@ Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0
 winPending = 0: winT0 = 0: runTimeFrozen = -1: escCool = -99
 lockEngaged = 0: lockEngages = 0: lockDestroys = 0
-vCurX = RW \ 2: vCurY = RH \ 2   ' virtuell pekare startar i skärmcentrum
+vCurX = RW \ 2: vCurY = RH \ 2   ' PARKED: mouse experiment aa26eee (obrukbar)
+' LIVSTIDS-LÅS vid APP-START (efter alla init-nollställningar): låset engageras
+' NU, före första meny-framen (state=menu) — compositor-pekaren syns ALDRIG.
+' INGEN _MOUSESHOW finns i kodbasen (grep-bevis: 0 aktiva anrop).
+_MOUSEHIDE _DISABLE
+lockEngages = lockEngages + 1
+lockEngaged = 1
 If _FileExists(".schleswig_scores.txt") Then
     f = FreeFile
     Open ".schleswig_scores.txt" For Input As #f
@@ -258,7 +272,7 @@ If selftest Then
     Close #stF
     state$ = "playing"          ' hoppa över menyn direkt
     LogMouse "HIDE_DISABLE selftest-init"
-    If lockEngaged = 0 Then EngageLock
+    stMsg$ = "app-start-livstidslas: lockEngaged=" + Str$(lockEngaged) + " engages=" + Str$(lockEngages) + " (lock vid init, före första meny-framen)": Gosub STLog
     lockHint = 1
     runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0: runTimeFrozen = -1   ' highscore-counters i selftest
     Gosub SpawnEnemies
@@ -301,6 +315,9 @@ Do
 
     k$ = InKey$
     If k$ = Chr$(0) Then k$ = Chr$(0) + InKey$
+    ' selftest fas12d: meny-nav via tangent — ner-pil (navStep 0->1), upp-pil (2->3)
+    If selftest And testPhase = 12 And testFlag = 5 And navStep = 0 Then k$ = Chr$(0) + "P": navStep = 1
+    If selftest And testPhase = 12 And testFlag = 5 And navStep = 2 Then k$ = Chr$(0) + "H": navStep = 3
 
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
     If selftest And (state$ = "menu" Or state$ = "result" Or state$ = "paused") Then Gosub SelftestDrive   ' fas12/13 kör även utanför playing
@@ -317,17 +334,23 @@ Do
         ' FIX 2: ESC i menu avslutar fortfarande, men inte precis efter ESC från
         ' result-skärmen (held ESC skulle annars bledda in i meny-grenen)
         If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then Gosub QuitGame
-        ' VIRTUELL PEKARE: när låset sitter (efter första rundan) finns ingen riktig
-        ' pekare — då ackumuleras _MouseMovement till vCurX/vCurY (klamrad) och
-        ' hit-test görs mot vCur. Vid app-start (lockEngaged=0) används riktig mus.
-        If lockEngaged Then
-            While _MouseInput
-                MoveVirtualCursor _MouseMovementX, _MouseMovementY
-            Wend
-            mx = vCurX: my = vCurY
-        Else
-            While _MouseInput: WEND   ' töm muskön så _MouseX/Y/_MouseButton blir färska här
-            mx = _MouseX: my = _MouseY
+        While _MouseInput: WEND   ' töm muskön (låst mus används ej i menyn; playing läser rörelsen)
+        ' TANGENTDRIVEN MENY (låset sitter från app-start, pekaren syns aldrig):
+        ' W/S eller upp/ner-pil flyttar markering (amber), ENTER väljer, SPACE=START.
+        ' Ingen mus-hover/klick här (PARKED: mouse experiment aa26eee).
+        If state$ = "menu" And (k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432)) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 2
+        If state$ = "menu" And (k$ = "s" Or k$ = "S" Or k$ = Chr$(0) + "P" Or _KeyDown(20480)) Then selIdx = selIdx + 1: If selIdx > 2 Then selIdx = 1
+        If state$ = "menu" And k$ = " " Then
+            Gosub StartRun   ' SPACE = osynlig genväg för START
+            SOUND 300, 2: SOUND 150, 3        ' klick/plopp
+        End If
+        If state$ = "menu" And k$ = Chr$(13) Then   ' ENTER väljer markerad knapp
+            If selIdx = 1 Then
+                Gosub StartRun
+                SOUND 300, 2: SOUND 150, 3
+            Else
+                Gosub QuitGame   ' QUIT GAME = samma exit som meny-ESC
+            End If
         End If
         ' knapp-geometri: GEMENSAM bredd för hela huvudmenyn = längsta labeln
         ' (START GAME / QUIT GAME) + 2*padX — båda knappar lika brede
@@ -340,26 +363,6 @@ Do
         quitBtnTop = btnY1 + Int(RH * 16 / 1080)
         BtnGeom menuBtnW, RW \ 2, quitBtnTop, quitX0, quitY0, quitX1, quitY1      ' QUIT GAME
         menuPanelHalf = (quitY1 + Int(RH * 30 / 1080)) - RH \ 2   ' panel rymmer båda knapparna
-        hover = 0
-        If ButtonHit%(mx, my, btnX0, btnY0, btnX1, btnY1) Then hover = 1
-        If ButtonHit%(mx, my, quitX0, quitY0, quitX1, quitY1) Then hover = 2
-        If hover <> prevHover Then
-            prevHover = hover
-            If hover > 0 Then SOUND 1500, 1   ' hover-tick
-        End If
-        If state$ = "menu" And k$ = " " Then
-            Gosub StartRun   ' SPACE = osynlig genväg för START (beteende oförändrat)
-            SOUND 300, 2: SOUND 150, 3        ' klick/plopp
-        End If
-        If state$ = "menu" And hover = 1 Then
-            If _MouseButton(1) Then
-                Gosub StartRun
-                SOUND 300, 2: SOUND 150, 3
-            End If
-        End If
-        If state$ = "menu" And hover = 2 Then
-            If _MouseButton(1) Then Gosub QuitGame   ' QUIT GAME = samma exit som meny-ESC
-        End If
         _Dest display&
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
         Line (RW \ 2 - 860, RH \ 2 - menuPanelHalf)-(RW \ 2 + 859, RH \ 2 + menuPanelHalf - 1), _RGB32(255, 200, 0), B
@@ -371,18 +374,10 @@ Do
         _PrintString (ttx - 2, tty), strTitle$
         Color _RGB32(255, 200, 0)
         _PrintString (ttx, tty), strTitle$
-        ' två knappar via samma DrawButton-widget: START GAME + QUIT GAME (samma bredd)
-        DrawButton btnX0, btnY0, btnX1, btnY1, strStartBtn$, (hover = 1)
-        DrawButton quitX0, quitY0, quitX1, quitY1, strQuitBtn$, (hover = 2)
-        ' pil-sprite ritas ÖVER panel/knappar (sist, före _Display). När låset
-        ' sitter: virtuell pekare (vCur). App-start-meny (ej låst än): riktig
-        ' pekare synlig (_MOUSESHOW, ingen lock finns att förstöra) + pil på den.
-        If lockEngaged Then
-            DrawCursor vCurX, vCurY
-        Else
-            _MOUSESHOW
-            DrawCursor mx, my
-        End If
+        ' två knappar via samma DrawButton-widget: START GAME + QUIT GAME (samma
+        ' bredd); markerad rad är amber (selIdx). INGEN pekare ritas i menyn.
+        DrawButton btnX0, btnY0, btnX1, btnY1, strStartBtn$, (selIdx = 1)
+        DrawButton quitX0, quitY0, quitX1, quitY1, strQuitBtn$, (selIdx = 2)
         ' versionshörn nere till höger på titelskärmen (ver + commit-hash)
         Color _RGB32(110, 110, 140)
         _PrintString (RW - Len(ver$ + " " + strBuild$) * 8 - 16, RH - 24), ver$ + " " + strBuild$
@@ -395,8 +390,7 @@ Do
                 state$ = "playing"
                 LogMouse "HIDE_DISABLE StartRun fade-klar"
                 LogMouse "MOUSEMOVE center StartRun (före låset)"
-                _MOUSEMOVE RW \ 2, RH \ 2   ' färsk serial INNAN låset (ordning enligt fix)
-                If lockEngaged = 0 Then EngageLock   ' LIVSTIDS-LÅS: första fade-slutet låser, aldrig upp igen
+                _MOUSEMOVE RW \ 2, RH \ 2   ' centrera (låset engagerades redan vid app-start)
                 lockHint = 1
                 fadeT0 = Timer
                 fading = 2
@@ -406,43 +400,53 @@ Do
         ' selftest fas12d: huvudmenyn har renderat EN frame med DrawButton (stor
         ' TTF-text) utan krasch -> SELFTEST OK. (Resultatmenyn täcks av fas12a-c.)
         If selftest And testPhase = 12 And testFlag = 5 Then
-            ' huvudmenyn renderade EN frame utan krasch; kontrollera även att
-            ' menyn har 2 knappar (START + QUIT) med SAMMA bredd, staplade utan överlapp
-            If quitY0 >= btnY1 And quitY1 > quitY0 And (quitX1 - quitX0) = (btnX1 - btnX0) And btnY1 > btnY0 Then
-                stMsg$ = "PASS fas12d-meny-renderad (2 knappar START+QUIT samma bredd=" + Str$(btnX1 - btnX0) + " px, staplade utan överlapp, ingen krasch)"
+            ' MUS-REVERT: menyn är tangentdriven — testa nav: ner-pil ska ge
+            ' selIdx=2, upp-pil ska ge selIdx=1 (inga mus-händelser inblandade)
+            If navStep = 1 And selIdx = 2 Then
+                stMsg$ = "PASS fas12d-meny-tangent-nav (ner-pil: selIdx 1->2)"
                 Gosub STLog
-            Else
-                stMsg$ = "FAIL fas12d-meny-layout btnW=" + Str$(btnX1 - btnX0) + " quitW=" + Str$(quitX1 - quitX0) + " btnY1=" + Str$(btnY1) + " quitY0=" + Str$(quitY0)
+                navStep = 2
+            ElseIf navStep = 3 And selIdx = 1 Then
+                stMsg$ = "PASS fas12d-meny-tangent-nav (upp-pil: selIdx 2->1)"
                 Gosub STLog
-                stMsg$ = "SELFTEST FAIL"
-                Gosub STLog
-                ShutdownSound
-                End
-            End If
-            ' fas12e: VIRTUELL PEKARE — MoveVirtualCursor klamrar till skärmkanterna,
-            ' ButtonHit träffar START-knappens centrum men inte hörnet (0,0)
-            MoveVirtualCursor 999999, 999999
-            vcOk1 = (vCurX = RW - 1 And vCurY = RH - 1)
-            MoveVirtualCursor -999999, -999999
-            vcOk2 = (vCurX = 0 And vCurY = 0)
-            bhHit = ButtonHit%((btnX0 + btnX1) \ 2, (btnY0 + btnY1) \ 2, btnX0, btnY0, btnX1, btnY1)
-            bhMiss = ButtonHit%(0, 0, btnX0, btnY0, btnX1, btnY1)
-            ' fas12f: LIVSTIDS-LÅS — lockEngaged=1, exakt 1 engage, 0 destroys under sessionen
-            ' + pil-sprite: buffer skapad i init (cursorBuf& > 0, cursorSize >= 16)
-            If vcOk1 And vcOk2 And bhHit = -1 And bhMiss = 0 And lockEngaged = 1 And lockEngages = 1 And lockDestroys = 0 And cursorBuf& <> 0 And cursorSize >= 16 Then
-                stMsg$ = "PASS fas12e-virtuell-pekare (klamring OK, ButtonHit hit/miss OK, pil-buffer " + Str$(cursorSize) + "px) + fas12f-livstidslas (lockEngaged=1, engages=" + Str$(lockEngages) + ", destroys=" + Str$(lockDestroys) + ")"
-                Gosub STLog
-                stMsg$ = "SELFTEST OK"
-                Gosub STLog
-                ShutdownSound
-                End
-            Else
-                stMsg$ = "FAIL fas12e/f-virtuell-pekare/lock vcOk1=" + Str$(vcOk1) + " vcOk2=" + Str$(vcOk2) + " bhHit=" + Str$(bhHit) + " bhMiss=" + Str$(bhMiss) + " lockEngaged=" + Str$(lockEngaged) + " engages=" + Str$(lockEngages) + " destroys=" + Str$(lockDestroys)
-                Gosub STLog
-                stMsg$ = "SELFTEST FAIL"
-                Gosub STLog
-                ShutdownSound
-                End
+                ' slutkontroller: 2 knappar samma bredd, staplade utan överlapp;
+                ' parkerade pekar-funktioner (MoveVirtualCursor/ButtonHit) testas
+                ' som rena funktioner; livstids-lås; pil-buffer skapad men renderas ej
+                If quitY0 >= btnY1 And quitY1 > quitY0 And (quitX1 - quitX0) = (btnX1 - btnX0) And btnY1 > btnY0 Then
+                    stMsg$ = "PASS fas12d-meny-renderad (2 knappar START+QUIT samma bredd=" + Str$(btnX1 - btnX0) + " px, staplade utan överlapp, ingen pekare renderad, ingen krasch)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas12d-meny-layout btnW=" + Str$(btnX1 - btnX0) + " quitW=" + Str$(quitX1 - quitX0) + " btnY1=" + Str$(btnY1) + " quitY0=" + Str$(quitY0)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' fas12e: parkerade funktioner som rena funktioner (klamring + hit/miss)
+                MoveVirtualCursor 999999, 999999
+                vcOk1 = (vCurX = RW - 1 And vCurY = RH - 1)
+                MoveVirtualCursor -999999, -999999
+                vcOk2 = (vCurX = 0 And vCurY = 0)
+                bhHit = ButtonHit%((btnX0 + btnX1) \ 2, (btnY0 + btnY1) \ 2, btnX0, btnY0, btnX1, btnY1)
+                bhMiss = ButtonHit%(0, 0, btnX0, btnY0, btnX1, btnY1)
+                ' fas12f: LIVSTIDS-LÅS från app-start — lockEngaged=1 redan vid första
+                ' meny-framen, exakt 1 engage, 0 destroys under sessionen (0 _MOUSESHOW)
+                If vcOk1 And vcOk2 And bhHit = -1 And bhMiss = 0 And lockEngaged = 1 And lockEngages = 1 And lockDestroys = 0 And cursorBuf& <> 0 And cursorSize >= 16 Then
+                    stMsg$ = "PASS fas12e-parkerade-funktioner (klamring OK, ButtonHit hit/miss OK, pil-buffer " + Str$(cursorSize) + "px ej renderad) + fas12f-livstidslas-appstart (lockEngaged=1, engages=" + Str$(lockEngages) + ", destroys=" + Str$(lockDestroys) + ", 0 _MOUSESHOW i kod)"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST OK"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                Else
+                    stMsg$ = "FAIL fas12e/f vcOk1=" + Str$(vcOk1) + " vcOk2=" + Str$(vcOk2) + " bhHit=" + Str$(bhHit) + " bhMiss=" + Str$(bhMiss) + " lockEngaged=" + Str$(lockEngaged) + " engages=" + Str$(lockEngages) + " destroys=" + Str$(lockDestroys)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
             End If
         End If
     ElseIf state$ = "dead" Then
@@ -470,6 +474,8 @@ Do
             Gosub SpawnEnemies
             testPhase = 9: testT0 = Timer: testFlag = 0
         End If
+        ' selftest fas12c: dödsskärm -> R -> meny (enda vägen till menyn nu)
+        If selftest And testPhase = 12 And testFlag = 3 And state$ = "dead" Then k$ = "r"
         If k$ = "r" Or k$ = "R" Or k$ = " " Or _KeyDown(Asc("R")) Or _KeyDown(32) Then
             ' reset ALLT -> tillbaka till menyn
             hp = 100: ammo = 5
@@ -487,8 +493,7 @@ Do
             hover = 0: prevHover = 0
             state$ = "menu"
             LogMouse "LIVSTIDSLAS dead-R->menu (ingen unlock)"
-            ' virtuell pekare till skärmcentrum vid meny-inmatning (låset sitter kvar)
-            If lockEngaged Then vCurX = RW \ 2: vCurY = RH \ 2
+            selIdx = 1   ' meny-markering börjar på START GAME
         End If
         ' dödsskärm: svart overlay fade 0.5 s, sedan stor röd text
         _Dest display&
@@ -522,38 +527,17 @@ Do
         ' RESULTATMENY: riktig meny, samma knapp-stil som huvudmenyn (samma
         ' DrawButton-widget, hover, fill/border). Musen är VÄLKOMMEN synlig här.
         ' AI/fysik/tid fryst (egen gren). Knappar: VIDARE / HUVUDMENY. ESC=meny.
-        ' Knapparnas rect: GEMENSAM bredd för hela resultatmenyn (längsta labeln
-        ' + padding) — VIDARE och HUVUDMENY lika brede. Staplade under statistiken.
-        padX = Int(btnFontSize * 0.9): If padX < 12 Then padX = 12
-        BtnTextW strNextMap$, w1: BtnTextW strMainMenu$, w2
-        If w2 > w1 Then w1 = w2
-        resBtnW = w1 + padX * 2
-        resTop1 = RH \ 2 + Int(RH * 30 / 1080)
-        BtnGeom resBtnW, RW \ 2, resTop1, resB1X0, resB1Y0, resB1X1, resB1Y1   ' VIDARE
-        resTop2 = resB1Y1 + Int(RH * 14 / 1080)
-        BtnGeom resBtnW, RW \ 2, resTop2, resB2X0, resB2Y0, resB2X1, resB2Y1   ' HUVUDMENY
-        resEscY = resB2Y1 + Int(RH * 18 / 1080)
-        resPanelHalf = (resB2Y1 + Int(RH * 40 / 1080)) - RH \ 2   ' panel rymmer allt
+        ' RESULTAT är KLICK-FRITT: ingen knapp, ingen ButtonHit. Statistik +
+        ' CLICK TO CONTINUE. Valfritt musklick (låst mus funkar osynligt) eller
+        ' SPACE/ENTER -> pendingStart (nästa runda via meny-START-vägen).
+        ' ESC -> paus (resumeState=result). INGEN pekare ritas här.
+        resPanelHalf = Int(RH * 240 / 1080)   ' panel rymmer statistik + textrader
+        resEscY = RH \ 2 + Int(RH * 70 / 1080)
         mb = 0
-        ' VIRTUELL PEKARE i resultatmenyn (när låset sitter): samma flöde som menyn
-        If lockEngaged Then
-            While _MouseInput
-                MoveVirtualCursor _MouseMovementX, _MouseMovementY
-            Wend
-            mx = vCurX: my = vCurY
-        Else
-            While _MouseInput: WEND
-            mx = _MouseX: my = _MouseY
-        End If
+        While _MouseInput: WEND   ' töm muskön
         If _MouseButton(1) Then mb = 1
-        ' selftest fas12: simulera knapp-klick (testFlag=2 -> VIDARE, 4 -> HUVUDMENY)
-        If selftest And testPhase = 12 Then
-            If testFlag = 2 Then mx = (resB1X0 + resB1X1) \ 2: my = (resB1Y0 + resB1Y1) \ 2: mb = 1
-            If testFlag = 4 Then mx = (resB2X0 + resB2X1) \ 2: my = (resB2Y0 + resB2Y1) \ 2: mb = 1
-        End If
-        hoverR = 0
-        If ButtonHit%(mx, my, resB1X0, resB1Y0, resB1X1, resB1Y1) Then hoverR = 1
-        If ButtonHit%(mx, my, resB2X0, resB2Y0, resB2X1, resB2Y1) Then hoverR = 2
+        ' selftest fas12: simulera klick (testFlag=2 -> fortsätt till nästa runda)
+        If selftest And testPhase = 12 And testFlag = 2 Then mb = 1
         If (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then
             ' ESC i result -> PAUS (resumeState=result; FORTSÄTT återgår hit)
             resumeState$ = "result"
@@ -562,37 +546,14 @@ Do
             selIdx = 1
             _KeyClear
             state$ = "paused"
-        ElseIf mb And hoverR = 2 Then
-            ' HUVUDMENY -> huvudmenyn (full reset)
-            escCool = Timer
-            hp = 100: ammo = 5
-            px = 8.5: py = 4.5: angle = 0: pitch = 0
-            For i = 0 To 10
-                If i <= 4 Then pkActive(i) = 1 Else pkActive(i) = 0
-                If i <= 2 Then amActive(i) = 1 Else amActive(i) = 0
-            Next i
-            Gosub SpawnEnemies
-            hpMsg$ = "": hpMsgTime = 0
-            lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
-            mvF = 0: mvB = 0: mvL = 0: mvR = 0: turnL = 0: turnR = 0: fireBtn = 0: _KeyClear
-            pendingStart = 0
-            fading = 0: deathTime = 0: hover = 0: prevHover = 0: winPending = 0: runTimeFrozen = -1
-            runT0 = Timer: shotsFired = 0: dmgTaken = 0
-            LogMouse "LIVSTIDSLAS result-ESC/HUVUDMENY->menu (ingen unlock)"
-            state$ = "menu"
-            ' virtuell pekare till skärmcentrum vid meny-inmatning (låset sitter kvar)
-            If lockEngaged Then vCurX = RW \ 2: vCurY = RH \ 2
-        ElseIf mb And hoverR = 1 Then
-            ' VIDARE: BARA två saker — pendingStart=1 + state=menu (samma frame).
-            ' Ingen egen övergångskod: ingen _MOUSEHIDE/_MOUSEMOVE/fade/reset här.
-            ' Meny-grenen ser pendingStart före render och går samma START-väg
-            ' som ett meny-START-klick (StartRun -> fadeout -> playing, muslås
-            ' vid fade-slut). VIDARE är därmed IDENTISKT med START NYTT SPEL.
+        ElseIf (mb Or k$ = " " Or k$ = Chr$(13)) And state$ = "result" Then
+            ' FORTSÄTT till nästa runda: BARA pendingStart=1 + state=menu (samma
+            ' frame) — meny-grenen går samma START-väg (StartRun -> fadeout ->
+            ' playing). Ingen egen övergångskod här.
             pendingStart = 1
             state$ = "menu"
-            If lockEngaged Then vCurX = RW \ 2: vCurY = RH \ 2
         End If
-        ' rendera resultatmenyn: statistik + två knappar (samma stil som huvudmenyn)
+        ' rendera resultat-skärmen: statistik + CLICK TO CONTINUE (ingen knapp)
         _Dest display&
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
         Line (RW \ 2 - 860, RH \ 2 - resPanelHalf)-(RW \ 2 + 859, RH \ 2 + resPanelHalf - 1), _RGB32(255, 200, 0), B
@@ -616,11 +577,11 @@ Do
             Color _RGB32(255, 80, 80)
             _PrintString ((RW - Len(strNewRec$) * 8) \ 2, RH \ 2 - Int(RH * 20 / 1080)), strNewRec$
         End If
-        ' två knappar via samma widget som huvudmenyn (samma palett)
-        DrawButton resB1X0, resB1Y0, resB1X1, resB1Y1, strNextMap$, (hoverR = 1)
-        DrawButton resB2X0, resB2Y0, resB2X1, resB2Y1, strMainMenu$, (hoverR = 2)
-        ' pil-sprite över knapparna (sist, före _Display)
-        If lockEngaged Then DrawCursor vCurX, vCurY Else DrawCursor mx, my
+        ' CLICK TO CONTINUE — gul, SNABB blink (valt: Int(Timer*4) Mod 2, 2 Hz)
+        If Int(Timer * 4) Mod 2 = 0 Then
+            Color _RGB32(255, 200, 0)
+            _PrintString ((RW - Len(strClickCont$) * 8) \ 2, RH \ 2 + Int(RH * 30 / 1080)), strClickCont$
+        End If
         Color _RGB32(150, 150, 150)
         _PrintString ((RW - Len(strEscMenu$) * 8) \ 2, resEscY), strEscMenu$
         Color _RGB32(110, 110, 140)
@@ -632,22 +593,15 @@ Do
         ' Tiden stannar här (runT0 justeras vid FORTSÄTT så pausen inte äter
         ' sekunder). Playing-input (rörelse/skott) körs INTE i denna gren.
         ' Input BÅDA vägar: tangent (W/S eller pilar + ENTER, ESC=FORTSÄTT)
-        ' och virtuell pekare (låset sitter kvar — inga unlocks här).
+        ' ENDAST TANGENT (PARKED: mouse experiment aa26eee — ingen virtuell
+        ' pekare, ingen pil-sprite, inget mus-klick i paus).
         If selftest And testPhase = 13 Then
             If testFlag = 7 And inj7 = 0 Then k$ = Chr$(0) + "P": inj7 = 1
             If testFlag = 8 And inj8 = 0 Then k$ = Chr$(0) + "H": inj8 = 1
             If testFlag = 9 And inj9 = 0 Then k$ = Chr$(13): inj9 = 1
             If testFlag = 11 And inj11 = 0 Then k$ = Chr$(13): inj11 = 1
         End If
-        If lockEngaged Then
-            While _MouseInput
-                MoveVirtualCursor _MouseMovementX, _MouseMovementY
-            Wend
-            mx = vCurX: my = vCurY
-        Else
-            While _MouseInput: WEND
-            mx = _MouseX: my = _MouseY
-        End If
+        While _MouseInput: WEND   ' töm muskön (rörelse ägs av playing)
         ' 3 knappar, uniform bredd (längsta label + 2*padX), staplade under titeln
         padX = Int(btnFontSize * 0.9): If padX < 12 Then padX = 12
         BtnTextW strResume$, w1: BtnTextW strRestartRound$, w2: BtnTextW strQuitPause$, w3
@@ -661,15 +615,9 @@ Do
         ' tangent-markering: W/S eller upp/ner-pil, wrapar 1..3
         If k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 3
         If k$ = "s" Or k$ = "S" Or k$ = Chr$(0) + "P" Or _KeyDown(20480) Then selIdx = selIdx + 1: If selIdx > 3 Then selIdx = 1
-        hoverP = 0
-        If ButtonHit%(mx, my, pB1X0, pB1Y0, pB1X1, pB1Y1) Then hoverP = 1
-        If ButtonHit%(mx, my, pB2X0, pB2Y0, pB2X1, pB2Y1) Then hoverP = 2
-        If ButtonHit%(mx, my, pB3X0, pB3Y0, pB3X1, pB3Y1) Then hoverP = 3
-        If hoverP > 0 Then selIdx = hoverP   ' pekaren låser markering
         pauAct = 0
         If k$ = Chr$(13) Then pauAct = selIdx                     ' ENTER väljer
         If (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then pauAct = 1   ' ESC i paus = FORTSÄTT
-        If _MouseButton(1) And hoverP > 0 Then pauAct = hoverP   ' pekar-klick
         If pauAct = 1 Then
             ' FORTSÄTT: återgå utan reset; pausens längd dras bort från run-tiden
             If resumeState$ = "playing" And runTimeFrozen < 0 Then runT0 = runT0 + (Timer - pauseT0)
@@ -682,15 +630,15 @@ Do
         ElseIf pauAct = 3 Then
             Gosub QuitGame   ' AVSLUTA: enda unlock/destroy-platsen (app-exit)
         End If
-        ' render: halvtransparent overlay över befintlig frame + titel + knappar + pil
+        ' render: halvtransparent overlay över befintlig frame + titel + knappar
+        ' (markerad rad amber). INGEN pil/pekare ritas i paus.
         _Dest display&
         Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, 160), BF
         Color _RGB32(255, 200, 0)
         _PrintString ((RW - Len(strPaused$) * 8) \ 2, RH \ 2 - Int(RH * 60 / 1080)), strPaused$
-        DrawButton pB1X0, pB1Y0, pB1X1, pB1Y1, strResume$, (hoverP = 1 Or (hoverP = 0 And selIdx = 1))
-        DrawButton pB2X0, pB2Y0, pB2X1, pB2Y1, strRestartRound$, (hoverP = 2 Or (hoverP = 0 And selIdx = 2))
-        DrawButton pB3X0, pB3Y0, pB3X1, pB3Y1, strQuitPause$, (hoverP = 3 Or (hoverP = 0 And selIdx = 3))
-        If lockEngaged Then DrawCursor vCurX, vCurY Else DrawCursor mx, my
+        DrawButton pB1X0, pB1Y0, pB1X1, pB1Y1, strResume$, (selIdx = 1)
+        DrawButton pB2X0, pB2Y0, pB2X1, pB2Y1, strRestartRound$, (selIdx = 2)
+        DrawButton pB3X0, pB3Y0, pB3X1, pB3Y1, strQuitPause$, (selIdx = 3)
         _Display
     Else
 
@@ -1067,7 +1015,6 @@ Do
             If selftest Then stMsg$ = "WIN-TRIG phase=" + Str$(testPhase) + " t=" + LTrim$(Str$(Int((Timer - winT0) * 10) / 10)): Gosub STLog
             state$ = "result"
             LogMouse "LIVSTIDSLAS win->result (ingen unlock, virtuell pekare)"
-            If lockEngaged Then vCurX = RW \ 2: vCurY = RH \ 2   ' pekare till centrum vid result-inmatning
             score = liveScore&   ' samma räknare som HUD — fryst värde vid sista kill
             newRecord = 0
             If selftest = 0 And score > bestScore Then
@@ -1661,12 +1608,11 @@ End Sub
 ' Sätter fadeout; när faden är klar (i menu/fadeout-grenen) går state till
 ' playing och musen låses (_MOUSEHIDE _DISABLE).
 ' QuitGame: ENDA avsluts-sökvägen — meny-ESC och QUIT GAME-knappen går båda hit.
-' LIVSTIDS-LÅS: locked_pointer förstörs ENDAST här vid app-exit (compositorn
-' tappar annars cursor-hide efter varje destroy — bevisat). Själva exit är ren
-' (repot gör ingen explicit _FREEIMAGE-cleanup; End städar via QB64-PE).
+' MUS-REVERT: INGEN _MOUSESHOW någonstans i kodbasen (grep-bevis: 0 träffar) —
+' låset från app-start förstörs bara när processen dör (compositorn städar).
+' Själva exit är ren (End städar via QB64-PE).
 QuitGame:
-    lockDestroys = lockDestroys + 1
-    _MOUSESHOW   ' enda unlock i hela sessionen — vid exit
+    lockDestroys = lockDestroys + 1   ' markör: exit (inga _MOUSESHOW-anrop finns)
     End
 
 ' EngageLock: ENDA lås-sättningen — livstids-lås vid första fade-slutet
@@ -1678,6 +1624,7 @@ Sub EngageLock
     lockEngaged = 1
 End Sub
 
+' PARKED: mouse experiment aa26eee — ingen meny anropar denna längre.
 ' MoveVirtualCursor: flyttar virtuella pekaren relativt (dx,dy), klamrad till
 ' skärmen [0,RW-1]x[0,RH-1] — funkar på alla skärmstorlekar.
 Sub MoveVirtualCursor (dx, dy)
@@ -1688,8 +1635,8 @@ Sub MoveVirtualCursor (dx, dy)
     If vCurY > RH - 1 Then vCurY = RH - 1
 End Sub
 
+' PARKED: mouse experiment aa26eee — meny-hit-test är tangentdriven nu.
 ' ButtonHit%: -1 om (px,py) ligger inuti knapp-rektangeln, annars 0.
-' Alla meny-hit-tests går via denna (vCurX/vCurY när låst, riktig mus annars).
 Function ButtonHit% (px, py, x0, y0, x1, y1)
     If px >= x0 And px <= x1 And py >= y0 And py <= y1 Then
         ButtonHit% = -1
@@ -1698,9 +1645,9 @@ Function ButtonHit% (px, py, x0, y0, x1, y1)
     End If
 End Function
 
+' PARKED: mouse experiment aa26eee — ingen meny renderar pekaren längre.
 ' DrawCursor: ritar pil-spriten från cursorBuf& (skapas i init) så att pilens
-' SPETS (topp) hamnar exakt på (x,y) — samma punkt som ButtonHit% testar.
-' Samma sprite i alla menyer; i playing är crosshair oförändrad (stridsläge).
+' SPETS (topp) hamnar exakt på (x,y). I playing är crosshair oförändrad.
 Sub DrawCursor (x, y)
     If cursorBuf& <> 0 Then _PutImage (x - cursorSize \ 2, y), cursorBuf&   ' <>0: handtag kan vara negativa i QB64-PE
 End Sub
@@ -2164,30 +2111,23 @@ SelftestDrive:
                 ShutdownSound
                 End
             End If
-            If testFlag = 3 And state$ = "result" Then
-                testFlag = 4: testT0 = Timer   ' result-grenen injicerar HUVUDMENY-klick
-            ElseIf testFlag = 3 And Timer - testT0 >= 3 Then
-                stMsg$ = "FAIL fas12c-pre state=" + state$ + " (förväntade result igen)"
+            ' MUS-REVERT: result har inga knappar längre — vägen till menyn är
+            ' nu dead-R (dödsskärm -> R). testFlag=3: vänta på dead, dead-grenen
+            ' injicerar "r" -> menu.
+            If testFlag = 3 And state$ = "menu" Then
+                stMsg$ = "PASS fas12c-deadR-till-meny (dödsskärm R -> state=menu; enda vägen till menyn)"
+                Gosub STLog
+                testFlag = 5: testT0 = Timer: navStep = 0   ' låt meny-branchen rendera + tangent-nav (fas12d) innan End
+            ElseIf testFlag = 3 And Timer - testT0 >= 6 Then
+                stMsg$ = "FAIL fas12c state=" + state$ + " (förväntade menu efter dead-R)"
                 Gosub STLog
                 stMsg$ = "SELFTEST FAIL"
                 Gosub STLog
                 ShutdownSound
                 End
             End If
-            If testFlag = 4 And state$ = "menu" Then
-                stMsg$ = "PASS fas12c-huvudmeny-klick (klick på HUVUDMENY -> state=menu)"
-                Gosub STLog
-                testFlag = 5: testT0 = Timer   ' låt meny-branchen rendera EN frame (fas12d) innan End
-            ElseIf testFlag = 4 And Timer - testT0 >= 3 Then
-                stMsg$ = "FAIL fas12c state=" + state$ + " (förväntade menu efter HUVUDMENY-klick)"
-                Gosub STLog
-                stMsg$ = "SELFTEST FAIL"
-                Gosub STLog
-                ShutdownSound
-                End
-            End If
-            If testFlag = 5 And Timer - testT0 >= 3 Then
-                stMsg$ = "FAIL fas12d state=" + state$ + " (meny-branchen renderade ej inom 3s)"
+            If testFlag = 5 And Timer - testT0 >= 6 Then
+                stMsg$ = "FAIL fas12d state=" + state$ + " (meny-branchen renderade ej inom 6s)"
                 Gosub STLog
                 stMsg$ = "SELFTEST FAIL"
                 Gosub STLog
@@ -2280,10 +2220,8 @@ SelftestDrive:
                 If startRuns = sr0 + 2 Then
                     stMsg$ = "PASS fas13e-restart-rond-pendingstart (startRuns " + Str$(sr0) + "->" + Str$(startRuns) + ", state=playing)"
                     Gosub STLog
-                    ' vidare till fas12c: kill-all igen -> result -> HUVUDMENY
-                    For i = 0 To 10: enActive(i) = 0: Next i
-                    Gosub FreezeAtLastKill
-                    winPending = 0
+                    ' vidare till fas12c: dö (hp=0) -> dead -> R -> menu
+                    hp = 0
                     testPhase = 12: testFlag = 3: testT0 = Timer
                 Else
                     stMsg$ = "FAIL fas13e startRuns=" + Str$(startRuns) + " (väntade " + Str$(sr0 + 2) + ")"
