@@ -138,7 +138,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "5f4178b"
+Const strBuild$ = "03d2478"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -243,6 +243,7 @@ Const PR_MORTAR = 2
 Const PR_MAX = 31
 Const plrBallSpd! = 6     ' player musket ball: slow, period-correct
 Const plrBallDmg = 1      ' same damage per hit as the old hitscan (balance unchanged)
+Const ballSpriteW! = 0.06 ' Fas 4B hotfix: BALL screen width in cell-equivalents (~1/10 of an enemy body 0.6)
 DIM prX(PR_MAX), prY(PR_MAX), prDX(PR_MAX), prDY(PR_MAX), prActive(PR_MAX)
 DIM prSpd!(PR_MAX), prOwner(PR_MAX), prDmg(PR_MAX), prType(PR_MAX), prSrcType(PR_MAX)
 DIM prTX(PR_MAX), prTY(PR_MAX), prLandT(PR_MAX)
@@ -1328,12 +1329,15 @@ Do
                     ex0 = Int(ecx - ew / 2): ex1 = Int(ecx + ew / 2)
                     If ex0 < 0 Then ex0 = 0
                     If ex1 > RW - 1 Then ex1 = RW - 1
-                    ' avståndsskuggning som väggarna, skalad till kroppsfärgen
+                    ' avståndsskuggning som väggarna, skalad till kroppsfärgen (min 20% ljushet)
                     eshade = 255 - edist * 15
-                    If eshade < 40 Then eshade = 40
-                    ' Fas 4A: body color comes from the enemy-type register (distance-shaded)
+                    If eshade < 51 Then eshade = 51
+                    ' Fas 4A: body color comes from the enemy-type register (distance-shaded).
+                    ' NOTE: _RGB32() sets alpha=255 so etCol& is a NEGATIVE long — extract
+                    ' channels with _Red32/_Green32/_Blue32 (\ Mod on a negative long gives
+                    ' negative channels -> _RGB32 clamps them to 0 -> BLACK enemies, hotfix 4B)
                     ec& = etCol&(enType(i))
-                    er = (ec& \ 65536) Mod 256: eg = (ec& \ 256) Mod 256: eb = ec& Mod 256
+                    er = _Red32(ec&): eg = _Green32(ec&): eb = _Blue32(ec&)
                     ebody& = _RGB32(Int(er * eshade / 255), Int(eg * eshade / 255), Int(eb * eshade / 255))
                     If ey1 > ey0 And ex1 >= ex0 Then
                         For sx = ex0 To ex1
@@ -1383,7 +1387,7 @@ Do
                     If Abs(bang) < fovCut Then
                         bdistP = bdist * Cos(bang)
                         bcx2 = RW / 2 * (1 + Tan(bang) / planeDist)
-                        bw2 = RW / bdist * 0.1: bh2 = RH / bdist * 0.1
+                        bw2 = RW / bdist * ballSpriteW!: bh2 = RH / bdist * ballSpriteW!   ' small discrete ball (hotfix 4B)
                         by0 = midY - bh2 / 2 + pitch: by1 = by0 + bh2
                         bx0 = Int(bcx2 - bw2 / 2): bx1 = Int(bcx2 + bw2 / 2)
                         If bx0 < 0 Then bx0 = 0: If bx1 > RW - 1 Then bx1 = RW - 1
@@ -1411,7 +1415,8 @@ Do
                             If tcx >= 0 And tcx <= RW - 1 Then
                                 If tdistP < wallDist(tcx) Then
                                     tgy = midY + RH / (2 * tdistP) + pitch
-                                    trp = RW / tdistP * etSplashR!(prSrcType(i)) * 0.5
+                                    st2 = prSrcType(i): If st2 < 0 Or st2 > ET_COUNT - 1 Then st2 = 0   ' defensive clamp
+                                    trp = RW / tdistP * etSplashR!(st2) * 0.5
                                     If trp < 4 Then trp = 4
                                     If trp > RW / 2 Then trp = RW / 2
                                     If tgy > 0 And tgy < RH Then CIRCLE (tcx, tgy), trp, _RGB32(255, 200, 0)
@@ -2162,8 +2167,9 @@ UpdateProjectiles:
 ' Hits BOTH the player and all enemies (friendly fire).
 MortarLand:
     cx = prTX(pi) + 0.5: cy = prTY(pi) + 0.5
-    sR! = etSplashR!(prSrcType(pi))
-    sDmg = etSplashDmg(prSrcType(pi))
+    st = prSrcType(pi): If st < 0 Or st > ET_COUNT - 1 Then st = 0   ' defensive clamp
+    sR! = etSplashR!(st)
+    sDmg = etSplashDmg(st)
     PlaySound SND_BOOM
     pd = Sqr((px - cx) ^ 2 + (py - cy) ^ 2)
     If pd <= sR! Then
@@ -2983,7 +2989,7 @@ SelftestDrive:
                         stMsg$ = "PASS fas15e-gating (waves 1-2: all 4 active enemies are FOOT SOLDIER)"
                         Gosub STLog
                         For i = 0 To PR_MAX: prActive(i) = 0: Next i
-                        testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger)
+                        testFlag = 11: testT0 = Timer   ' -> fas15g colors, then fas15f kill-all
                     Else
                         stMsg$ = "FAIL fas15e-gating"
                         Gosub STLog
@@ -2992,6 +2998,178 @@ SelftestDrive:
                         ShutdownSound
                         End
                     End If
+                End If
+            End If
+            If testFlag = 11 Then
+                ' (g) 4B hotfix: register color per type must extract to the expected RGB
+                ' via _Red32/_Green32/_Blue32, and the shade clamp (min 51/255 = 20%)
+                ' must never zero a channel (that was the black-enemy bug)
+                okG = -1
+                For etT = 0 To ET_COUNT - 1
+                    cc& = etCol&(etT)
+                    rr = _Red32(cc&): gg = _Green32(cc&): bb = _Blue32(cc&)
+                    If etT = ET_FOOT And (rr <> 170 Or gg <> 35 Or bb <> 35) Then okG = 0
+                    If etT = ET_OFFICER And (rr <> 200 Or gg <> 30 Or bb <> 80) Then okG = 0
+                    If etT = ET_MUSKETEER And (rr <> 150 Or gg <> 90 Or bb <> 40) Then okG = 0
+                    If etT = ET_CAPTAIN And (rr <> 230 Or gg <> 180 Or bb <> 40) Then okG = 0
+                    If etT = ET_GENERAL And (rr <> 30 Or gg <> 90 Or bb <> 40) Then okG = 0
+                    If Int(rr * 51 / 255) < 1 Or Int(gg * 51 / 255) < 1 Or Int(bb * 51 / 255) < 1 Then okG = 0
+                Next etT
+                If okG = -1 Then
+                    stMsg$ = "PASS fas15g-colors (etCol& per type -> expected RGB via _Red32/_Green32/_Blue32; shade clamp 51/255 keeps every channel >= 1, never black)"
+                    Gosub STLog
+                    testFlag = 12: testT0 = Timer
+                Else
+                    stMsg$ = "FAIL fas15g-colors (register color extraction or clamp broken)"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 12 Then
+                ' (f) part 1: kill ALL enemies with aimed player BALLs (last kill via
+                ' ball) — must not crash, win path must trigger
+                For i = 0 To PR_MAX: prActive(i) = 0: Next i
+                For i = 0 To 10: enActive(i) = 0: Next i
+                px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 20
+                enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = ET_FOOT: enHP(0) = 3: enDmg(0) = 10: enSpd(0) = 0
+                enState(0) = 1: enLastSeen(0) = Timer: enLx(0) = px: enLy(0) = py: enLastHit(0) = 0
+                enFireT(0) = Timer + 99: enZigT(0) = Timer + 99: enTx(0) = 11: enTy(0) = 4: enPatrolT(0) = Timer
+                enX(1) = 13.5: enY(1) = 4.5: enActive(1) = 1: enType(1) = ET_FOOT: enHP(1) = 3: enDmg(1) = 10: enSpd(1) = 0
+                enState(1) = 1: enLastSeen(1) = Timer: enLx(1) = px: enLy(1) = py: enLastHit(1) = 0
+                enFireT(1) = Timer + 99: enZigT(1) = Timer + 99: enTx(1) = 13: enTy(1) = 4: enPatrolT(1) = Timer
+                bfsForX = -1: bfsForY = -1
+                lastShotTime = -1
+                sr15 = startRuns
+                testFlag = 13: testT0 = Timer
+            End If
+            If testFlag = 13 Then
+                ' fire aimed BALLs until all enemies are dead
+                alive15 = 0: bd = 999: bi = -1
+                For i = 0 To 10
+                    If enActive(i) Then
+                        alive15 = alive15 + 1
+                        dd = Sqr((enX(i) - px) ^ 2 + (enY(i) - py) ^ 2)
+                        If dd < bd Then bd = dd: bi = i
+                    End If
+                Next i
+                If alive15 > 0 And bi >= 0 Then
+                    angle = _ATan2(enY(bi) - py, enX(bi) - px)
+                    dirX = Cos(angle): dirY = Sin(angle)
+                    fireBtn = 1
+                Else
+                    fireBtn = 0
+                End If
+                If alive15 = 0 Or Timer - testT0 >= 8 Then
+                    fireBtn = 0
+                    If alive15 = 0 And killsTotal >= 2 Then
+                        stMsg$ = "PASS fas15f-killall-ball (all enemies dead via player BALLs, killsTotal=" + Str$(killsTotal) + ", no crash)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas15f-killall-ball alive=" + Str$(alive15) + " killsTotal=" + Str$(killsTotal)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    testFlag = 14: testT0 = Timer
+                End If
+            End If
+            If testFlag = 14 Then
+                ' win path: alive==0 -> result within a few s
+                If state$ = "result" Then
+                    stMsg$ = "PASS fas15f-win-result (last kill -> alive=0 -> result, runTimeFrozen=" + Str$(runTimeFrozen) + ", no crash)"
+                    Gosub STLog
+                    pendingStart = 1: state$ = "menu"   ' same path as VIDARE/E
+                    testFlag = 15: testT0 = Timer
+                ElseIf Timer - testT0 >= 4 Then
+                    stMsg$ = "FAIL fas15f-win-result state=" + state$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 15 Then
+                ' next wave via pendingStart -> StartRun -> playing
+                If state$ = "playing" And startRuns > sr15 Then
+                    stMsg$ = "PASS fas15f-nextwave (pendingStart -> StartRun -> playing, startRuns " + Str$(sr15) + "->" + Str$(startRuns) + ", waveNo=" + Str$(waveNo) + ")"
+                    Gosub STLog
+                    ' splash-killall setup: teleport the 4 wave enemies into open row 4
+                    tp = 0
+                    For i = 0 To 10
+                        If enActive(i) Then
+                            tp = tp + 1
+                            enX(i) = 9.5 + tp: enY(i) = 4.5
+                            enLx(i) = enX(i): enLy(i) = enY(i)
+                            enSpd(i) = 0: enFireT(i) = Timer + 99: enZigT(i) = Timer + 99
+                        End If
+                    Next i
+                    px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 20: lastShotTime = -1
+                    For i = 0 To PR_MAX: prActive(i) = 0: Next i
+                    bfsForX = -1: bfsForY = -1
+                    mortar15 = 0
+                    testFlag = 16: testT0 = Timer
+                ElseIf Timer - testT0 >= 6 Then
+                    stMsg$ = "FAIL fas15f-nextwave state=" + state$ + " startRuns=" + Str$(startRuns) + " (sr15=" + Str$(sr15) + ")"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 16 Then
+                ' kill 2 with balls, then finish the rest with one MORTAR splash
+                alive15 = 0: bd = 999: bi = -1
+                For i = 0 To 10
+                    If enActive(i) Then
+                        alive15 = alive15 + 1
+                        dd = Sqr((enX(i) - px) ^ 2 + (enY(i) - py) ^ 2)
+                        If dd < bd Then bd = dd: bi = i
+                    End If
+                Next i
+                If alive15 > 2 And bi >= 0 Then
+                    angle = _ATan2(enY(bi) - py, enX(bi) - px)
+                    dirX = Cos(angle): dirY = Sin(angle)
+                    fireBtn = 1
+                Else
+                    fireBtn = 0
+                End If
+                If alive15 > 0 And alive15 <= 2 And mortar15 = 0 And bi >= 0 Then
+                    spX = enX(bi): spY = enY(bi): spDX = 0: spDY = 0: spSpd! = 0
+                    spOwner = 1: spDmg = 0: spType = PR_MORTAR: spSrcType = ET_GENERAL
+                    spTX = Int(enX(bi)): spTY = Int(enY(bi)): spLandT = Timer + 0.3
+                    Gosub SpawnProjectile
+                    mortar15 = 1
+                    stMsg$ = "fas15f: mortar spawned at (" + Str$(spTX) + "," + Str$(spTY) + "), alive=" + Str$(alive15)
+                    Gosub STLog
+                End If
+                If alive15 = 0 Or Timer - testT0 >= 12 Then
+                    fireBtn = 0
+                    If alive15 = 0 And mortar15 = 1 Then
+                        stMsg$ = "PASS fas15f-killall-splash (last enemies died via MORTAR splash in one blast, killsTotal=" + Str$(killsTotal) + ", no crash)"
+                        Gosub STLog
+                        testFlag = 17: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL fas15f-killall-splash alive=" + Str$(alive15) + " mortar=" + Str$(mortar15)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+            End If
+            If testFlag = 17 Then
+                If state$ = "result" Or Timer - testT0 >= 4 Then
+                    stMsg$ = "PASS fas15f-end (splash-killall -> result again, no crash; full round loop OK)"
+                    Gosub STLog
+                    testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger)
                 End If
             End If
     End Select
