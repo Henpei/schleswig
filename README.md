@@ -20,7 +20,7 @@ different "layers" (directory vs file), so no name collision can occur.
 ## Controls
 
 - SPACE or click START GAME: start the game
-- W / S: forward / back, A / D: strafe
+- W / S: forward / back, A / D: strafe (start ammo 5, max 20, ammo pickups +5)
 - Mouse: look around (pointer lock is active in game)
 - Left mouse button: shoot
 - R (on the death screen): full restart

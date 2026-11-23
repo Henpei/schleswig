@@ -105,7 +105,7 @@ Const strHudAmmo$ = "AMMO:"                        ' HUD-etikett
 Const strFps$ = "FPS:"                             ' debug-rad + fönstertitel
 Const strDmgDebug$ = "-5 HP"                       ' debug-knapp G
 Const strMedkit$ = "+25 HP"                        ' medkit-pickup
-Const strAmmoPick$ = "+10 AMMO"                    ' ammo-pickup
+Const strAmmoPick$ = "+5 AMMO"                     ' ammo-pickup (FIX 3: +5, cap 20)
 Const strScore$ = "SCORE:"                         ' dödsskärm/HUD: score-rad
 Const strBest$ = "BÄSTA:"                          ' dödsskärm/resultat: bästa score
 Const strNewRec$ = "NY REKORD!"                    ' dödsskärm/resultat: vid nytt rekord
@@ -137,7 +137,7 @@ pkX(4) = 6.5: pkY(4) = 14.5: pkActive(4) = 1
 
 ' Fas 2: ammo + skjutning (ingen HP-regen; samma array-pool-mönster som medkit)
 DIM amX(10), amY(10), amActive(10)
-ammo = 20
+ammo = 5
 lastShotTime = -1        ' cooldown 0.3 s mellan skott
 tracerTime = -1          ' tracer-flash synlig 2-3 frames
 flashTime = -1           ' träff-flash
@@ -178,6 +178,7 @@ DIM enAlertT(10), enStepAcc(10)   ' används även i huvudloopen -> globala
 DIM SHARED shotsFired, dmgTaken, runT0, bestScore, score, newRecord
 DIM winPending, winT0        ' seger-trigger: alla fiender döda -> vänta 1 s -> result
 DIM winTime                  ' FRYST run-tid (s) vid seger; -1 = ej fryst (live)
+DIM escCool                  ' FIX 2: ESC cooldown så held ESC från result inte avslutar i menu
 DIM stepAcc                   ' ackumulerad gångsträcka (spelarfotsteg)
 DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
 ' Fas 3 selftest/autoplay: ./schleswig/schleswig selftest -> scriptat scenario, loggas till fil
@@ -188,7 +189,7 @@ testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFla
 Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 ' Highscore: nollställ counters, ladda bästa score från lokal fil (.schleswig_scores.txt)
 shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0
-winPending = 0: winT0 = 0: winTime = -1
+winPending = 0: winT0 = 0: winTime = -1: escCool = -99
 If _FileExists(".schleswig_scores.txt") Then
     f = FreeFile
     Open ".schleswig_scores.txt" For Input As #f
@@ -205,7 +206,7 @@ If selftest Then
     Gosub SpawnEnemies
     ' Fas 3.1-scenario: EN fiende i PATROLL utan LOS till spelaren (10.5,6.5)->(8.5,4.5)
     For i = 1 To 10: enActive(i) = 0: Next i
-    px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 20
+    px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 5
     enX(0) = 10.5: enY(0) = 6.5: enActive(0) = 1
     enHP(0) = 3: enDmg(0) = 10: enSpd(0) = 2
     enState(0) = 0: enLastHit(0) = 0: enLastSeen(0) = 0: enCalmT(0) = 0
@@ -240,7 +241,9 @@ Do
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
     If selftest And (state$ = "menu" Or state$ = "result") Then Gosub SelftestDrive   ' fas12 kör även utanför playing
     If state$ = "menu" Or state$ = "fadeout" Then
-        If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) Then End
+        ' FIX 2: ESC i menu avslutar fortfarande, men inte precis efter ESC från
+        ' result-skärmen (held ESC skulle annars bledda in i meny-grenen)
+        If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then End
         While _MouseInput: WEND   ' töm muskön så _MouseX/Y/_MouseButton blir färska här
         mx = _MouseX: my = _MouseY
         hover = 0
@@ -299,6 +302,7 @@ Do
             If fa >= 1 Then
                 state$ = "playing"
                 _MOUSEHIDE _DISABLE
+                _MOUSEHIDE   ' FIX 1: säkerställ att pekaren alltid döljs vid övergången
                 fadeT0 = Timer
                 fading = 2
                 runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0: winTime = -1   ' ny runda börjar
@@ -325,14 +329,14 @@ Do
             Gosub STLog
             ' fas 9: spawn-audit pa AKTA startlage (SpawnEnemies) innan vi avslutar
             state$ = "playing"
-            hp = 100: ammo = 20
+            hp = 100: ammo = 5
             px = 8.5: py = 4.5: angle = 0: pitch = 0
             Gosub SpawnEnemies
             testPhase = 9: testT0 = Timer: testFlag = 0
         End If
         If k$ = "r" Or k$ = "R" Or k$ = " " Or _KeyDown(Asc("R")) Or _KeyDown(32) Then
             ' reset ALLT -> tillbaka till menyn
-            hp = 100: ammo = 20
+            hp = 100: ammo = 5
             px = 8.5: py = 4.5: angle = 0: pitch = 0
             For i = 0 To 10
                 If i <= 4 Then pkActive(i) = 1 Else pkActive(i) = 0
@@ -381,7 +385,7 @@ Do
         If selftest And testPhase = 12 And testFlag = 2 Then k$ = "x"   ' simulerat tangenttryck (efter fas12a sett result)
         If k$ = Chr$(27) Or _KeyDown(27) Then
             ' ESC = avsluta till menyn
-            hp = 100: ammo = 20
+            hp = 100: ammo = 5
             px = 8.5: py = 4.5: angle = 0: pitch = 0
             For i = 0 To 10
                 If i <= 4 Then pkActive(i) = 1 Else pkActive(i) = 0
@@ -392,11 +396,12 @@ Do
             lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
             fading = 0: deathTime = 0: hover = 0: prevHover = 0: winPending = 0: winTime = -1
             runT0 = Timer: shotsFired = 0: dmgTaken = 0
+            escCool = Timer   ' FIX 2: markera att ESC precis hanterats i result
             state$ = "menu"
             _MOUSESHOW
         ElseIf k$ <> "" Then
             ' alla övriga tangenter = nästa karta (ny run direkt, samma karta ännu)
-            hp = 100: ammo = 20
+            hp = 100: ammo = 5
             px = 8.5: py = 4.5: angle = 0: pitch = 0
             For i = 0 To 10
                 If i <= 4 Then pkActive(i) = 1 Else pkActive(i) = 0
@@ -409,7 +414,8 @@ Do
             runT0 = Timer: shotsFired = 0: dmgTaken = 0
             state$ = "playing"
             fading = 2: fadeT0 = Timer
-            _MOUSEHIDE _DISABLE
+            _MOUSEHIDE   ' FIX 1: plain hide — pointer-lock (_DISABLE) kräver klick på
+                         ' Wayland; efter continue (tangent) annars syns pekaren
         End If
         ' rendera resultatskärmen
         _Dest display&
@@ -534,7 +540,8 @@ Do
         If amActive(i) Then
             If Sqr((amX(i) - px) ^ 2 + (amY(i) - py) ^ 2) < 0.5 Then
                 amActive(i) = 0
-                ammo = ammo + 10
+                ammo = ammo + 5              ' FIX 3: ammo-pickup ger +5
+                If ammo > 20 Then ammo = 20  ' FIX 3: max-cap 20 (överskott försvinner)
                 hpMsg$ = strAmmoPick$
                 hpMsgTime = Timer
                 PlaySound SND_PICKUP
@@ -1465,7 +1472,7 @@ SelftestDrive:
                     End
                 End If
                 ' förbered gamla Fas 3-kombattestet (fas5-8)
-                px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 20
+                px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 5
                 enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1
                 enHP(0) = 3: enDmg(0) = 10: enSpd(0) = 2
                 enState(0) = 0: enLastHit(0) = 0: enLastSeen(0) = 0: enCalmT(0) = 0
@@ -1567,7 +1574,7 @@ SelftestDrive:
                     ' spelare (8.5,4.5) tittar söderut mot vägg (8,5) (wallDist=0.5 i mitten);
                     ' en0 bakom väggen (8.5,6.5), pk0 framför väggen off-center (8.213,4.969),
                     ' pk1 bakom väggen (8.5,6.5)
-                    px = 8.5: py = 4.5: angle = 3.14159265 / 2: pitch = 0: hp = 100: ammo = 20
+                    px = 8.5: py = 4.5: angle = 3.14159265 / 2: pitch = 0: hp = 100: ammo = 5
                     For i = 0 To 10
                         enActive(i) = 0: pkActive(i) = 0: amActive(i) = 0
                     Next i
