@@ -115,6 +115,7 @@ Const strShots$ = "SKOTT:"                         ' resultatskärm
 Const strDmg$ = "SKADA:"                           ' resultatskärm
 Const strEscMenu$ = "ESC = MENY"                       ' resultatskärm, nederst
 Const strNextMap$ = "VALFRI TANGENT = VIDARE"          ' resultatskärm, nederst
+Const strLockHint$ = "KLICKA FÖR ATT LÅSA MUSEN"       ' HUD tills första klicket (Wayland)
 ' ============================================================================
 
 ceilingCol& = _RGB32(24, 24, 48)
@@ -179,6 +180,7 @@ DIM SHARED shotsFired, dmgTaken, runT0, bestScore, score, newRecord
 DIM winPending, winT0        ' seger-trigger: alla fiender döda -> vänta 1 s -> result
 DIM winTime                  ' FRYST run-tid (s) vid seger; -1 = ej fryst (live)
 DIM escCool                  ' FIX 2: ESC cooldown så held ESC från result inte avslutar i menu
+DIM lockHint                 ' 1 = visa 'klicka för att låsa musen' (tills första klicket i rundan)
 DIM stepAcc                   ' ackumulerad gångsträcka (spelarfotsteg)
 DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
 ' Fas 3 selftest/autoplay: ./schleswig/schleswig selftest -> scriptat scenario, loggas till fil
@@ -202,6 +204,7 @@ If selftest Then
     Close #stF
     state$ = "playing"          ' hoppa över menyn direkt
     _MOUSEHIDE _DISABLE
+    lockHint = 1
     runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0: winTime = -1   ' highscore-counters i selftest
     Gosub SpawnEnemies
     ' Fas 3.1-scenario: EN fiende i PATROLL utan LOS till spelaren (10.5,6.5)->(8.5,4.5)
@@ -301,8 +304,8 @@ Do
             Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, Int(fa * 255)), BF
             If fa >= 1 Then
                 state$ = "playing"
-                _MOUSEHIDE _DISABLE
-                _MOUSEHIDE   ' FIX 1: säkerställ att pekaren alltid döljs vid övergången
+                _MOUSEHIDE _DISABLE   ' pointer-lock (återställd; Wayland: låset går först vid musklick)
+                lockHint = 1
                 fadeT0 = Timer
                 fading = 2
                 runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0: winTime = -1   ' ny runda börjar
@@ -414,8 +417,8 @@ Do
             runT0 = Timer: shotsFired = 0: dmgTaken = 0
             state$ = "playing"
             fading = 2: fadeT0 = Timer
-            _MOUSEHIDE   ' FIX 1: plain hide — pointer-lock (_DISABLE) kräver klick på
-                         ' Wayland; efter continue (tangent) annars syns pekaren
+            _MOUSEHIDE _DISABLE   ' pointer-lock även efter continue (Wayland: lås vid första klicket)
+            lockHint = 1
         End If
         ' rendera resultatskärmen
         _Dest display&
@@ -514,6 +517,7 @@ Do
         mmy = mdy
         If Abs(mmx) > 300 Then mmx = 0
         fireBtn = _MouseButton(1)
+        If fireBtn Then lockHint = 0   ' första klicket i rundan -> lås engagerat (Wayland), dölj hint
     End If
     angle = angle + mmx * mouseSens * speed
     ' pitch = vertikal lutning i pixlar. Minus här: mus UPP (mdy<0) ska ge titta upp.
@@ -1102,6 +1106,12 @@ Do
     scHud$ = strScore$ + " " + LTrim$(Str$(CalcScore&))
     Color _RGB32(255, 255, 0)
     _PrintString (RW - Len(scHud$) * 8 - 8, 4), scHud$
+    ' muslås-hint: QB64-PE exponerar ingen lås-status, så visa texten tills
+    ' första musklicket efter run-start (Wayland engagerar låset vid klick)
+    If lockHint = 1 Then
+        Color _RGB32(255, 255, 120)
+        _PrintString ((RW - Len(strLockHint$) * 8) \ 2, 28), strLockHint$
+    End If
 
     ' HP-ruta nertill vänster: bar-längd + siffra (tydligt även utan färgseende)
     ' HUD-koordinaterna är RELATIVA RW/RH (hudY = RH-28 osv; vid 1920x1080 samma värden som tidigare)
