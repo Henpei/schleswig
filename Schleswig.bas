@@ -54,7 +54,11 @@ If Not _FileExists(fontCand$) Then fontCand$ = "/home/andre/QB64pe/schleswig/Lib
 If Not _FileExists(fontCand$) Then fontCand$ = "/home/andre/QB64pe/tests/compile_tests/font/LiberationMono-Regular.ttf"
 If Not _FileExists(fontCand$) Then fontCand$ = "/usr/share/fonts/TTF/DejaVuSansMono.ttf"
 If _FileExists(fontCand$) Then btnFont& = _LoadFont(fontCand$, btnFontSize, "MONOSPACE")
-' btnX0..btnY1 sätts nu per label via BtnGeom (bredd = _PrintWidth + padding) i meny-grenen
+' btnX0..btnY1 sätts i meny-grenen via BtnGeom med GEMENSAM bredd per meny
+' (längsta label + padding — alla knappar inom en meny lika brede).
+' pendingStart: VIDARE från result går samma START-väg som meny-klicket (se meny-grenen)
+pendingStart = 0
+startRuns = 0            ' räknare: antal START-vägs-triggeringar via StartRun (diagnos-bevis)
 hover = 0: prevHover = 0
 fading = 0: fadeT0 = 0   ' fading: 0=nej, 2=fade-in i playing
 deathTime = 0            ' Fas 2.6: när state$ = "dead"
@@ -102,7 +106,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "f9e203c"
+Const strBuild$ = "b3ea948"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -267,14 +271,26 @@ Do
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
     If selftest And (state$ = "menu" Or state$ = "result") Then Gosub SelftestDrive   ' fas12 kör även utanför playing
     If state$ = "menu" Or state$ = "fadeout" Then
+        ' pendingStart (VIDARE från result): gå EXAKT samma START-väg som när
+        ' användaren klickar START — före någon render denna frame. Ingen egen
+        ' VIDARE-övergångskod finns; menyn renderar aldrig denna frame, användaren
+        ' ser bara result -> fadeout -> playing, precis som vid START.
+        If pendingStart And state$ = "menu" Then
+            pendingStart = 0
+            Gosub StartRun
+            SOUND 300, 2: SOUND 150, 3
+        End If
         ' FIX 2: ESC i menu avslutar fortfarande, men inte precis efter ESC från
         ' result-skärmen (held ESC skulle annars bledda in i meny-grenen)
         If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then End
         While _MouseInput: WEND   ' töm muskön så _MouseX/Y/_MouseButton blir färska här
         mx = _MouseX: my = _MouseY
-        ' knapp-geometri från label-bredd + padding (knappen skalar med texten)
+        ' knapp-geometri: gemensam bredd per meny (längsta labeln + padding)
+        padX = Int(btnFontSize * 0.9): If padX < 12 Then padX = 12
+        BtnTextW strStartBtn$, tw
+        menuBtnW = tw + padX * 2
         menuBtnTop = RH \ 2 + Int(RH * 40 / 1080)
-        BtnGeom strStartBtn$, RW \ 2, menuBtnTop, btnX0, btnY0, btnX1, btnY1
+        BtnGeom menuBtnW, RW \ 2, menuBtnTop, btnX0, btnY0, btnX1, btnY1
         hover = 0
         If mx >= btnX0 And mx <= btnX1 And my >= btnY0 And my <= btnY1 Then hover = 1
         If hover <> prevHover Then
@@ -374,6 +390,7 @@ Do
             hpMsg$ = "": hpMsgTime = 0
             lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
             mvF = 0: mvB = 0: mvL = 0: mvR = 0: turnL = 0: turnR = 0: fireBtn = 0: _KeyClear
+            pendingStart = 0
             fading = 0: deathTime = 0
             hover = 0: prevHover = 0
             state$ = "menu"
@@ -412,11 +429,16 @@ Do
         ' RESULTATMENY: riktig meny, samma knapp-stil som huvudmenyn (samma
         ' DrawButton-widget, hover, fill/border). Musen är VÄLKOMMEN synlig här.
         ' AI/fysik/tid fryst (egen gren). Knappar: VIDARE / HUVUDMENY. ESC=meny.
-        ' Knapparnas rect sätts från label + padding (BtnGeom), staplade under statistiken.
+        ' Knapparnas rect: GEMENSAM bredd för hela resultatmenyn (längsta labeln
+        ' + padding) — VIDARE och HUVUDMENY lika brede. Staplade under statistiken.
+        padX = Int(btnFontSize * 0.9): If padX < 12 Then padX = 12
+        BtnTextW strNextMap$, w1: BtnTextW strMainMenu$, w2
+        If w2 > w1 Then w1 = w2
+        resBtnW = w1 + padX * 2
         resTop1 = RH \ 2 + Int(RH * 30 / 1080)
-        BtnGeom strNextMap$, RW \ 2, resTop1, resB1X0, resB1Y0, resB1X1, resB1Y1   ' VIDARE
+        BtnGeom resBtnW, RW \ 2, resTop1, resB1X0, resB1Y0, resB1X1, resB1Y1   ' VIDARE
         resTop2 = resB1Y1 + Int(RH * 14 / 1080)
-        BtnGeom strMainMenu$, RW \ 2, resTop2, resB2X0, resB2Y0, resB2X1, resB2Y1   ' HUVUDMENY
+        BtnGeom resBtnW, RW \ 2, resTop2, resB2X0, resB2Y0, resB2X1, resB2Y1   ' HUVUDMENY
         resEscY = resB2Y1 + Int(RH * 18 / 1080)
         resPanelHalf = (resB2Y1 + Int(RH * 40 / 1080)) - RH \ 2   ' panel rymmer allt
         mb = 0
@@ -444,24 +466,20 @@ Do
             hpMsg$ = "": hpMsgTime = 0
             lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
             mvF = 0: mvB = 0: mvL = 0: mvR = 0: turnL = 0: turnR = 0: fireBtn = 0: _KeyClear
+            pendingStart = 0
             fading = 0: deathTime = 0: hover = 0: prevHover = 0: winPending = 0: winTime = -1
             runT0 = Timer: shotsFired = 0: dmgTaken = 0
             LogMouse "SHOW result-ESC/HUVUDMENY->menu"
             If mouseShown = 0 Then _MOUSESHOW: mouseShown = 1   ' guard: show en gång per övergång
             state$ = "menu"
         ElseIf mb And hoverR = 1 Then
-            ' VIDARE: lås pekaren DIREKT vid klicket (samma frame) — Wayland
-            ' beviljar pointer-lock av mus-gesten (klicket). Då är mode=DISABLED
-            ' under HELA faden och GLFW-interna enter-drivna set_cursor(show) i
-            ' wl_window.c (processPointerEnterSurface -> _glfwSetCursorWayland vid
-            ' mode=NORMAL) kan inte återvisa pekaren under faden.
-            ' _MOUSEMOVE-centreringen ligger kvar vid fade-slut. mouseShown-guarden
-            ' behålls. HUVUDMENY/ESC visar pekaren i menyn som tidigare (ingen DISABLE där).
-            LogMouse "HIDE_DISABLE vid VIDARE-klick (direkt, ej vid fade-slut)"
-            _MOUSEHIDE _DISABLE
-            mouseShown = 0
-            Gosub StartRun
-            SOUND 300, 2: SOUND 150, 3
+            ' VIDARE: BARA två saker — pendingStart=1 + state=menu (samma frame).
+            ' Ingen egen övergångskod: ingen _MOUSEHIDE/_MOUSEMOVE/fade/reset här.
+            ' Meny-grenen ser pendingStart före render och går samma START-väg
+            ' som ett meny-START-klick (StartRun -> fadeout -> playing, muslås
+            ' vid fade-slut). VIDARE är därmed IDENTISKT med START NYTT SPEL.
+            pendingStart = 1
+            state$ = "menu"
         End If
         ' rendera resultatmenyn: statistik + två knappar (samma stil som huvudmenyn)
         _Dest display&
@@ -1405,6 +1423,9 @@ End Sub
 ' Sätter fadeout; när faden är klar (i menu/fadeout-grenen) går state till
 ' playing och musen låses (_MOUSEHIDE _DISABLE).
 StartRun:
+    ' ENDA start-vägen (meny START-klick/SPACE + pendingStart från VIDARE).
+    ' startRuns räknar triggeringar — selftest fas12b bevisar att VIDARE går här.
+    startRuns = startRuns + 1
     hp = 100: ammo = 5
     px = 8.5: py = 4.5: angle = 0: pitch = 0
     For i = 0 To 10
@@ -1433,21 +1454,27 @@ Sub LogMouse (msg$)
     Close #mf
 End Sub
 
-' BtnGeom: beräknar knapp-rektangel utifrån label — boxen skalar med texten.
-' cx = mitt-x, topY = övre kant; x0/y0/x1/y1 returneras (QB64 skickar by-ref).
-' Bredd = _PrintWidth(label$) + 2*padX, höjd = _FontHeight + 2*padY (ca 1,2-1,5x
-' ursprunglig knapp-höjd när texten är 2x). Fungerar även utan TTF (fallback).
-Sub BtnGeom (label$, cx, topY, x0, y0, x1, y1)
+' BtnTextW: bredd (px) på label i knapp-fonten (TFTF ~2x). w returneras by-ref.
+Sub BtnTextW (label$, w)
     f& = _Font              ' spara nuvarande font
     If btnFont& > 0 Then _Font btnFont&
-    tw = _PrintWidth(label$)
+    w = _PrintWidth(label$)
+    _Font f&                ' återställ direkt — mätningen är klar
+End Sub
+
+' BtnGeom: knapp-rektangel med GIVEN bredd (btnW) — alla knappar inom en meny
+' får samma bredd (längsta labeln + 2*padX, se anroparen). cx = mitt-x,
+' topY = övre kant; x0/y0/x1/y1 returneras (QB64 skickar by-ref).
+' Höjd = _FontHeight + 2*padY (ca 1,2-1,5x ursprunglig knapp-höjd vid 2x-text).
+Sub BtnGeom (btnW, cx, topY, x0, y0, x1, y1)
+    f& = _Font              ' spara nuvarande font
+    If btnFont& > 0 Then _Font btnFont&
     th = _FontHeight
     _Font f&                ' återställ direkt — mätningen är klar
-    padX = Int(btnFontSize * 0.9): If padX < 12 Then padX = 12
     padY = Int(btnFontSize * 5 / 8): If padY < 8 Then padY = 8
-    bw2 = tw + padX * 2: bh2 = th + padY * 2
-    x0 = cx - bw2 \ 2: y0 = topY
-    x1 = x0 + bw2: y1 = y0 + bh2
+    bh2 = th + padY * 2
+    x0 = cx - btnW \ 2: y0 = topY
+    x1 = x0 + btnW: y1 = y0 + bh2
 End Sub
 
 ' DrawButton: EN knapp-widget för huvudmenyn + resultatmenyn (samma palett).
@@ -1790,7 +1817,7 @@ SelftestDrive:
                     If winTime = wt1 And alive12 = 0 Then
                         stMsg$ = "PASS fas12a-killall-result-fryst (state=result, levande=0, winTime=" + Str$(wt1) + " fryst)"
                         Gosub STLog
-                        testFlag = 2: testT0 = Timer   ' result-grenen injicerar VIDARE-klick
+                        testFlag = 2: testT0 = Timer: sr0 = startRuns   ' result-grenen injicerar VIDARE-klick; spara räknare
                     Else
                         stMsg$ = "FAIL fas12a winTime " + Str$(wt1) + "->" + Str$(winTime) + " levande=" + Str$(alive12)
                         Gosub STLog
@@ -1810,11 +1837,13 @@ SelftestDrive:
             End If
             If testFlag = 2 And state$ = "playing" Then
                 ' SKYDD-check: inga rörelse-flaggor får överleva VIDARE-övergången
-                If mvF = 0 And mvB = 0 And mvL = 0 And mvR = 0 And turnL = 0 And turnR = 0 And fireBtn = 0 Then
-                    stMsg$ = "PASS fas12b-vidare-klick (klick på VIDARE -> state=playing, rörelse-flaggor=0 vid start)"
+                ' BEVIS: VIDARE måste ha gått MENY-START-vägen — startRuns (räknare
+                ' i StartRun) ska ha ökat med exakt +1 sedan VIDARE-klicket.
+                If mvF = 0 And mvB = 0 And mvL = 0 And mvR = 0 And turnL = 0 And turnR = 0 And fireBtn = 0 And startRuns = sr0 + 1 Then
+                    stMsg$ = "PASS fas12b-vidare-klick (VIDARE -> state=playing via MENY-START-vägen: startRuns " + Str$(sr0) + "->" + Str$(startRuns) + " (+1), rörelse-flaggor=0 vid start)"
                     Gosub STLog
                 Else
-                    stMsg$ = "FAIL fas12b-rorelse-flaggor mvF=" + Str$(mvF) + " mvB=" + Str$(mvB) + " mvL=" + Str$(mvL) + " mvR=" + Str$(mvR) + " turnL=" + Str$(turnL) + " turnR=" + Str$(turnR) + " fireBtn=" + Str$(fireBtn)
+                    stMsg$ = "FAIL fas12b-rorelse/startRuns mvF=" + Str$(mvF) + " mvB=" + Str$(mvB) + " mvL=" + Str$(mvL) + " mvR=" + Str$(mvR) + " turnL=" + Str$(turnL) + " turnR=" + Str$(turnR) + " fireBtn=" + Str$(fireBtn) + " startRuns=" + Str$(startRuns) + " (väntade " + Str$(sr0 + 1) + ")"
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
                     Gosub STLog
