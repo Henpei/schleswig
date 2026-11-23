@@ -81,7 +81,7 @@ py = 4.5
 angle = 0
 pitch = 0
 state$ = "menu"
-moveStep = 0.01
+moveStep = 0.012   ' +20% (2026-11-23 hastighets-bump, var 0.01); strafe = 0.6x oförändrad
 turnStep = 0.04
 mouseSens = 0.002
 Const pitchSens = 2
