@@ -71,6 +71,7 @@ DIM gunSway, gunTX, gunTY, movedCells   ' Fas 4C working vars (selftest reads gu
 DIM gunBW, gunBH, gunBuf&, gunBaseX, gunRendered   ' sprite buffer + rest pos + selftest counter
 DIM inj16r, gr16a, gr16b, gunX0, minGunX, mf16n, ej16, c16done   ' Fas 4C selftest working vars
 DIM inj17a, inj17b, inj17c, f17, ej17, k17, c17, el17, per17, d17   ' Fas 5A selftest working vars
+DIM ej18, px18(20), py18(20), pch$(20), pm18, pj1&, pj2&, p18n   ' Fas 5A-hotfix selftest vars
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
@@ -101,21 +102,25 @@ Next cy
 _Dest display&
 ' Fas 4C: procedural musket viewmodel sprite (no external art — LINE/rect
 ' primitives only). Buffer ~16% RW x ~34% RH (~1/3 of screen height), transparent
-' background. Barrel = dark gunmetal tube in the upper part + lighter muzzle tip;
-' flintlock = small gray hook; stock = tapered two-tone brown wedge below.
+' background. Fas 5A-hotfix: ALL primitives derive from ONE origin vmCX (buffer
+' center x) — barrel centered on vmCX, stock centered on vmCX and at least as
+' wide as the barrel at the junction, so barrel can never drift off the stock.
+' Sway/bob/recoil apply as ONE blit offset (gunX/gunY) to the whole buffer.
 gunBW = Int(RW * 0.16): If gunBW < 48 Then gunBW = 48
 gunBH = Int(RH * 0.34): If gunBH < 96 Then gunBH = 96
 gunBuf& = _NewImage(gunBW, gunBH, 32)
 _Dest gunBuf&
 Line (0, 0)-(gunBW - 1, gunBH - 1), _RGBA32(0, 0, 0, 0), BF   ' transparent background
-bxx0 = gunBW \ 2 - Int(gunBW * 0.09): bxx1 = gunBW \ 2 + Int(gunBW * 0.09)
+vmCX = gunBW \ 2                      ' single origin for every primitive
+vmBarrelHW = Int(gunBW * 0.09)        ' barrel half-width
+bxx0 = vmCX - vmBarrelHW: bxx1 = vmCX + vmBarrelHW
 Line (bxx0, 0)-(bxx1, Int(gunBH * 0.6)), _RGB32(45, 45, 52), BF          ' barrel: dark gunmetal
 Line (bxx0, 0)-(bxx0 + Int(gunBW * 0.03) + 1, Int(gunBH * 0.6)), _RGB32(85, 85, 98)  ' barrel highlight (volume)
 Line (bxx0 - 1, 0)-(bxx1 + 1, Int(gunBH * 0.07)), _RGB32(155, 155, 165), BF  ' muzzle: lighter metal tip
 Line (bxx1 + 1, Int(gunBH * 0.38))-(bxx1 + Int(gunBW * 0.16), Int(gunBH * 0.52)), _RGB32(125, 125, 135), BF  ' flintlock hook
-For gy16 = Int(gunBH * 0.55) To gunBH - 1   ' stock: widens toward the bottom (butt)
-    gw16 = Int(gunBW * 0.16 + gunBW * 0.30 * (gy16 - gunBH * 0.55) / (gunBH * 0.45))
-    gsx0 = gunBW \ 2 - gw16 \ 2 - Int(gunBW * 0.06): gsx1 = gsx0 + gw16
+For gy16 = Int(gunBH * 0.55) To gunBH - 1   ' stock: centered on vmCX, widens toward the bottom (butt)
+    gw16 = Int(gunBW * 0.20 + gunBW * 0.26 * (gy16 - gunBH * 0.55) / (gunBH * 0.45))   ' top 0.20w >= barrel 0.18w
+    gsx0 = vmCX - gw16 \ 2: gsx1 = gsx0 + gw16
     If gsx0 < 0 Then gsx0 = 0
     If gsx1 > gunBW - 1 Then gsx1 = gunBW - 1
     gmid = gsx0 + gw16 \ 2
@@ -203,7 +208,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "8877a8b"
+Const strBuild$ = "6a4674f"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -2393,17 +2398,30 @@ BuildDefaultMap:
 
 ' LoadMapAuto: resolve mapFile$ -> load+parse file; on any failure fall back to
 ' the embedded default (defMap$). Always ends with a valid map. Sets loadedMapFile$.
+' Path resolution: try the arg as-is, then "schleswig/" + arg, so both
+'   ./schleswig/schleswig maps/test64.map        (from QB64pe root)
+'   schleswig/schleswig maps/test64.map          (from repo root)
+' find schleswig/maps/test64.map. mapRow$ is THE single grid (see CellAt$).
 LoadMapAuto:
     loadedMapFile$ = ""
     lmOK = 0
-    If Len(mapFile$) > 0 And _FileExists(mapFile$) Then
-        lmPath$ = mapFile$: Gosub LoadMapFile
-        If lmOK Then
-            pmOK = 0: Gosub ParseMap
-            If pmOK Then
-                loadedMapFile$ = mapFile$
-            Else
-                lmOK = 0   ' file read but parse failed -> fall back to default
+    If Len(mapFile$) > 0 Then
+        If _FileExists(mapFile$) Then
+            lmPath$ = mapFile$
+        ElseIf _FileExists("schleswig/" + mapFile$) Then
+            lmPath$ = "schleswig/" + mapFile$
+        Else
+            lmPath$ = ""
+        End If
+        If Len(lmPath$) > 0 Then
+            Gosub LoadMapFile
+            If lmOK Then
+                pmOK = 0: Gosub ParseMap
+                If pmOK Then
+                    loadedMapFile$ = lmPath$
+                Else
+                    lmOK = 0   ' file read but parse failed -> fall back to default
+                End If
             End If
         End If
     End If
@@ -4141,7 +4159,172 @@ SelftestDrive:
                     stMsg$ = "PASS fas17-end (default map restored 16x16)"
                     Gosub STLog
                 End If
-                testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger -> menu -> SELFTEST OK)
+                testPhase = 18: testT0 = Timer: testFlag = 0   ' continue to fas18 (5A-hotfix: render-vs-grid + viewmodel), then fas12
+            End If
+        Case 18  ' FAS 5A-HOTFIX: (a) render reads the SAME grid as collision
+                 ' (load shipped test64.map, verify wallDist + 20 spot cells incl.
+                 ' cells that differ from the default map; then default reload),
+                 ' (b) viewmodel: barrel-stock junction connected + stable over a
+                 ' sway/recoil cycle (single blit offset, buffer geometry constant)
+            hp = 100
+            If testFlag = 0 Then
+                ' load the SHIPPED test64.map via the relative path (exercises the
+                ' "schleswig/" fallback: CWD=/home/andre/QB64pe, file is in schleswig/maps)
+                mapFile$ = "maps/test64.map"
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                If mapW = 64 And mapH = 64 And Len(loadedMapFile$) > 0 Then
+                    stMsg$ = "fas18: test64 loaded (loadedMapFile$=" + loadedMapFile$ + ", 64x64)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas18a-load mapW=" + Str$(mapW) + " mapH=" + Str$(mapH) + " loaded=" + loadedMapFile$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0   ' (1.5,1.5) facing EAST
+                For ej18 = 0 To 10: enActive(ej18) = 0: Next ej18
+                enActive(0) = 1: enX(0) = 1.5: enY(0) = mapH - 1.5: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                ' 20 spot cells, expected chars in test64 (several DIFFER from default 16x16)
+                px18(0) = 32: py18(0) = 32: pch$(0) = "d"    ' door (default: OOB " ")
+                px18(1) = 32: py18(1) = 20: pch$(1) = "#"    ' wall line (default: OOB)
+                px18(2) = 6:  py18(2) = 5:  pch$(2) = "."    ' open in test64, '#' in default row 5
+                px18(3) = 10: py18(3) = 10: pch$(3) = "#"    ' wall block (default: '.')
+                px18(4) = 60: py18(4) = 60: pch$(4) = "."    ' 'F' spawn -> '.' (default: OOB)
+                px18(5) = 0:  py18(5) = 0:  pch$(5) = "#"
+                px18(6) = 63: py18(6) = 63: pch$(6) = "#"
+                px18(7) = 1:  py18(7) = 1:  pch$(7) = "."    ' 'S' start -> '.'
+                px18(8) = 5:  py18(8) = 5:  pch$(8) = "."    ' 'b' key -> '.'
+                px18(9) = 11: py18(9) = 11: pch$(9) = "1"    ' bronze door in block
+                px18(10) = 40: py18(10) = 30: pch$(10) = "." ' 'O' spawn -> '.'
+                px18(11) = 48: py18(11) = 48: pch$(11) = "." ' 'G' spawn -> '.'
+                px18(12) = 8:  py18(12) = 8:  pch$(12) = "." ' 'M' -> '.'
+                px18(13) = 30: py18(13) = 10: pch$(13) = "." ' 'A' -> '.'
+                px18(14) = 35: py18(14) = 35: pch$(14) = "." ' 's' key -> '.'
+                px18(15) = 26: py18(15) = 54: pch$(15) = "." ' 'g' key -> '.'
+                px18(16) = 45: py18(16) = 45: pch$(16) = "2" ' silver door in block
+                px18(17) = 25: py18(17) = 53: pch$(17) = "3" ' gold door in block
+                px18(18) = 50: py18(18) = 9:  pch$(18) = "#" ' wall block right
+                px18(19) = 20: py18(19) = 40: pch$(19) = "." ' 'U' spawn -> '.'
+                p18n = 20
+                pm18 = 0
+                For ej18 = 0 To p18n - 1
+                    If CellAt$(px18(ej18), py18(ej18)) <> pch$(ej18) Then pm18 = pm18 + 1
+                Next ej18
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                ' let a few frames render with test64, then check the RENDER's own
+                ' wallDist at the center column: east from (1.5,1.5) in test64 row 1
+                ' hits x=63 (dist ~61.5); the default 16x16 grid would give ~13.5
+                If Timer - testT0 >= 0.4 Then
+                    If pm18 = 0 And wallDist(RW \ 2) > 50 Then
+                        stMsg$ = "PASS fas18a-render-same-grid (test64: 20/20 spot cells via CellAt$, render wallDist(center)=" + LTrim$(Str$(Int(wallDist(RW \ 2) * 10) / 10)) + " > 50 = test64 east wall, not default ~13.5)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas18a pm18=" + Str$(pm18) + " wallDistC=" + LTrim$(Str$(Int(wallDist(RW \ 2) * 10) / 10))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' default case: no arg -> embedded default, render matches it too
+                    mapFile$ = ""
+                    Gosub LoadMapAuto
+                    Gosub ApplyMapSpawns
+                    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0   ' (8.5,4.5) east
+                    For ej18 = 0 To 10: enActive(ej18) = 0: Next ej18
+                    enActive(0) = 1: enX(0) = 13.5: enY(0) = 9.5: enSpd(0) = 0
+                    enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    testFlag = 2: testT0 = Timer
+                ElseIf Timer - testT0 >= 3 Then
+                    stMsg$ = "FAIL fas18a-timeout pm18=" + Str$(pm18)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                If Timer - testT0 >= 0.4 Then
+                    ' default map: east from (8.5,4.5) row 4 (all '.') hits x=15 -> ~6.5
+                    If mapW = 16 And mapH = 16 And loadedMapFile$ = "" And wallDist(RW \ 2) > 5.5 And wallDist(RW \ 2) < 8.5 And Solid%(15, 4) = 1 And OpenCell%(8, 4) = 1 Then
+                        stMsg$ = "PASS fas18a-default-grid (no arg -> default 16x16, render wallDist(center)=" + LTrim$(Str$(Int(wallDist(RW \ 2) * 10) / 10)) + " ~6.5, Solid/OpenCell match)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas18a-default mapW=" + Str$(mapW) + " wallDistC=" + LTrim$(Str$(Int(wallDist(RW \ 2) * 10) / 10)) + " solid154=" + Str$(Solid%(15, 4)) + " open84=" + Str$(OpenCell%(8, 4)) + " row4=" + mapRow$(4)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    testFlag = 3: testT0 = Timer
+                ElseIf Timer - testT0 >= 3 Then
+                    stMsg$ = "FAIL fas18a-default-timeout"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 3 Then
+                ' 18b: viewmodel integrity — sample gunBuf& pixels (barrel / junction /
+                ' stock) before and after a sway+recoil cycle; geometry must be constant
+                _Dest gunBuf&
+                pj1& = POINT(vmCX, Int(gunBH * 0.3))    ' barrel body
+                p18a& = POINT(vmCX, Int(gunBH * 0.56))  ' barrel-stock junction
+                p18b& = POINT(vmCX, Int(gunBH * 0.9))   ' stock butt
+                _Dest display&
+                If pj1& <> 0 And p18a& <> 0 And p18b& <> 0 Then
+                    stMsg$ = "fas18b: barrel/junction/stock pixels all non-transparent (connected)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas18b-disconnected barrel=" + Str$(pj1&) + " junction=" + Str$(p18a&) + " stock=" + Str$(p18b&)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                recoil = 20: muzzleT = 3: shakeT = 2: mmx = 25   ' force a sway+recoil cycle
+                testFlag = 4: testT0 = Timer
+            End If
+            If testFlag = 4 Then
+                If Timer - testT0 >= 0.4 Then
+                    mmx = 0
+                    _Dest gunBuf&
+                    pj2& = POINT(vmCX, Int(gunBH * 0.3))
+                    p18c& = POINT(vmCX, Int(gunBH * 0.56))
+                    p18d& = POINT(vmCX, Int(gunBH * 0.9))
+                    _Dest display&
+                    If pj1& = pj2& And p18a& = p18c& And p18b& = p18d& And (gunX <> 0 Or recoil > 0) Then
+                        stMsg$ = "PASS fas18b-viewmodel (barrel-stock offset constant over sway/recoil cycle: pixels identical, whole sprite moved by single gunX/gunY offset, gunX=" + LTrim$(Str$(Int(gunX * 10) / 10)) + ")"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas18b-drift pj=" + Str$(pj1&) + "/" + Str$(pj2&) + " junc=" + Str$(p18a&) + "/" + Str$(p18c&) + " gunX=" + LTrim$(Str$(Int(gunX * 10) / 10))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    recoil = 0: muzzleT = 0: shakeT = 0
+                    testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger -> menu -> SELFTEST OK)
+                ElseIf Timer - testT0 >= 3 Then
+                    stMsg$ = "FAIL fas18b-timeout"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
             End If
     End Select
     Return

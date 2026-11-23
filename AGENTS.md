@@ -94,3 +94,12 @@ Malformed map (ragged rows / invalid char) -> embedded default grid + log, no cr
 Map-declared enemies spawn as typed every wave; remaining slots are filled by
 the register mix (etMinWave gating). Opened doors stay open for the round;
 closed doors are walls for BFS/movement/render-hit.
+
+## Map loading paths (5A-hotfix)
+The loader tries the arg as-is, then "schleswig/" + arg, so both work:
+  ./schleswig/schleswig maps/test64.map     (from QB64pe root)
+  schleswig/schleswig maps/test64.map       (from repo root)
+mapRow$ is THE single map grid — every read goes via CellAt$/Solid%/OpenCell%.
+The embedded Data block is pure fallback DATA (defMap$ -> mapSrc$ -> ParseMap);
+BuildDefaultMap also writes into mapRow$. LoadMapAuto always runs before the
+first render frame.
