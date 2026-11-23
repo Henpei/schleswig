@@ -89,6 +89,9 @@ Const pitchSens = 2
 ' Version (semver-light): MINOR = stor fas, PATCH = fix, 1.0.0 = fullständig spelarkrets.
 ' Placering: git-tagg (v0.1.0) + denna rad + titelskärm-hörn + _Title.
 Const ver$ = "v0.1.0"
+' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
+' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
+Const strBuild$ = "db02739"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -181,6 +184,7 @@ DIM SHARED shotsFired, dmgTaken, runT0, bestScore, score, newRecord
 DIM winPending, winT0        ' seger-trigger: alla fiender döda -> vänta 1 s -> result
 DIM winTime                  ' FRYST run-tid (s) vid seger; -1 = ej fryst (live)
 DIM escCool                  ' FIX 2: ESC cooldown så held ESC från result inte avslutar i menu
+DIM lockDelay                ' >0: antal frames kvar innan _MOUSEHIDE _DISABLE körs (Wayland lock-gest)
 DIM lockHint                 ' 1 = visa 'klicka för att låsa musen' (tills första klicket i rundan)
 DIM stepAcc                   ' ackumulerad gångsträcka (spelarfotsteg)
 DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
@@ -204,8 +208,9 @@ If selftest Then
     Open "/tmp/schleswig_selftest.log" For Output As #stF
     Close #stF
     state$ = "playing"          ' hoppa över menyn direkt
+    LogMouse "HIDE_DISABLE selftest-init"
     _MOUSEHIDE _DISABLE
-    lockHint = 1
+    lockHint = 1: lockDelay = 0
     runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0: winTime = -1   ' highscore-counters i selftest
     Gosub SpawnEnemies
     ' Fas 3.1-scenario: EN fiende i PATROLL utan LOS till spelaren (10.5,6.5)->(8.5,4.5)
@@ -281,9 +286,9 @@ Do
         DrawButton btnX0, btnY0, btnX1, btnY1, strStartBtn$, hover
         Color _RGB32(150, 150, 150)
         _PrintString ((RW - Len(strOrSpace$) * 8) \ 2, btnY1 + 16), strOrSpace$
-        ' versionshörn nere till höger på titelskärmen
+        ' versionshörn nere till höger på titelskärmen (ver + commit-hash)
         Color _RGB32(110, 110, 140)
-        _PrintString (RW - Len(ver$) * 8 - 16, RH - 24), ver$
+        _PrintString (RW - Len(ver$ + " " + strBuild$) * 8 - 16, RH - 24), ver$ + " " + strBuild$
         ' fade-through-black: titel fade:ar ut (0.4 s), sedan spelet fade:ar in
         If state$ = "fadeout" Then
             fa = (Timer - fadeT0) / 0.4
@@ -291,9 +296,11 @@ Do
             Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, Int(fa * 255)), BF
             If fa >= 1 Then
                 state$ = "playing"
+                LogMouse "HIDE_DISABLE menu->playing (efter fade)"
                 _MOUSEHIDE _DISABLE   ' pointer-lock (återställd; Wayland: låset går först vid musklick)
+                LogMouse "MOUSEMOVE center menu->playing"
                 _MOUSEMOVE RW \ 2, RH \ 2   ' centrera pekaren direkt (hjälper låset + gömning)
-                lockHint = 1
+                lockHint = 1: lockDelay = 0
                 fadeT0 = Timer
                 fading = 2
                 runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0: winTime = -1   ' ny runda börjar
@@ -339,6 +346,7 @@ Do
             fading = 0: deathTime = 0
             hover = 0: prevHover = 0
             state$ = "menu"
+            LogMouse "SHOW dead-R-reset->menu"
             _MOUSESHOW
         End If
         ' dödsskärm: svart overlay fade 0.5 s, sedan stor röd text
@@ -404,13 +412,14 @@ Do
             lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
             fading = 0: deathTime = 0: hover = 0: prevHover = 0: winPending = 0: winTime = -1
             runT0 = Timer: shotsFired = 0: dmgTaken = 0
-            state$ = "menu"
+            LogMouse "SHOW result-ESC/HUVUDMENY->menu"
             _MOUSESHOW
+            state$ = "menu"
         ElseIf mb And hoverR = 1 Then
-            ' VIDARE: lås/göm musen FÖRST (samma klick = Wayland lock-gest),
-            ' centrera, sedan ny runda direkt
-            _MOUSEHIDE _DISABLE
-            _MOUSEMOVE RW \ 2, RH \ 2
+            ' VIDARE: ny runda direkt. Själva låset (_MOUSEHIDE _DISABLE) FÖRDRÖJS
+            ' några frames (lockDelay) — samma mönster som meny-vägen (fade mellan
+            ' klick och lock); Wayland behöver se klick-gesten först (DEL B-test c).
+            lockDelay = 4
             hp = 100: ammo = 5
             px = 8.5: py = 4.5: angle = 0: pitch = 0
             For i = 0 To 10
@@ -454,6 +463,8 @@ Do
         DrawButton resB2X0, resB2Y0, resB2X1, resB2Y1, strMainMenu$, (hoverR = 2)
         Color _RGB32(150, 150, 150)
         _PrintString ((RW - Len(strEscMenu$) * 8) \ 2, RH \ 2 + 195), strEscMenu$
+        Color _RGB32(110, 110, 140)
+        _PrintString (RW - Len(ver$ + " " + strBuild$) * 8 - 16, RH - 24), ver$ + " " + strBuild$
         _Display
         If selftest Then Gosub SelftestDrive   ' fas12: observera state=result här
     Else
@@ -525,6 +536,18 @@ Do
         If Abs(mmx) > 300 Then mmx = 0
         fireBtn = _MouseButton(1)
         If fireBtn Then lockHint = 0   ' första klicket i rundan -> lås engagerat (Wayland), dölj hint
+        ' Fördröjt muslås efter VIDARE (result-vägen): samma mönster som
+        ' meny-vägen (många frames mellan klick och lock pga fade) — Wayland
+        ' behöver se klick-gesten innan _DISABLE (DEL B-test c).
+        If lockDelay > 0 Then
+            lockDelay = lockDelay - 1
+            If lockDelay = 0 Then
+                LogMouse "HIDE_DISABLE result-VIDARE (fördröjd)"
+                _MOUSEHIDE _DISABLE
+                LogMouse "MOUSEMOVE center result-VIDARE (fördröjd)"
+                _MOUSEMOVE RW \ 2, RH \ 2
+            End If
+        End If
     End If
     angle = angle + mmx * mouseSens * speed
     ' pitch = vertikal lutning i pixlar. Minus här: mus UPP (mdy<0) ska ge titta upp.
@@ -800,6 +823,7 @@ Do
         winTime = Int(Timer - runT0)   ' FRYS run-tiden vid segerögonblicket (bugg 1)
         If selftest Then stMsg$ = "WIN-TRIG phase=" + Str$(testPhase) + " t=" + LTrim$(Str$(Int((Timer - winT0) * 10) / 10)): Gosub STLog
         state$ = "result"
+        LogMouse "SHOW win->result"
         _MOUSESHOW
         score = CalcScore&   ' använder nu frysta winTime
         newRecord = 0
@@ -818,6 +842,7 @@ Do
         hp = 0
         state$ = "dead"
         deathTime = Timer
+        LogMouse "SHOW death"
         _MOUSESHOW   ' slapp pointer-lock vid död
         ' Highscore: räkna score vid död; spara nytt rekord (ej i selftest = anti-cheese)
         score = CalcScore&
@@ -1345,6 +1370,14 @@ Sub ShutdownSound
     Open "/tmp/schleswig_snd.log" For Append As #sndDbg
     Print #sndDbg, "SND shutdown: totala PlaySound-anrop="; sndCalls
     Close #sndDbg
+End Sub
+
+' LogMouse: mus-diagnos till /tmp/schleswig_mouse.log (frame + state + anrop)
+Sub LogMouse (msg$)
+    mf = FreeFile
+    Open "/tmp/schleswig_mouse.log" For Append As #mf
+    Print #mf, "t="; LTrim$(Str$(Int(Timer * 10) / 10)); " state="; state$; " "; msg$
+    Close #mf
 End Sub
 
 ' DrawButton: EN knapp-widget för huvudmenyn + resultatmenyn (samma palett).
