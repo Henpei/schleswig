@@ -106,6 +106,9 @@ Const strFps$ = "FPS:"                             ' debug-rad + fönstertitel
 Const strDmgDebug$ = "-5 HP"                       ' debug-knapp G
 Const strMedkit$ = "+25 HP"                        ' medkit-pickup
 Const strAmmoPick$ = "+10 AMMO"                    ' ammo-pickup
+Const strScore$ = "SCORE:"                         ' dödsskärm: score-rad
+Const strBest$ = "BÄSTA:"                          ' dödsskärm: bästa score
+Const strNewRec$ = "NY REKORD!"                    ' dödsskärm: vid nytt rekord
 ' ============================================================================
 
 ceilingCol& = _RGB32(24, 24, 48)
@@ -164,6 +167,9 @@ DIM SHARED sndWave(SND_COUNT), sndF0!(SND_COUNT), sndF1!(SND_COUNT), sndDur!(SND
 DIM SHARED sndBuf!(SND_RATE)  ' PCM-buffer, max 1 s per ljud
 DIM SHARED sndPipe&           ' raw pipe; <=0 = ingen ljudenhet (headless) -> tyst no-op
 DIM enAlertT(10), enStepAcc(10)   ' används även i huvudloopen -> globala
+' Highscore (dödsskärm): score = 10000 - 10*s - 25*skott - 50*skada (min 0).
+' DIM SHARED: används även i CalcScore& (sub-lokala annars, se ljud-debuggen).
+DIM SHARED shotsFired, dmgTaken, runT0, bestScore, score, newRecord
 DIM stepAcc                   ' ackumulerad gångsträcka (spelarfotsteg)
 DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
 ' Fas 3 selftest/autoplay: ./schleswig/schleswig selftest -> scriptat scenario, loggas till fil
@@ -172,12 +178,21 @@ cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, 
 If cmdArg$ = "selftest" Then selftest = 1
 testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFlag = 0
 Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
+' Highscore: nollställ counters, ladda bästa score från lokal fil (.schleswig_scores.txt)
+shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0
+If _FileExists(".schleswig_scores.txt") Then
+    f = FreeFile
+    Open ".schleswig_scores.txt" For Input As #f
+    If Not Eof(f) Then Line Input #f, bs$: bestScore = Val(bs$)
+    Close #f
+End If
 If selftest Then
     stF = FreeFile
     Open "/tmp/schleswig_selftest.log" For Output As #stF
     Close #stF
     state$ = "playing"          ' hoppa över menyn direkt
     _MOUSEHIDE _DISABLE
+    runT0 = Timer: shotsFired = 0: dmgTaken = 0   ' highscore-counters i selftest
     Gosub SpawnEnemies
     ' Fas 3.1-scenario: EN fiende i PATROLL utan LOS till spelaren (10.5,6.5)->(8.5,4.5)
     For i = 1 To 10: enActive(i) = 0: Next i
@@ -276,6 +291,7 @@ Do
                 _MOUSEHIDE _DISABLE
                 fadeT0 = Timer
                 fading = 2
+                runT0 = Timer: shotsFired = 0: dmgTaken = 0   ' ny runda börjar
             End If
         End If
         _Display
@@ -284,6 +300,19 @@ Do
         ' Fas 3.1 selftest: fas 8 = spelaren har dött av fiende -> fas 9 spawn-audit -> avsluta
         If selftest And testPhase = 8 Then
             stMsg$ = "PASS fas8-spelare-kan-do (hp=0, state=dead)": Gosub STLog
+            ' anti-cheese-vakt: score måste vara >= 0 (aldrig negativ)
+            sc8& = CalcScore&
+            If sc8& >= 0 Then
+                stMsg$ = "PASS fas8-score score=" + Str$(sc8&) + " (>=0 OK, ej negativ; s=" + Str$(Int(Timer - runT0)) + " skott=" + Str$(shotsFired) + " skada=" + Str$(dmgTaken) + ")"
+            Else
+                stMsg$ = "FAIL fas8-score negativ=" + Str$(sc8&)
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            Gosub STLog
             ' fas 9: spawn-audit pa AKTA startlage (SpawnEnemies) innan vi avslutar
             state$ = "playing"
             hp = 100: ammo = 20
@@ -322,6 +351,17 @@ Do
             _PrintString (dtx, dty), strDead$
             Color _RGB32(200, 200, 200)
             _PrintString ((RW - Len(strRestart$) * 8) \ 2, RH \ 2 + 40), strRestart$
+            ' highscore-rader: SCORE / BÄSTA / ev. NY REKORD!
+            sc$ = strScore$ + " " + LTrim$(Str$(score))
+            bs2$ = strBest$ + " " + LTrim$(Str$(bestScore))
+            Color _RGB32(255, 255, 255)
+            _PrintString ((RW - Len(sc$) * 8) \ 2, RH \ 2 + 70), sc$
+            Color _RGB32(150, 150, 150)
+            _PrintString ((RW - Len(bs2$) * 8) \ 2, RH \ 2 + 90), bs2$
+            If newRecord Then
+                Color _RGB32(255, 80, 80)
+                _PrintString ((RW - Len(strNewRec$) * 8) \ 2, RH \ 2 + 110), strNewRec$
+            End If
         End If
         _Display
     Else
@@ -330,6 +370,7 @@ Do
     ' debug-knapp: G = -5 HP (min 0), bara i playing-läge
     If k$ = "g" Or k$ = "G" Or _KeyDown(Asc("G")) Then
         hp = hp - 5
+        dmgTaken = dmgTaken + 5      ' highscore: G-debug räknas som skada
         If hp < 0 Then hp = 0
         hpMsg$ = strDmgDebug$
         hpMsgTime = Timer
@@ -570,6 +611,7 @@ Do
             If edist < 0.8 And Timer - enLastHit(i) >= 0.7 Then
                 enLastHit(i) = Timer
                 hp = hp - enDmg(i)
+                dmgTaken = dmgTaken + enDmg(i)   ' highscore: närstridsskada
                 hpMsg$ = "-" + Str$(enDmg(i)) + " HP"
                 hpMsgTime = Timer
                 PlaySound SND_HURT
@@ -582,6 +624,7 @@ Do
         lastShotTime = Timer
         If ammo > 0 Then
             ammo = ammo - 1
+            shotsFired = shotsFired + 1   ' highscore: varje avfogat skott
             tracerTime = Timer
             pitch = pitch + 6   ' liten rekyl-puff
             PlaySound SND_SHOT
@@ -654,6 +697,17 @@ Do
         state$ = "dead"
         deathTime = Timer
         _MOUSESHOW   ' slapp pointer-lock vid död
+        ' Highscore: räkna score vid död; spara nytt rekord (ej i selftest = anti-cheese)
+        score = CalcScore&
+        newRecord = 0
+        If selftest = 0 And score > bestScore Then
+            bestScore = score
+            newRecord = 1
+            f = FreeFile
+            Open ".schleswig_scores.txt" For Output As #f
+            Print #f, bestScore
+            Close #f
+        End If
     End If
 
     ' ======== RENDERING: DDA-väggloop (fyller även wallDist för sprites) ========
@@ -1029,6 +1083,15 @@ SpawnEnemies:
     enX(3) = 2.5:  enY(3) = 1.5:  enActive(3) = 1: enSpd(3) = 0.55
     enLx(3) = enX(3): enLy(3) = enY(3): enTx(3) = 2: enTy(3) = 1
     Return
+
+' CalcScore&: highscore vid död = 10000 - 10*s - 25*skott - 50*skada, min 0
+' (anti-negativt skydd: score kan aldrig bli < 0)
+Function CalcScore&
+    s% = Int(Timer - runT0)
+    sc& = 10000 - 10 * s% - 25 * shotsFired - 50 * dmgTaken
+    If sc& < 0 Then sc& = 0
+    CalcScore& = sc&
+End Function
 
 ' InitSounds (Fas 4): fyller det datadrivna ljud-registret (id -> vågform,
 ' frekvenssvep, längd, volym) och öppnar raw-PCM-pipen. _SNDOPENRAW ger

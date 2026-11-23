@@ -33,8 +33,9 @@ Early development, tagged v0.1.0 ("first playable build"): title menu,
 DDA raycast rendering, HP/ammo pickups, shooting with cooldown, enemy AI
 (patrol / hunt / attack state machine with LOS detection and a BFS flow
 field), procedural sound (shot/hit/enemy death/pickup/hurt/detect-alert/
-footsteps via a data-driven registry), death screen, and an 11-phase scripted
-self-test.
+footsteps via a data-driven registry), death screen with highscore
+(score = 10000 - 10*s - 25*shots - 50*damage, best saved to
+.schleswig_scores.txt), and an 11-phase scripted self-test.
 
 ## License
 
