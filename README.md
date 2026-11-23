@@ -32,7 +32,9 @@ different "layers" (directory vs file), so no name collision can occur.
 Early development, tagged v0.1.0 ("first playable build"): title menu,
 DDA raycast rendering, HP/ammo pickups, shooting with cooldown, enemy AI
 (patrol / hunt / attack state machine with LOS detection and a BFS flow
-field), death screen, and a 10-phase scripted self-test.
+field), procedural sound (shot/hit/enemy death/pickup/hurt/detect-alert/
+footsteps via a data-driven registry), death screen, and an 11-phase scripted
+self-test.
 
 ## License
 

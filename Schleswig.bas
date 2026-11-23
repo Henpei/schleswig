@@ -143,11 +143,31 @@ amX(2) = 6.5: amY(2) = 9.5: amActive(2) = 1
 DIM enX(10), enY(10), enActive(10), enHP(10), enDmg(10), enSpd(10), enLastHit(10)
 DIM enState(10), enSeen(10), enTx(10), enTy(10), enPatrolT(10), enLastSeen(10)
 DIM enLx(10), enLy(10), enCalmT(10), bfsD(15, 15), qx(255), qy(255)
+' ======== LJUD (Fas 4): procedurell PCM via _SNDOPENRAW/_SNDRAWBATCH =========
+' Data-drivet register: id -> vågform/frekvenssvep/längd/volym (InitSounds).
+' Nya ljud (vapen/fiendetyper) kopplas via registret + GenSample#, INTE via
+' hårdkodade If-satser utspridda i spelkoden.
+Const SND_RATE = 48000        ' miniaudio engine sample rate
+Const SND_SHOT = 1            ' skott: brus-burst
+Const SND_HIT = 2             ' träff: fyrkant "puck"
+Const SND_ENDIE = 3           ' fiende-död: sågtand nedåt
+Const SND_PICKUP = 4          ' pickup: sinus uppåt
+Const SND_HURT = 5            ' player-skada: mörk fyrkant
+Const SND_ALERT = 6           ' detect-alert: två-ton (PATROLL->JAKT)
+Const SND_STEP = 7            ' fotsteg spelare
+Const SND_ESTEP = 8           ' fotsteg fiende (volym efter avstånd)
+Const SND_COUNT = 8
+DIM sndWave(SND_COUNT), sndF0!(SND_COUNT), sndF1!(SND_COUNT), sndDur!(SND_COUNT), sndVol!(SND_COUNT)
+DIM sndBuf!(SND_RATE)         ' PCM-buffer, max 1 s per ljud
+DIM sndPipe&                  ' raw pipe; <=0 = ingen ljudenhet (headless) -> tyst no-op
+DIM enAlertT(10), enStepAcc(10)
+DIM stepAcc                   ' ackumulerad gångsträcka (spelarfotsteg)
 ' Fas 3 selftest/autoplay: ./schleswig/schleswig selftest -> scriptat scenario, loggas till fil
 selftest = 0
 cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, bara LTrim$/RTrim$
 If cmdArg$ = "selftest" Then selftest = 1
 testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFlag = 0
+Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 If selftest Then
     stF = FreeFile
     Open "/tmp/schleswig_selftest.log" For Output As #stF
@@ -310,6 +330,7 @@ Do
         If hp < 0 Then hp = 0
         hpMsg$ = strDmgDebug$
         hpMsgTime = Timer
+        PlaySound SND_HURT
         lastDamageTime = Timer   ' G räknas som skada: resetta regen-grace
     End If
     If k$ = Chr$(0) + "K" Or _KeyDown(19200) Then angle = angle - turnStep * speed
@@ -317,6 +338,7 @@ Do
 
     dirX = Cos(angle)
     dirY = Sin(angle)
+    ox = px: oy = py   ' före rörelse, för fotstegs-ackumulatorn
 
     If k$ = "w" Or k$ = "W" Or _KeyDown(Asc("W")) Or _KeyDown(Asc("w")) Then
         nx = px + dirX * moveStep * speed
@@ -342,6 +364,10 @@ Do
         If Mid$(mapRow$(Int(py)), Int(nx + Sgn(nx - px) * 0.2) + 1, 1) <> "#" Then px = nx
         If Mid$(mapRow$(Int(ny + Sgn(ny - py) * 0.2)), Int(px) + 1, 1) <> "#" Then py = ny
     End If
+
+    ' Fas 4: fotsteg spelare — var 0.5 cell gångavstånd (rytm følger hastigheten)
+    stepAcc = stepAcc + Sqr((px - ox) ^ 2 + (py - oy) ^ 2)
+    If stepAcc >= 0.5 Then stepAcc = 0: PlaySound SND_STEP
 
     If selftest Then
         ' Fas 3 autoplay/selftest: scriptad input istället för riktig mus/tangentbord
@@ -379,6 +405,7 @@ Do
                 If hp > 100 Then hp = 100
                 hpMsg$ = strMedkit$
                 hpMsgTime = Timer
+                PlaySound SND_PICKUP
             End If
         End If
     Next i
@@ -391,6 +418,7 @@ Do
                 ammo = ammo + 10
                 hpMsg$ = strAmmoPick$
                 hpMsgTime = Timer
+                PlaySound SND_PICKUP
             End If
         End If
     Next i
@@ -410,7 +438,15 @@ Do
                 anySee = 1
                 enLastSeen(i) = Timer
                 enLx(i) = px: enLy(i) = py
-                If edist >= 0.8 Then enState(i) = 1     ' fri sikt + inom 6 celler -> JAKT
+                If edist >= 0.8 Then
+                    ' Fas 4: DETECT-ALERT vid tillståndsväxlingen PATROLL->JAKT (inte per frame),
+                    ' cooldown 0.5 s per fiende mot spam
+                    If enState(i) = 0 And Timer - enAlertT(i) >= 0.5 Then
+                        PlaySound SND_ALERT
+                        enAlertT(i) = Timer
+                    End If
+                    enState(i) = 1     ' fri sikt + inom 6 celler -> JAKT
+                End If
             End If
             If edist < 0.8 Then enState(i) = 2           ' ANFALL vid kort avstånd
         End If
@@ -439,6 +475,7 @@ Do
             edx = px - enX(i)
             edy = py - enY(i)
             edist = Sqr(edx * edx + edy * edy)
+            oex = enX(i): oey = enY(i)   ' före rörelse, för fotstegs-ackumulatorn
             Select Case enState(i)
                 Case 0   ' PATROLL: långsam vandra mot slumpad närliggande cell, nytt mål ~var 3:e s
                     If enPatrolT(i) <= 0 Or Timer - enPatrolT(i) >= 3 Or (Abs(enX(i) - (enTx(i) + 0.5)) < 0.15 And Abs(enY(i) - (enTy(i) + 0.5)) < 0.15) Then
@@ -518,6 +555,15 @@ Do
                 Case 2   ' ANFALL: står kvar och slår (själva skadan kommer nedan)
                     If edist > 1.2 Then enState(i) = 1
             End Select
+            ' Fas 4: fotsteg fiende — var 0.5 cell rörelse, volym dämpad med avstånd
+            enStepAcc(i) = enStepAcc(i) + Sqr((enX(i) - oex) ^ 2 + (enY(i) - oey) ^ 2)
+            If enStepAcc(i) >= 0.5 Then
+                enStepAcc(i) = 0
+                evol! = 1 - edist / 12
+                If evol! < 0.1 Then evol! = 0.1
+                If evol! > 0.5 Then evol! = 0.5
+                PlaySoundVol SND_ESTEP, evol!
+            End If
             ' närstridsskada (oförändrad mekanik från Fas 3): dist<0.8, cooldown 0.7 s,
             ' lastDamageTime uppdateras -> HP-regen blockas (samma grace som Fas 2)
             If edist < 0.8 And Timer - enLastHit(i) >= 0.7 Then
@@ -526,6 +572,7 @@ Do
                 lastDamageTime = Timer
                 hpMsg$ = "-" + Str$(enDmg(i)) + " HP"
                 hpMsgTime = Timer
+                PlaySound SND_HURT
             End If
         End If
     Next i
@@ -537,6 +584,7 @@ Do
             ammo = ammo - 1
             tracerTime = Timer
             pitch = pitch + 6   ' liten rekyl-puff
+            PlaySound SND_SHOT
             ' träff-koll: samma DDA som vägg-loopen men rakt fram (cameraX=0)
             rdx = dirX: rdy = dirY
             mapX = Int(px): mapY = Int(py)
@@ -581,8 +629,10 @@ Do
                 If enHP(bestE) <= 0 Then
                     enActive(bestE) = 0
                     hpMsg$ = "FIENDE DÖD"
+                    PlaySound SND_ENDIE
                 Else
                     hpMsg$ = "TRÄFF"
+                    PlaySound SND_HIT
                 End If
                 hpMsgTime = Timer
             End If
@@ -590,6 +640,7 @@ Do
         Else
             hpMsg$ = "CLICK"
             hpMsgTime = Timer
+            PlaySoundVol SND_HIT, 0.3
         End If
     End If
 
@@ -853,15 +904,16 @@ Do
         If eyesOK And frontOK And behindOK Then
             stMsg$ = "PASS fas10-occlusion (ögon dolda bakom vägg, pickup framför syns, bakom döljs)"
             Gosub STLog
-            stMsg$ = "SELFTEST OK"
-            Gosub STLog
+            ' fas 11: ljud-register-test (alla id anropas; får ej ändra tillstånd/krascha)
+            testPhase = 11: testT0 = Timer: testFlag = 0
         Else
             stMsg$ = "FAIL fas10-occlusion eyesOK=" + Str$(eyesOK) + " frontOK=" + Str$(frontOK) + " behindOK=" + Str$(behindOK) + " eyePix=" + Str$(eyePix&) + " frontPix=" + Str$(pkFrontPix&) + " frontPix2=" + Str$(pkFrontPix2&) + " behindPix=" + Str$(pkBehindPix&) + " apdistP=" + LTrim$(Str$(Int(apdistP * 100) / 100)) + " wallDist=" + LTrim$(Str$(Int(wallDist(apcx) * 100) / 100)) + " RW=" + Str$(RW) + " RH=" + Str$(RH) + " apcx=" + Str$(apcx)
             Gosub STLog
             stMsg$ = "SELFTEST FAIL"
             Gosub STLog
+            ShutdownSound
+            End
         End If
-        End
     End If
 
     ' ======== HUD: debug-rad, HP-bar, ammo, transient meddelande ======
@@ -980,6 +1032,85 @@ SpawnEnemies:
     enLx(3) = enX(3): enLy(3) = enY(3): enTx(3) = 2: enTy(3) = 1
     Return
 
+' InitSounds (Fas 4): fyller det datadrivna ljud-registret (id -> vågform,
+' frekvenssvep, längd, volym) och öppnar raw-PCM-pipen. _SNDOPENRAW ger
+' ogiltigt handtag (<=0) när ingen ljudenhet finns (headless) -> alla
+' PlaySound* blir då tysta no-op och kraschar aldrig.
+InitSounds:
+    sndPipe& = _SNDOPENRAW
+    sndWave(SND_SHOT) = 1: sndF0!(SND_SHOT) = 0: sndF1!(SND_SHOT) = 0: sndDur!(SND_SHOT) = 0.06: sndVol!(SND_SHOT) = 0.25
+    sndWave(SND_HIT) = 2: sndF0!(SND_HIT) = 220: sndF1!(SND_HIT) = 160: sndDur!(SND_HIT) = 0.09: sndVol!(SND_HIT) = 0.18
+    sndWave(SND_ENDIE) = 3: sndF0!(SND_ENDIE) = 400: sndF1!(SND_ENDIE) = 70: sndDur!(SND_ENDIE) = 0.3: sndVol!(SND_ENDIE) = 0.22
+    sndWave(SND_PICKUP) = 4: sndF0!(SND_PICKUP) = 660: sndF1!(SND_PICKUP) = 990: sndDur!(SND_PICKUP) = 0.15: sndVol!(SND_PICKUP) = 0.18
+    sndWave(SND_HURT) = 2: sndF0!(SND_HURT) = 110: sndF1!(SND_HURT) = 65: sndDur!(SND_HURT) = 0.12: sndVol!(SND_HURT) = 0.28
+    sndWave(SND_ALERT) = 5: sndF0!(SND_ALERT) = 880: sndF1!(SND_ALERT) = 587: sndDur!(SND_ALERT) = 0.24: sndVol!(SND_ALERT) = 0.2
+    sndWave(SND_STEP) = 1: sndF0!(SND_STEP) = 0: sndF1!(SND_STEP) = 0: sndDur!(SND_STEP) = 0.045: sndVol!(SND_STEP) = 0.1
+    sndWave(SND_ESTEP) = 1: sndF0!(SND_ESTEP) = 0: sndF1!(SND_ESTEP) = 0: sndDur!(SND_ESTEP) = 0.05: sndVol!(SND_ESTEP) = 0.12
+    stepAcc = 0
+    For i = 0 To 10: enAlertT(i) = -99: enStepAcc(i) = 0: Next i
+    Return
+
+' GenSample#: vågform-generator. Registret (sndWave(id%)) styr vågformen;
+' nya ljudtyper = ny Case här + en rad i InitSounds.
+Function GenSample# (id%, i%, n%)
+    t# = i% / SND_RATE
+    dur# = sndDur!(id%)
+    f0# = sndF0!(id%): f1# = sndF1!(id%)
+    env# = 1 - t# / dur#          ' enkel linjär decay
+    If env# < 0 Then env# = 0
+    Select Case sndWave(id%)
+        Case 1   ' brus (skott, fotsteg)
+            GenSample# = (Rnd * 2 - 1) * env#
+        Case 2   ' fyrkantsvåg med frekvenssvep f0->f1 (träff, skada)
+            f# = f0# + (f1# - f0#) * (t# / dur#)
+            If Sin(6.2831853 * f# * t#) >= 0 Then GenSample# = env# Else GenSample# = -env#
+        Case 3   ' sågtand med svep (fiende-död, nedstigande)
+            f# = f0# + (f1# - f0#) * (t# / dur#)
+            ph# = f# * t# - Int(f# * t#)
+            GenSample# = (ph# * 2 - 1) * env#
+        Case 4   ' sinus med svep (pickup, uppstigande pling)
+            f# = f0# + (f1# - f0#) * (t# / dur#)
+            GenSample# = Sin(6.2831853 * f# * t#) * env#
+        Case 5   ' två-ton fyrkant (detect-alert: första halvan f0, andra f1)
+            If t# < dur# / 2 Then f# = f0# Else f# = f1#
+            If Sin(6.2831853 * f# * t#) >= 0 Then GenSample# = env# Else GenSample# = -env#
+        Case Else
+            GenSample# = 0
+    End Select
+End Function
+
+' PlaySoundVol: genererar PCM för ljud id% och pushar till raw-pipen i ett
+' _SNDRAWBATCH-anrop. Korta, svaga retro-beeps (volym <= 0.3 i registret).
+Sub PlaySoundVol (id%, vol!)
+    If sndPipe& <= 0 Then Exit Sub
+    If id% < 1 Or id% > SND_COUNT Then Exit Sub
+    n% = Int(sndDur!(id%) * SND_RATE)
+    If n% < 8 Then n% = 8
+    If n% > SND_RATE Then n% = SND_RATE
+    For i% = 0 To n% - 1
+        s# = GenSample#(id%, i%, n%) * sndVol!(id%) * vol!
+        If s# > 1 Then s# = 1
+        If s# < -1 Then s# = -1
+        sndBuf!(i%) = s#
+    Next i%
+    _SNDRAWBATCH sndBuf!(), 1, sndPipe&, n%
+End Sub
+
+' PlaySound: standardvolym. Används av alla spel-händelser via registret.
+Sub PlaySound (id%)
+    PlaySoundVol id%, 1
+End Sub
+
+' ShutdownSound: tömmer och stänger raw-pipen så processen kan avsluta även
+' med öppen ljudström (annars kan ljudmotorns tråd hänga på exit).
+Sub ShutdownSound
+    ' OBS: _SNDRAWDONE utelämnad medvetet — kan blockera när ingen ljudenhet finns
+    If sndPipe& > 0 Then
+        _SNDCLOSE sndPipe&
+        sndPipe& = 0
+    End If
+End Sub
+
 ' LOSCheck: DDA-stråle från (fx,fy) till (tx,ty); losOK=1 om ingen väggcell på vägen
 LOSCheck:
     losOK = 1
@@ -1045,6 +1176,7 @@ SelftestDrive:
     ' därefter gamla Fas 3-kombattestet: fas5 jakt -> fas6 skada -> fas7 dör av skott -> fas8 spelare dör
     ' fas 9 = spawn-audit: akta SpawnEnemies, ingen fiende far se spelaren vid start (LOS<tröskel)
     ' fas 10 = occlusion-audit: pixel-check (POINT) att ögon döljs bakom vägg och pickups rätt
+    ' fas 11 = ljud-register-test: PlaySound för alla id, tillstånd ska vara oförändrat
     Select Case testPhase
         Case 1   ' PATROLL: ingen LOS (10.5,6.5)->(8.5,4.5) -> stanna i PATROLL men vandra mot mål
             If Timer - testT0 >= 1.2 Then
@@ -1180,6 +1312,7 @@ SelftestDrive:
                 Gosub STLog
                 stMsg$ = "SELFTEST FAIL"
                 Gosub STLog
+                ShutdownSound
                 End
             End If
         Case 9   ' SPAWN-AUDIT: akta SpawnEnemies-layout, ingen aktiv fiende far ha
@@ -1231,6 +1364,28 @@ SelftestDrive:
             End If
         Case 10  ' OCKLUSION-AUDIT: vänta några frames, sätt testFlag=1; render-sektionen gör POINT-checken
             If testFlag = 0 And Timer - testT0 >= 0.6 Then testFlag = 1
+        Case 11  ' LJUD-REGISTER-TEST: anropa PlaySound för alla registrerade id.
+                 ' Får INTE ändra speltillstånd eller krascha (headless = tyst no-op).
+            If testFlag = 0 Then
+                testFlag = 1
+                sh0 = hp: sst0$ = state$: sam0 = ammo: sen0 = enState(0)
+                For sndId% = 1 To SND_COUNT
+                    PlaySound sndId%
+                Next sndId%
+                If hp = sh0 And state$ = sst0$ And ammo = sam0 And enState(0) = sen0 Then
+                    stMsg$ = "PASS fas11-ljud-register (alla " + Str$(SND_COUNT) + " id anropade, tillstånd oförändrat, ingen krasch)"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST OK"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas11-ljud-register hp=" + Str$(Int(hp)) + " state=" + state$ + " ammo=" + Str$(ammo)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                End If
+                ShutdownSound
+                End
+            End If
     End Select
     Return
 
