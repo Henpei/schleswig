@@ -5,11 +5,19 @@
 '      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning + HP-regen (Fas 2),
 '      klickbar START GAME-knapp med hover-tick/klick-ljud och fade-overgang (Fas 2.5),
 '      dodsskarm + full reset vid R/SPACE (Fas 2.6), crosshair i playing (Fas 2.7),
-'      fiender: jakt-AI, närstridsskada, skott-träff, billboard-sprites (Fas 3).
+'      fiender: PATROLL/JAKT/ANFALL-AI med LOS + BFS-flowfield, närstridsskada,
+'      skott-träff, billboard-sprites (Fas 3 + 3.1).
+'
+' BYGG-KONVENTION (stående regel, gäller alla sessioner):
+'   Bygg ALLTID från /home/andre/QB64pe med:
+'     ./qb64pe -c Raycaster/Raycaster.bas -o Raycaster/raycaster -x
+'   Binären heter ALLTID "raycaster" (liten r) i Raycaster/. ALDRIG "Raycaster"
+'   som binärnamn - det krockar med projektkatalogen
+'   (ld: "kan inte öppna utdatafil Raycaster: Är en katalog").
 '
 ' KÖRINSTRUKTIONER:
-'   ./Raycaster
-'   ./Raycaster selftest   = autoplay-selftest (logg: /tmp/raycaster_selftest.log)
+'   ./raycaster            (binären i Raycaster/, liten r)
+'   ./raycaster selftest   = autoplay-selftest (logg: /tmp/raycaster_selftest.log)
 '   SPACE = starta spelet (från titelmenyn), ESC = avsluta (fungerar i båda lägen)
 '   WASD = gå/strafe, musen = titta runt. Muslåset (pointer lock) aktiveras
 '   FÖRST när state = "playing" -- i menyn är pekaren synlig.
@@ -108,14 +116,17 @@ amX(0) = 3.5: amY(0) = 4.5: amActive(0) = 1
 amX(1) = 12.5: amY(1) = 4.5: amActive(1) = 1
 amX(2) = 6.5: amY(2) = 9.5: amActive(2) = 1
 
-' Fas 3: fiende-pool (samma array-pool-mönster som pickups): pos, aktiv flagga,
-' hp (3 träffar), skada, hastighet. Startlägen sätts i subrutinen SpawnEnemies.
+' Fas 3/3.1: fiende-pool (samma array-pool-mönster som pickups): pos, aktiv flagga,
+' hp (3 träffar), skada, hastighet + AI-tillstånd. Startlägen i SpawnEnemies.
+' enState: 0=PATROLL, 1=JAKT, 2=ANFALL. bfsD = BFS-avståndskarta (flödesfält).
 DIM enX(10), enY(10), enActive(10), enHP(10), enDmg(10), enSpd(10), enLastHit(10)
+DIM enState(10), enSeen(10), enTx(10), enTy(10), enPatrolT(10), enLastSeen(10)
+DIM enLx(10), enLy(10), enCalmT(10), bfsD(15, 15), qx(255), qy(255)
 ' Fas 3 selftest/autoplay: ./raycaster selftest -> scriptat scenario, loggas till fil
 selftest = 0
 cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, bara LTrim$/RTrim$
 If cmdArg$ = "selftest" Then selftest = 1
-testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer
+testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFlag = 0
 If selftest Then
     stF = FreeFile
     Open "/tmp/raycaster_selftest.log" For Output As #stF
@@ -123,14 +134,20 @@ If selftest Then
     state$ = "playing"          ' hoppa över menyn direkt
     _MOUSEHIDE _DISABLE
     Gosub SpawnEnemies
-    ' deterministiskt scenario: EN fiende rakt fram i korridoren (rad 4 är öppen)
+    ' Fas 3.1-scenario: EN fiende i PATROLL utan LOS till spelaren (10.5,6.5)->(8.5,4.5)
     For i = 1 To 10: enActive(i) = 0: Next i
-    enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1
-    enHP(0) = 3: enDmg(0) = 10: enSpd(0) = 2: enLastHit(0) = 0
-    stMsg$ = "selftest start: fas1 jakt": Gosub STLog
+    px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 20
+    enX(0) = 10.5: enY(0) = 6.5: enActive(0) = 1
+    enHP(0) = 3: enDmg(0) = 10: enSpd(0) = 2
+    enState(0) = 0: enLastHit(0) = 0: enLastSeen(0) = 0: enCalmT(0) = 0
+    enLx(0) = enX(0): enLy(0) = enY(0)
+    enTx(0) = 10: enTy(0) = 5: enPatrolT(0) = Timer   ' deterministiskt patrullmål
+    bfsForX = -1: bfsForY = -1
+    stMsg$ = "selftest start: fas1 patrull (10.5,6.5)": Gosub STLog
     testPhase = 1: testT0 = Timer
 Else
     Gosub SpawnEnemies
+    Randomize Timer
 End If
 
 frames = 0
@@ -216,9 +233,9 @@ Do
         _Display
     ElseIf state$ = "dead" Then
         If k$ = Chr$(27) Or _KeyDown(27) Then End
-        ' Fas 3 selftest: fas 4 = spelaren har dött av fiende -> rapportera och avsluta
-        If selftest And testPhase = 4 Then
-            stMsg$ = "PASS fas4-spelare-kan-do (hp=0, state=dead)": Gosub STLog
+        ' Fas 3.1 selftest: fas 8 = spelaren har dött av fiende -> rapportera och avsluta
+        If selftest And testPhase = 8 Then
+            stMsg$ = "PASS fas8-spelare-kan-do (hp=0, state=dead)": Gosub STLog
             stMsg$ = "SELFTEST OK": Gosub STLog
             End
         End If
@@ -350,22 +367,131 @@ Do
         End If
     Next i
 
-    ' ======== FIENDER (Fas 3): jakt-AI mot spelaren + närstridsskada ========
+    ' ======== FIENDER (Fas 3.1): tillstånd PATROLL(0)/JAKT(1)/ANFALL(2) + LOS + BFS-fält ========
+    ' pass 1: LOS (DDA fiende->spelare) + siktbokföring + tillståndsväxling
+    anySee = 0
     For i = 0 To 10
         If enActive(i) Then
-            edx = enX(i) - px
-            edy = enY(i) - py
+            edx = px - enX(i)
+            edy = py - enY(i)
             edist = Sqr(edx * edx + edy * edy)
-            If edist > 0.75 Then
-                ' rörelse rakt MOT spelaren (px-enX = -edx); samma väggkollisions-
-                ' mönster som spelaren (kolla målcellen med 0.2 tiles marginal per axel)
-                nex = enX(i) - edx / edist * enSpd(i) * dt
-                ney = enY(i) - edy / edist * enSpd(i) * dt
-                If Mid$(mapRow$(Int(enY(i))), Int(nex + Sgn(nex - enX(i)) * 0.2) + 1, 1) <> "#" Then enX(i) = nex
-                If Mid$(mapRow$(Int(ney + Sgn(ney - enY(i)) * 0.2)), Int(enX(i)) + 1, 1) <> "#" Then enY(i) = ney
+            fx = enX(i): fy = enY(i): tx = px: ty = py
+            Gosub LOSCheck
+            enSeen(i) = losOK
+            If losOK And edist < 8 Then
+                anySee = 1
+                enLastSeen(i) = Timer
+                enLx(i) = px: enLy(i) = py
+                If edist >= 0.8 Then enState(i) = 1     ' fri sikt + inom 8 celler -> JAKT
             End If
-            ' skada spelaren vid kort avstånd: -enDmg HP, cooldown 0.7 s.
-            ' lastDamageTime uppdateras -> HP-regen blockas (samma grace som Fas 2).
+            If edist < 0.8 Then enState(i) = 2           ' ANFALL vid kort avstånd
+        End If
+    Next i
+    ' välj BFS-målcell: spelarens cell om någon fiende ser spelaren, annars första
+    ' jaktande fiendens sista kända position (en gömd spelare wallhackas inte)
+    bfsNewX = -1: bfsNewY = -1
+    If anySee Then
+        bfsNewX = Int(px): bfsNewY = Int(py)
+    Else
+        For i = 0 To 10
+            If enActive(i) And enState(i) >= 1 Then
+                bfsNewX = Int(enLx(i)): bfsNewY = Int(enLy(i))
+                Exit For
+            End If
+        Next i
+    End If
+    If bfsNewX = -1 Then bfsNewX = Int(px): bfsNewY = Int(py)
+    If bfsNewX <> bfsForX Or bfsNewY <> bfsForY Then
+        bfsTX = bfsNewX: bfsTY = bfsNewY
+        Gosub BFSCompute     ' EN avståndskarta, omräknas bara när målcell byts
+    End If
+    ' pass 2: rörelse per tillstånd + närstridsskada
+    For i = 0 To 10
+        If enActive(i) Then
+            edx = px - enX(i)
+            edy = py - enY(i)
+            edist = Sqr(edx * edx + edy * edy)
+            Select Case enState(i)
+                Case 0   ' PATROLL: långsam vandra mot slumpad närliggande cell, nytt mål ~var 3:e s
+                    If enPatrolT(i) <= 0 Or Timer - enPatrolT(i) >= 3 Or (Abs(enX(i) - (enTx(i) + 0.5)) < 0.15 And Abs(enY(i) - (enTy(i) + 0.5)) < 0.15) Then
+                        enPatrolT(i) = Timer
+                        enTx(i) = Int(enX(i)): enTy(i) = Int(enY(i))
+                        For tr = 1 To 8
+                            dr = Int(Rnd * 4)
+                            If dr = 0 Then cx2 = Int(enX(i)) + 1: cy2 = Int(enY(i))
+                            If dr = 1 Then cx2 = Int(enX(i)) - 1: cy2 = Int(enY(i))
+                            If dr = 2 Then cx2 = Int(enX(i)): cy2 = Int(enY(i)) + 1
+                            If dr = 3 Then cx2 = Int(enX(i)): cy2 = Int(enY(i)) - 1
+                            If cx2 >= 0 And cx2 <= 15 And cy2 >= 0 And cy2 <= 15 Then
+                                If Mid$(mapRow$(cy2), cx2 + 1, 1) <> "#" Then
+                                    enTx(i) = cx2: enTy(i) = cy2
+                                    tr = 99
+                                End If
+                            End If
+                        Next tr
+                    End If
+                    gdx = enTx(i) + 0.5 - enX(i)
+                    gdy = enTy(i) + 0.5 - enY(i)
+                    gdist = Sqr(gdx * gdx + gdy * gdy)
+                    If gdist > 0.05 Then
+                        nex = enX(i) + gdx / gdist * 0.2 * dt
+                        ney = enY(i) + gdy / gdist * 0.2 * dt
+                        If Mid$(mapRow$(Int(enY(i))), Int(nex + Sgn(nex - enX(i)) * 0.2) + 1, 1) <> "#" Then enX(i) = nex
+                        If Mid$(mapRow$(Int(ney + Sgn(ney - enY(i)) * 0.2)), Int(enX(i)) + 1, 1) <> "#" Then enY(i) = ney
+                    End If
+                Case 1   ' JAKT: följ BFS-fältet nedströms (4-riktning, inga diagonaler)
+                    bcx = Int(enX(i)): bcy = Int(enY(i))
+                    If bfsForX >= 0 And bcx >= 0 And bcx <= 15 And bcy >= 0 And bcy <= 15 And bfsD(bcx, bcy) > 0 Then
+                        best = bfsD(bcx, bcy): bnx = -1: bny = -1
+                        If bcx + 1 <= 15 Then If Mid$(mapRow$(bcy), bcx + 2, 1) <> "#" Then If bfsD(bcx + 1, bcy) >= 0 And bfsD(bcx + 1, bcy) < best Then best = bfsD(bcx + 1, bcy): bnx = bcx + 1: bny = bcy
+                        If bcx - 1 >= 0 Then If Mid$(mapRow$(bcy), bcx, 1) <> "#" Then If bfsD(bcx - 1, bcy) >= 0 And bfsD(bcx - 1, bcy) < best Then best = bfsD(bcx - 1, bcy): bnx = bcx - 1: bny = bcy
+                        If bcy + 1 <= 15 Then If Mid$(mapRow$(bcy + 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy + 1) >= 0 And bfsD(bcx, bcy + 1) < best Then best = bfsD(bcx, bcy + 1): bnx = bcx: bny = bcy + 1
+                        If bcy - 1 >= 0 Then If Mid$(mapRow$(bcy - 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy - 1) >= 0 And bfsD(bcx, bcy - 1) < best Then best = bfsD(bcx, bcy - 1): bnx = bcx: bny = bcy - 1
+                        If bnx >= 0 Then
+                            gdx = bnx + 0.5 - enX(i)
+                            gdy = bny + 0.5 - enY(i)
+                            gdist = Sqr(gdx * gdx + gdy * gdy)
+                            If gdist > 0.02 Then
+                                nex = enX(i) + gdx / gdist * enSpd(i) * dt
+                                ney = enY(i) + gdy / gdist * enSpd(i) * dt
+                                ' väggkollision behålls även i JAKT (samma 0.2-marginal)
+                                If Mid$(mapRow$(Int(enY(i))), Int(nex + Sgn(nex - enX(i)) * 0.2) + 1, 1) <> "#" Then enX(i) = nex
+                                If Mid$(mapRow$(Int(ney + Sgn(ney - enY(i)) * 0.2)), Int(enX(i)) + 1, 1) <> "#" Then enY(i) = ney
+                            End If
+                        End If
+                    Else
+                        ' i målcell (bfsD=0) eller fält saknas: rakt mot sista kända/spelaren
+                        gdx = enLx(i) - enX(i)
+                        gdy = enLy(i) - enY(i)
+                        gdist = Sqr(gdx * gdx + gdy * gdy)
+                        If gdist > 0.02 Then
+                            nex = enX(i) + gdx / gdist * enSpd(i) * dt
+                            ney = enY(i) + gdy / gdist * enSpd(i) * dt
+                            If Mid$(mapRow$(Int(enY(i))), Int(nex + Sgn(nex - enX(i)) * 0.2) + 1, 1) <> "#" Then enX(i) = nex
+                            If Mid$(mapRow$(Int(ney + Sgn(ney - enY(i)) * 0.2)), Int(enX(i)) + 1, 1) <> "#" Then enY(i) = ney
+                        End If
+                    End If
+                    ' förlorad syn > 2 s: gå till sista kända (fältet pekar dit);
+                    ' där 5 s lokal patrull -> PATROLL (spelaren kan dölja sig)
+                    lostT = Timer - enLastSeen(i)
+                    If lostT > 2 Then
+                        ldx = enLx(i) - enX(i): ldy = enLy(i) - enY(i)
+                        ld = Sqr(ldx * ldx + ldy * ldy)
+                        If ld < 0.6 Then
+                            If enCalmT(i) <= 0 Then enCalmT(i) = Timer
+                            If Timer - enCalmT(i) >= 5 Then
+                                enState(i) = 0: enCalmT(i) = 0: enPatrolT(i) = -99
+                            End If
+                        Else
+                            enCalmT(i) = 0
+                        End If
+                        If lostT > 7 Then enState(i) = 0: enCalmT(i) = 0: enPatrolT(i) = -99   ' fallback
+                    End If
+                Case 2   ' ANFALL: står kvar och slår (själva skadan kommer nedan)
+                    If edist > 1.2 Then enState(i) = 1
+            End Select
+            ' närstridsskada (oförändrad mekanik från Fas 3): dist<0.8, cooldown 0.7 s,
+            ' lastDamageTime uppdateras -> HP-regen blockas (samma grace som Fas 2)
             If edist < 0.8 And Timer - enLastHit(i) >= 0.7 Then
                 enLastHit(i) = Timer
                 hp = hp - enDmg(i)
@@ -708,7 +834,7 @@ Do
     ' selftest-heartbeat: en rad/s så vi ser att loopen lever och var den står
     If selftest And Timer - testHb >= 1 Then
         testHb = Timer
-        stMsg$ = "alive phase=" + Str$(testPhase) + " state=" + state$ + " hp=" + Str$(Int(hp)) + " en0=(" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + ") act=" + Str$(enActive(0))
+        stMsg$ = "alive phase=" + Str$(testPhase) + " state=" + state$ + " hp=" + Str$(Int(hp)) + " en0=(" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + ") st=" + Str$(enState(0)) + " act=" + Str$(enActive(0))
         Gosub STLog
     End If
     If curTime - lastTime >= 1 Then
@@ -719,7 +845,7 @@ Do
     End If
 LOOP
 
-' ======== SUBRUTINER (Fas 3) ========
+' ======== SUBRUTINER (Fas 3 / 3.1) ========
 ' SpawnEnemies: startlägen för fiende-poolen (öppna rutor på kartan).
 ' Anropas vid init och vid full reset (R i dead-läget).
 SpawnEnemies:
@@ -727,13 +853,73 @@ SpawnEnemies:
         enActive(i) = 0
         enHP(i) = 3          ' 3 träffar tar död på en fiende
         enDmg(i) = 10        ' skada per närstridsslag
-        enSpd(i) = 0.45      ' tiles/s (långsammare än spelaren -> går att överleva)
+        enSpd(i) = 0.45      ' tiles/s i JAKT (långsammare än spelaren -> går att överleva)
         enLastHit(i) = 0
+        enState(i) = 0       ' PATROLL
+        enSeen(i) = 0
+        enLastSeen(i) = 0
+        enCalmT(i) = 0
+        enPatrolT(i) = 0
+        enLx(i) = 0: enLy(i) = 0
+        enTx(i) = 0: enTy(i) = 0
     Next i
+    bfsForX = -1: bfsForY = -1
     enX(0) = 13.5: enY(0) = 4.5:  enActive(0) = 1: enSpd(0) = 0.5    ' korridoren framför start
+    enLx(0) = enX(0): enLy(0) = enY(0): enTx(0) = 13: enTy(0) = 4
     enX(1) = 10.5: enY(1) = 9.5:  enActive(1) = 1: enSpd(1) = 0.4
+    enLx(1) = enX(1): enLy(1) = enY(1): enTx(1) = 10: enTy(1) = 9
     enX(2) = 2.5:  enY(2) = 12.5: enActive(2) = 1: enSpd(2) = 0.35
+    enLx(2) = enX(2): enLy(2) = enY(2): enTx(2) = 2: enTy(2) = 12
     enX(3) = 5.5:  enY(3) = 1.5:  enActive(3) = 1: enSpd(3) = 0.55
+    enLx(3) = enX(3): enLy(3) = enY(3): enTx(3) = 5: enTy(3) = 1
+    Return
+
+' LOSCheck: DDA-stråle från (fx,fy) till (tx,ty); losOK=1 om ingen väggcell på vägen
+LOSCheck:
+    losOK = 1
+    ldx = tx - fx: ldy = ty - fy
+    ldist = Sqr(ldx * ldx + ldy * ldy)
+    If ldist < 0.01 Then Return
+    lrx = ldx / ldist: lry = ldy / ldist
+    lmx = Int(fx): lmy = Int(fy)
+    If lrx = 0 Then lddx = 1E+30 Else lddx = Abs(1 / lrx)
+    If lry = 0 Then lddy = 1E+30 Else lddy = Abs(1 / lry)
+    If lrx < 0 Then lstepX = -1: lsdx = (fx - lmx) * lddx Else lstepX = 1: lsdx = (lmx + 1 - fx) * lddx
+    If lry < 0 Then lstepY = -1: lsdy = (fy - lmy) * lddy Else lstepY = 1: lsdy = (lmy + 1 - fy) * lddy
+    ltx = Int(tx): lty = Int(ty)
+    For lguard = 1 To 64
+        If lsdx < lsdy Then
+            lsdx = lsdx + lddx: lmx = lmx + lstepX
+        Else
+            lsdy = lsdy + lddy: lmy = lmy + lstepY
+        End If
+        If lmx < 0 Or lmx > 15 Or lmy < 0 Or lmy > 15 Then Exit For
+        If Mid$(mapRow$(lmy), lmx + 1, 1) = "#" Then losOK = 0: Exit For
+        If lmx = ltx And lmy = lty Then Exit For
+    Next lguard
+    Return
+
+' BFSCompute: avståndskarta bfsD(x,y) från målcell (bfsTX,bfsTY), BFS 4-riktning över
+' öppna celler (kartan är 16x16, liten). Sätts bfsForX/bfsForY till målcellen.
+BFSCompute:
+    For yy = 0 To 15
+        For xx = 0 To 15
+            bfsD(xx, yy) = -1
+        Next xx
+    Next yy
+    If bfsTX < 0 Or bfsTX > 15 Or bfsTY < 0 Or bfsTY > 15 Then bfsForX = -1: bfsForY = -1: Return
+    If Mid$(mapRow$(bfsTY), bfsTX + 1, 1) = "#" Then bfsForX = -1: bfsForY = -1: Return
+    qh = 0: qt = 0
+    qx(0) = bfsTX: qy(0) = bfsTY: bfsD(bfsTX, bfsTY) = 0: qt = 1
+    While qh < qt
+        cx = qx(qh): cy = qy(qh): qh = qh + 1
+        cd = bfsD(cx, cy) + 1
+        If cx + 1 <= 15 Then If Mid$(mapRow$(cy), cx + 2, 1) <> "#" Then If bfsD(cx + 1, cy) = -1 Then bfsD(cx + 1, cy) = cd: qx(qt) = cx + 1: qy(qt) = cy: qt = qt + 1
+        If cx - 1 >= 0 Then If Mid$(mapRow$(cy), cx, 1) <> "#" Then If bfsD(cx - 1, cy) = -1 Then bfsD(cx - 1, cy) = cd: qx(qt) = cx - 1: qy(qt) = cy: qt = qt + 1
+        If cy + 1 <= 15 Then If Mid$(mapRow$(cy + 1), cx + 1, 1) <> "#" Then If bfsD(cx, cy + 1) = -1 Then bfsD(cx, cy + 1) = cd: qx(qt) = cx: qy(qt) = cy + 1: qt = qt + 1
+        If cy - 1 >= 0 Then If Mid$(mapRow$(cy - 1), cx + 1, 1) <> "#" Then If bfsD(cx, cy - 1) = -1 Then bfsD(cx, cy - 1) = cd: qx(qt) = cx: qy(qt) = cy - 1: qt = qt + 1
+    Wend
+    bfsForX = bfsTX: bfsForY = bfsTY
     Return
 
 ' STLog: append:a en rad till selftest-loggen (fil + konsol)
@@ -749,38 +935,120 @@ STLog:
 ' fas1 fiende jagar -> fas2 fiende skadar -> fas3 fiende dör av skott ->
 ' fas4 spelare kan dö (kollas i dead-grenen)
 SelftestDrive:
+    ' Fas 3.1: fas1 patrull -> fas2 upptäckt -> fas3 jakt runt hörn -> fas4 förlorad->PATROLL
+    ' därefter gamla Fas 3-kombattestet: fas5 jakt -> fas6 skada -> fas7 dör av skott -> fas8 spelare dör
     Select Case testPhase
-        Case 1   ' jakt: fiende 0 (3 tiles bort, spd=2) ska närma sig spelaren
+        Case 1   ' PATROLL: ingen LOS (10.5,6.5)->(8.5,4.5) -> stanna i PATROLL men vandra mot mål
+            If Timer - testT0 >= 1.2 Then
+                pd = Sqr((enX(0) - 10.5) ^ 2 + (enY(0) - 6.5) ^ 2)
+                If enState(0) = 0 And pd > 0.1 Then
+                    stMsg$ = "PASS fas1-patrull state=0 moved=" + LTrim$(Str$(Int(pd * 100) / 100))
+                Else
+                    stMsg$ = "FAIL fas1-patrull state=" + Str$(enState(0)) + " moved=" + LTrim$(Str$(Int(pd * 100) / 100))
+                End If
+                Gosub STLog
+                testPhase = 2: testT0 = Timer: testFlag = 0
+            End If
+        Case 2   ' UPPTÄCKT: teleportera spelaren till fri LOS (10.5,4.5) -> ska bli JAKT
+            If testFlag = 0 Then
+                testFlag = 1
+                px = 10.5: py = 4.5
+                stMsg$ = "fas2: spelaren -> (10.5,4.5), fri LOS, väntar på JAKT"
+                Gosub STLog
+            End If
+            If enState(0) = 1 Then
+                stMsg$ = "PASS fas2-upptackt-JAKT"
+                Gosub STLog
+                testPhase = 3: testT0 = Timer: testFlag = 0
+            ElseIf Timer - testT0 >= 1.5 Then
+                stMsg$ = "FAIL fas2-upptackt state=" + Str$(enState(0))
+                Gosub STLog
+                testPhase = 3: testT0 = Timer: testFlag = 0
+            End If
+        Case 3   ' JAKT RUNT HÖRN: fiende tillbaka till (10.5,6.5), fältmål (8,4) - vägg
+                 ' emellan (9,5) - ska via BFS runt hörnet nå spelaren -> ANFALL + skada
+            If testFlag = 0 Then
+                testFlag = 1
+                enX(0) = 10.5: enY(0) = 6.5: enState(0) = 1
+                enLastSeen(0) = Timer: enLx(0) = 8.5: enLy(0) = 4.5
+                px = 8.5: py = 4.5: angle = 0: hp = 100
+                bfsForX = -1: bfsForY = -1
+                stMsg$ = "fas3: fiende (10.5,6.5) JAKT, mål (8,4), LOS bruten (vägg 9,5)"
+                Gosub STLog
+            End If
+            If Timer - testDbg >= 0.5 And enState(0) = 1 Then
+                testDbg = Timer
+                stMsg$ = "fas3 en0=(" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + ") bfsD=" + Str$(bfsD(Int(enX(0)), Int(enY(0)))) + " bfsFor=" + Str$(bfsForX) + "," + Str$(bfsForY)
+                Gosub STLog
+            End If
+            If enState(0) = 2 And hp < 100 Then
+                stMsg$ = "PASS fas3-jakt-runt-horn-ANFALL hp=" + Str$(Int(hp))
+                Gosub STLog
+                testPhase = 4: testT0 = Timer: testFlag = 0
+            ElseIf Timer - testT0 >= 6 Then
+                stMsg$ = "FAIL fas3 state=" + Str$(enState(0)) + " hp=" + Str$(Int(hp)) + " en0=(" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + ")"
+                Gosub STLog
+                testPhase = 4: testT0 = Timer: testFlag = 0
+            End If
+        Case 4   ' FÖRLORAD SYN: spelaren gömmer sig (2.5,12.5) -> >2s -> sista kända -> 5s -> PATROLL
+            If testFlag = 0 Then
+                testFlag = 1
+                px = 2.5: py = 12.5
+                stMsg$ = "fas4: spelaren gömmer sig (2.5,12.5), väntar på återgång PATROLL"
+                Gosub STLog
+            End If
+            If enState(0) = 0 Then
+                stMsg$ = "PASS fas4-forlorad-syn-atergang-PATROLL efter " + LTrim$(Str$(Int((Timer - testT0) * 10) / 10)) + "s"
+                Gosub STLog
+                ' förbered gamla Fas 3-kombattestet (fas5-8)
+                px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 20
+                enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1
+                enHP(0) = 3: enDmg(0) = 10: enSpd(0) = 2
+                enState(0) = 0: enLastHit(0) = 0: enLastSeen(0) = 0: enCalmT(0) = 0
+                enLx(0) = enX(0): enLy(0) = enY(0)
+                enTx(0) = 11: enTy(0) = 4: enPatrolT(0) = Timer
+                For i = 1 To 10: enActive(i) = 0: Next i
+                bfsForX = -1: bfsForY = -1
+                testPhase = 5: testT0 = Timer: testFlag = 0
+            ElseIf Timer - testT0 >= 14 Then
+                stMsg$ = "FAIL fas4 state=" + Str$(enState(0)) + " en0=(" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + ")"
+                Gosub STLog
+                testPhase = 5: testT0 = Timer: testFlag = 0
+            End If
+        Case 5   ' gamla Fas 3: fiende jagar (nu via JAKT/BFS, LOS fri i rad 4)
             If Timer - testT0 >= 1.5 Then
                 sd = Sqr((enX(0) - px) ^ 2 + (enY(0) - py) ^ 2)
                 If sd < 2.2 And sd > 0.3 Then
-                    stMsg$ = "PASS fas1-jagar dist=" + LTrim$(Str$(sd))
+                    stMsg$ = "PASS fas5-jagar dist=" + LTrim$(Str$(sd))
                 Else
-                    stMsg$ = "FAIL fas1-jagar dist=" + LTrim$(Str$(sd))
+                    stMsg$ = "FAIL fas5-jagar dist=" + LTrim$(Str$(sd))
                 End If
                 Gosub STLog
-                testPhase = 2: testT0 = Timer
+                testPhase = 6: testT0 = Timer: testFlag = 0
             End If
-        Case 2   ' skada: fienden i närstrid ska ha slagit på spelaren (hp<100)
+        Case 6   ' gamla Fas 3: fienden i närstrid skadar spelaren (hp<100)
             If hp < 100 Then
-                stMsg$ = "PASS fas2-skadar hp=" + LTrim$(Str$(Int(hp)))
+                stMsg$ = "PASS fas6-skadar hp=" + LTrim$(Str$(Int(hp)))
                 Gosub STLog
-                testPhase = 3: testT0 = Timer
+                testPhase = 7: testT0 = Timer: testFlag = 0
             ElseIf Timer - testT0 >= 4 Then
-                stMsg$ = "FAIL fas2-skadar hp=" + LTrim$(Str$(Int(hp)))
+                stMsg$ = "FAIL fas6-skadar hp=" + LTrim$(Str$(Int(hp)))
                 Gosub STLog
-                testPhase = 3: testT0 = Timer
+                testPhase = 7: testT0 = Timer: testFlag = 0
             End If
-        Case 3   ' skott: sikta mot fienden och skjut tills den dör (hp=3 -> 3 träffar)
+        Case 7   ' gamla Fas 3: sikta och skjut tills fienden dör (enHP 3->0)
             If enActive(0) = 0 Then
-                stMsg$ = "PASS fas3-dod-av-skott (enHP gick 3->0)"
+                stMsg$ = "PASS fas7-dod-av-skott (enHP gick 3->0)"
                 Gosub STLog
-                ' fas 4: låt en ny fiende döda spelaren (hp sätts lågt för snabbhet)
+                ' fas 8: låt en ny fiende döda spelaren (hp lågt för snabbhet)
                 hp = 25
                 enX(1) = px + 1: enY(1) = py: enActive(1) = 1
                 enHP(1) = 3: enDmg(1) = 10: enSpd(1) = 2: enLastHit(1) = 0
+                enState(1) = 0: enLastSeen(1) = 0: enCalmT(1) = 0
+                enLx(1) = enX(1): enLy(1) = enY(1)
+                enTx(1) = Int(enX(1)): enTy(1) = Int(enY(1)): enPatrolT(1) = Timer
                 fireBtn = 0
-                testPhase = 4: testT0 = Timer
+                testPhase = 8: testT0 = Timer: testFlag = 0
             Else
                 angle = _ATan2(enY(0) - py, enX(0) - px)
                 dirX = Cos(angle): dirY = Sin(angle)
@@ -788,13 +1056,19 @@ SelftestDrive:
                 If Timer - testDbg >= 0.5 Then
                     testDbg = Timer
                     ed0 = Sqr((enX(0) - px) ^ 2 + (enY(0) - py) ^ 2)
-                    stMsg$ = "fas3 fdist=" + LTrim$(Str$(Int(ed0 * 100) / 100)) + " enHP=" + Str$(enHP(0)) + " ammo=" + Str$(ammo) + " hp=" + Str$(Int(hp)) + " ang=" + LTrim$(Str$(Int(angle * 57.2958)))
+                    stMsg$ = "fas7 fdist=" + LTrim$(Str$(Int(ed0 * 100) / 100)) + " enHP=" + Str$(enHP(0)) + " ammo=" + Str$(ammo) + " hp=" + Str$(Int(hp)) + " enState=" + Str$(enState(0))
                     Gosub STLog
                 End If
+                If Timer - testT0 >= 6 Then
+                    stMsg$ = "FAIL fas7-dod-av-skott enHP=" + Str$(enHP(0)) + " ammo=" + Str$(ammo)
+                    Gosub STLog
+                    testPhase = 8: testT0 = Timer: testFlag = 0
+                    fireBtn = 0
+                End If
             End If
-        Case 4   ' vänta på state$="dead" (själva PASS:en skrivs i dead-grenen)
-            If Timer - testT0 >= 6 Then
-                stMsg$ = "FAIL fas4-spelare-dor state=" + state$
+        Case 8   ' gamla Fas 3: vänta på state$="dead" (själva PASS:en skrivs i dead-grenen)
+            If Timer - testT0 >= 8 Then
+                stMsg$ = "FAIL fas8-spelare-dor state=" + state$
                 Gosub STLog
                 stMsg$ = "SELFTEST FAIL"
                 Gosub STLog
