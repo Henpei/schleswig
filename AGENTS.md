@@ -62,6 +62,15 @@ weapons rendering).
   predictable around PlaySound. For seeded/deterministic
   selftest checks use a dedicated LCG stream instead
   (see Function DodgeRnd# / dodgeSeed& in Schleswig.bas).
+- _RGB32(r,g,b) sets alpha=255, so its return value is a
+  NEGATIVE LONG (>= 2^31). Extract channels ALWAYS via
+  _Red32/_Green32/_Blue32 — NEVER `\ 65536 Mod 256` on the
+  raw value (negative long -> negative channels -> _RGB32
+  clamps to 0 -> black, the 4B "black enemies" bug).
+- GOSUB/labels share scope: a loop variable inside a shared
+  label can clobber the caller's loop variable (the 4B
+  last-kill crash, i/j case) -> use dedicated loop names per
+  block (e.g. spi/aej) in any shared label.
 
 ## PARKED (do not reactivate without André's OK)
 - Virtual cursor + arrow sprite (commit aa26eee):

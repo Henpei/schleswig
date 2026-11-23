@@ -138,7 +138,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "03d2478"
+Const strBuild$ = "1ee4815"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -243,7 +243,7 @@ Const PR_MORTAR = 2
 Const PR_MAX = 31
 Const plrBallSpd! = 6     ' player musket ball: slow, period-correct
 Const plrBallDmg = 1      ' same damage per hit as the old hitscan (balance unchanged)
-Const ballSpriteW! = 0.06 ' Fas 4B hotfix: BALL screen width in cell-equivalents (~1/10 of an enemy body 0.6)
+Const ballSizePx = 5      ' 4B hotfix: BALL renders as a FIXED ~5x5 px screen-space square (no distance scaling)
 DIM prX(PR_MAX), prY(PR_MAX), prDX(PR_MAX), prDY(PR_MAX), prActive(PR_MAX)
 DIM prSpd!(PR_MAX), prOwner(PR_MAX), prDmg(PR_MAX), prType(PR_MAX), prSrcType(PR_MAX)
 DIM prTX(PR_MAX), prTY(PR_MAX), prLandT(PR_MAX)
@@ -1387,9 +1387,10 @@ Do
                     If Abs(bang) < fovCut Then
                         bdistP = bdist * Cos(bang)
                         bcx2 = RW / 2 * (1 + Tan(bang) / planeDist)
-                        bw2 = RW / bdist * ballSpriteW!: bh2 = RH / bdist * ballSpriteW!   ' small discrete ball (hotfix 4B)
-                        by0 = midY - bh2 / 2 + pitch: by1 = by0 + bh2
-                        bx0 = Int(bcx2 - bw2 / 2): bx1 = Int(bcx2 + bw2 / 2)
+                        ' FIXED screen-space size (Const ballSizePx): only the projected
+                        ' POSITION scales with distance, never the ball size (hotfix 4B)
+                        bx0 = Int(bcx2 - ballSizePx / 2): bx1 = bx0 + ballSizePx - 1
+                        by0 = Int(midY + pitch - ballSizePx / 2): by1 = by0 + ballSizePx - 1
                         If bx0 < 0 Then bx0 = 0: If bx1 > RW - 1 Then bx1 = RW - 1
                         If by0 < 0 Then by0 = 0: If by1 > RH - 1 Then by1 = RH - 1
                         If prOwner(i) = 0 Then bcol& = _RGB32(230, 230, 220) Else bcol& = _RGB32(255, 60, 40)
