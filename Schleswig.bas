@@ -660,7 +660,11 @@ Do
         If dist < 0.2 Then dist = 0.2
         wallDist(x) = dist   ' sparar väggavstånd per skärmkolumn; sprites jämför
                              ' sitt eget avstånd mot detta för att avgöra om de
-                             ' döljs av väggen i just den kolumnen
+                             ' döljs av väggen i just den kolumnen.
+                             ' OBS: dist är PERPENDIKULÄRT (fisheye-korrigerat)
+                             ' avstånd, så sprites måste jämföra sitt
+                             ' perpendikulära avstånd (pdist*Cos(pang)),
+                             ' inte det euklidiska pdist.
         lineH = RH / dist
         ' y-shearing (Doom-tricket): i stället för att ändra projektionen skjuts
         ' hela väggens mitt vertikalt med pitch -> horisonten flyttas och världen
@@ -687,6 +691,7 @@ Do
                 While pang > 3.14159265: pang = pang - 6.2831853: Wend
                 While pang < -3.14159265: pang = pang + 6.2831853: Wend
                 If Abs(pang) < fovCut Then
+                    pdistP = pdist * Cos(pang)   ' perpendikulärt avstånd, samma mått som wallDist
                     ' projektionsformeln: vägg-loopen har cameraX = 2*x/RW-1 och
                     ' plan = 0.66*dir, dvs tan(pang) = 0.66*cameraX. Omvänt blir
                     ' skärmkolumnen pcx = RW/2*(1 + Tan(pang)/0.66), där pang är
@@ -701,7 +706,7 @@ Do
                     If x0 < 0 Then x0 = 0
                     If x1 > RW - 1 Then x1 = RW - 1
                     For sx = x0 To x1
-                        If pdist < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(200, 30, 30)
+                        If pdistP < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(200, 30, 30)
                     Next sx
                     ' pcx kan hamna utanför skärmen när |pang| närmar sig
                     ' synfältet (0.66 rad) -> clampa innan wallDist-index,
@@ -710,10 +715,11 @@ Do
                     If cx < 0 Then cx = 0
                     If cx > RW - 1 Then cx = RW - 1
                     If x0 <= x1 Then
-                        If pdist < wallDist(cx) Then
-                            Line (cx, pbase - ph)-(cx, pbase), _RGB32(255, 255, 255)
-                            Line (x0, pbase - ph / 2)-(x1, pbase - ph / 2), _RGB32(255, 255, 255)
-                        End If
+                        ' vitt kors: Bägge staplar per kolumn med vägg-ocklusion
+                        If pdistP < wallDist(cx) Then Line (cx, pbase - ph)-(cx, pbase), _RGB32(255, 255, 255)
+                        For sx = x0 To x1
+                            If pdistP < wallDist(sx) Then Line (sx, pbase - ph / 2)-(sx, pbase - ph / 2), _RGB32(255, 255, 255)
+                        Next sx
                     End If
                 End If
             End If
@@ -731,6 +737,7 @@ Do
                 While pang > 3.14159265: pang = pang - 6.2831853: Wend
                 While pang < -3.14159265: pang = pang + 6.2831853: Wend
                 If Abs(pang) < fovCut Then
+                    pdistP = pdist * Cos(pang)   ' perpendikulärt avstånd, samma mått som wallDist
                     pcx = RW / 2 * (1 + Tan(pang) / planeDist)
                     pw = RW / pdist * 0.25
                     ph = RH / pdist * 0.25
@@ -739,7 +746,7 @@ Do
                     If x0 < 0 Then x0 = 0
                     If x1 > RW - 1 Then x1 = RW - 1
                     For sx = x0 To x1
-                        If pdist < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(230, 200, 0)
+                        If pdistP < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(230, 200, 0)
                     Next sx
                 End If
             End If
@@ -758,6 +765,7 @@ Do
                 While eang > 3.14159265: eang = eang - 6.2831853: Wend
                 While eang < -3.14159265: eang = eang + 6.2831853: Wend
                 If Abs(eang) < fovCut Then
+                    edistP = edist * Cos(eang)   ' perpendikulärt avstånd, samma mått som wallDist
                     ecx = RW / 2 * (1 + Tan(eang) / planeDist)
                     ew = RW / edist * 0.6      ' bredd i px
                     eh = RH / edist * 0.9      ' höjd i px (står på golvet)
@@ -775,21 +783,86 @@ Do
                     ebody& = _RGB32(Int(170 * eshade / 255), Int(35 * eshade / 255), Int(35 * eshade / 255))
                     If ey1 > ey0 And ex1 >= ex0 Then
                         For sx = ex0 To ex1
-                            If edist < wallDist(sx) Then Line (sx, ey0)-(sx, ey1), ebody&
+                            If edistP < wallDist(sx) Then Line (sx, ey0)-(sx, ey1), ebody&
                         Next sx
-                        ' två svarta ögon upptill när fienden syns tillräckligt stor
+                        ' två svarta ögon upptill när fienden syns tillräckligt stor.
+                        ' OCKLUSION-FIX: ögonen ritas nu per kolumn med samma
+                        ' väggtest som kroppen (tidigare ritades de utan test ->
+                        ' syntes genom väggar).
                         If ew > 16 Then
                             eo = Int(ew * 0.12)
                             If eo < 2 Then eo = 2
                             eoy = Int(ey0 + eh * 0.15)
-                            Line (Int(ecx - ew * 0.2) - eo, eoy)-(Int(ecx - ew * 0.2) + eo, eoy + eo * 2), _RGB32(0, 0, 0), BF
-                            Line (Int(ecx + ew * 0.2) - eo, eoy)-(Int(ecx + ew * 0.2) + eo, eoy + eo * 2), _RGB32(0, 0, 0), BF
+                            eox0 = Int(ecx - ew * 0.2) - eo: eox1 = Int(ecx - ew * 0.2) + eo
+                            eox2 = Int(ecx + ew * 0.2) - eo: eox3 = Int(ecx + ew * 0.2) + eo
+                            If eox0 < 0 Then eox0 = 0
+                            If eox1 > RW - 1 Then eox1 = RW - 1
+                            If eox2 < 0 Then eox2 = 0
+                            If eox3 > RW - 1 Then eox3 = RW - 1
+                            If eoy >= 0 And eoy + eo * 2 <= RH - 1 Then
+                                For sx = eox0 To eox1
+                                    If edistP < wallDist(sx) Then Line (sx, eoy)-(sx, eoy + eo * 2), _RGB32(0, 0, 0)
+                                Next sx
+                                For sx = eox2 To eox3
+                                    If edistP < wallDist(sx) Then Line (sx, eoy)-(sx, eoy + eo * 2), _RGB32(0, 0, 0)
+                                Next sx
+                            End If
                         End If
                     End If
                 End If
             End If
         End If
     Next i
+
+    ' selftest fas 10: occlusion-audit pa pixel-niva (POINT pa buf&, dest är ännu buf&)
+    ' körs en gang när testFlag=1 (satt av SelftestDrive efter några renderade frames)
+    If selftest And testPhase = 10 And testFlag = 1 Then
+        testFlag = 2
+        ' en0 bakom väggen: vänster öga får INTE vara svart (ögon syns annars genom vägg)
+        aedx = enX(0) - px: aedy = enY(0) - py
+        aedist = Sqr(aedx * aedx + aedy * aedy)
+        aeang = _ATan2(aedy, aedx) - angle
+        aecx = RW / 2 * (1 + Tan(aeang) / planeDist)
+        aew = RW / aedist * 0.6: aeh = RH / aedist * 0.9
+        aebase = midY + RH / (2 * aedist) + pitch
+        aey0 = aebase - aeh: If aey0 < 0 Then aey0 = 0
+        aeoy = Int(aey0 + aeh * 0.15)
+        aex = Int(aecx - aew * 0.2)
+        If aex < 0 Then aex = 0
+        If aex > RW - 1 Then aex = RW - 1
+        If aeoy < 0 Then aeoy = 0
+        If aeoy > RH - 1 Then aeoy = RH - 1
+        eyePix& = POINT(aex, aeoy)
+        ' pk0 framför väggen (off-center, pdistP<wallDist men pdist>wallDist): ska synas röd
+        apdx = pkX(0) - px: apdy = pkY(0) - py
+        apdist = Sqr(apdx * apdx + apdy * apdy)
+        apang = _ATan2(apdy, apdx) - angle
+        apcx = Int(RW / 2 * (1 + Tan(apang) / planeDist))
+        If apcx < 0 Then apcx = 0
+        If apcx > RW - 1 Then apcx = RW - 1
+        apdistP = apdist * Cos(apang)
+        pkFrontPix& = POINT(apcx, RH - 5)          ' mittkolumnen = vit kors-stapel
+        apcx2 = apcx - 20
+        If apcx2 < 0 Then apcx2 = 0
+        pkFrontPix2& = POINT(apcx2, RH - 5)         ' 20px åt sidan = röd kropp
+        ' pk1 bakom väggen: ska INTE synas röd i mittkolumnen
+        pkBehindPix& = POINT(RW \ 2, RH - 5)
+        eyesOK = (eyePix& <> _RGB32(0, 0, 0))
+        frontOK = ((pkFrontPix& = _RGB32(255, 255, 255) Or pkFrontPix& = _RGB32(200, 30, 30)) And pkFrontPix2& = _RGB32(200, 30, 30))
+        behindOK = (pkBehindPix& <> _RGB32(200, 30, 30))
+        If eyesOK And frontOK And behindOK Then
+            stMsg$ = "PASS fas10-occlusion (ögon dolda bakom vägg, pickup framför syns, bakom döljs)"
+            Gosub STLog
+            stMsg$ = "SELFTEST OK"
+            Gosub STLog
+        Else
+            stMsg$ = "FAIL fas10-occlusion eyesOK=" + Str$(eyesOK) + " frontOK=" + Str$(frontOK) + " behindOK=" + Str$(behindOK) + " eyePix=" + Str$(eyePix&) + " frontPix=" + Str$(pkFrontPix&) + " frontPix2=" + Str$(pkFrontPix2&) + " behindPix=" + Str$(pkBehindPix&) + " apdistP=" + LTrim$(Str$(Int(apdistP * 100) / 100)) + " wallDist=" + LTrim$(Str$(Int(wallDist(apcx) * 100) / 100)) + " RW=" + Str$(RW) + " RH=" + Str$(RH) + " apcx=" + Str$(apcx)
+            Gosub STLog
+            stMsg$ = "SELFTEST FAIL"
+            Gosub STLog
+        End If
+        End
+    End If
 
     ' ======== HUD: debug-rad, HP-bar, ammo, transient meddelande ======
 
@@ -971,6 +1044,7 @@ SelftestDrive:
     ' Fas 3.1: fas1 patrull -> fas2 upptäckt -> fas3 jakt runt hörn -> fas4 förlorad->PATROLL
     ' därefter gamla Fas 3-kombattestet: fas5 jakt -> fas6 skada -> fas7 dör av skott -> fas8 spelare dör
     ' fas 9 = spawn-audit: akta SpawnEnemies, ingen fiende far se spelaren vid start (LOS<tröskel)
+    ' fas 10 = occlusion-audit: pixel-check (POINT) att ögon döljs bakom vägg och pickups rätt
     Select Case testPhase
         Case 1   ' PATROLL: ingen LOS (10.5,6.5)->(8.5,4.5) -> stanna i PATROLL men vandra mot mål
             If Timer - testT0 >= 1.2 Then
@@ -1132,16 +1206,31 @@ SelftestDrive:
                 If bad = 0 Then
                     stMsg$ = "PASS fas9-spawn-audit (ingen fiende ser spelaren vid start)"
                     Gosub STLog
-                    stMsg$ = "SELFTEST OK"
-                    Gosub STLog
+                    ' fas 10: occlusion-audit pa pixel-niva (POINT pa buf&) — handplacerat case:
+                    ' spelare (8.5,4.5) tittar söderut mot vägg (8,5) (wallDist=0.5 i mitten);
+                    ' en0 bakom väggen (8.5,6.5), pk0 framför väggen off-center (8.213,4.969),
+                    ' pk1 bakom väggen (8.5,6.5)
+                    px = 8.5: py = 4.5: angle = 3.14159265 / 2: pitch = 0: hp = 100: ammo = 20
+                    For i = 0 To 10
+                        enActive(i) = 0: pkActive(i) = 0: amActive(i) = 0
+                    Next i
+                    enX(0) = 8.5: enY(0) = 6.5: enActive(0) = 1: enHP(0) = 3: enState(0) = 0
+                    enSpd(0) = 0: enLastSeen(0) = 0: enCalmT(0) = 0: enPatrolT(0) = -99
+                    enLx(0) = 8.5: enLy(0) = 6.5: enTx(0) = 8: enTy(0) = 6
+                    pkX(0) = 8.213: pkY(0) = 4.969: pkActive(0) = 1
+                    pkX(1) = 8.5: pkY(1) = 6.5: pkActive(1) = 1
+                    bfsForX = -1: bfsForY = -1
+                    testPhase = 10: testT0 = Timer: testFlag = 0
                 Else
                     stMsg$ = "FAIL fas9-spawn-audit:" + audit$
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
                     Gosub STLog
+                    End
                 End If
-                End
             End If
+        Case 10  ' OCKLUSION-AUDIT: vänta några frames, sätt testFlag=1; render-sektionen gör POINT-checken
+            If testFlag = 0 And Timer - testT0 >= 0.6 Then testFlag = 1
     End Select
     Return
 
