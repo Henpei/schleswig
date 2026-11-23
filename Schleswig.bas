@@ -138,7 +138,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "4ab7814"
+Const strBuild$ = "5271dea"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -210,6 +210,20 @@ amX(2) = 6.5: amY(2) = 9.5: amActive(2) = 1
 DIM enX(10), enY(10), enActive(10), enHP(10), enDmg(10), enSpd(10), enLastHit(10)
 DIM enState(10), enSeen(10), enTx(10), enTy(10), enPatrolT(10), enLastSeen(10)
 DIM enLx(10), enLy(10), enCalmT(10), bfsD(15, 15), qx(255), qy(255)
+' Fas 4A: data-driven enemy-type register ("the Danish regiment"). Per type:
+' HP, melee dmg, speed, zigzag amplitude (cells), dodge chance, shoot ability
+' (0 = melee only; ranged weapons arrive in 4B), hold distance (0 = none),
+' body color, sprite id, name.
+Const ET_FOOT = 0
+Const ET_OFFICER = 1
+Const ET_MUSKETEER = 2
+Const ET_CAPTAIN = 3
+Const ET_COUNT = 4
+DIM etHP(ET_COUNT), etDmg(ET_COUNT), etZigAmp(ET_COUNT), etShoot(ET_COUNT), etSpr(ET_COUNT)
+DIM etSpd!(ET_COUNT), etDodge!(ET_COUNT), etHold!(ET_COUNT), etCol&(ET_COUNT), etName$(ET_COUNT)
+DIM enType(10), enZigX(10), enZigY(10), enZigT(10), enZigS(10)   ' per-enemy type + zigzag target cell / re-roll timer / side sign
+DIM waveNo, killsTotal                                  ' spawn-wave counter / total kills (captain gate)
+DIM SHARED dodgeSeed&                                   ' dedicated seedable LCG for dodge rolls (read inside Function DodgeRnd#)
 ' ======== LJUD (Fas 4): procedurell PCM via _SNDOPENRAW/_SNDRAWBATCH =========
 ' Data-drivet register: id -> vågform/frekvenssvep/längd/volym (InitSounds).
 ' Nya ljud (vapen/fiendetyper) kopplas via registret + GenSample#, INTE via
@@ -247,6 +261,7 @@ DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
 selftest = 0
 cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, bara LTrim$/RTrim$
 If cmdArg$ = "selftest" Then selftest = 1
+If selftest Then Randomize 987654: dodgeSeed& = 987654   ' Fas 4A: seeded RNG in selftest -> deterministic zigzag/dodge tests
 testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFlag = 0
 Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 ' Highscore: nollställ counters, ladda bästa score från lokal fil (.schleswig_scores.txt)
@@ -290,6 +305,7 @@ If selftest Then
 Else
     Gosub SpawnEnemies
     Randomize Timer
+    dodgeSeed& = Int(Timer * 1000000) And &H7FFFFFFF: If dodgeSeed& <= 0 Then dodgeSeed& = 1   ' Fas 4A: random dodge stream in real play
 End If
 
 frames = 0
@@ -868,12 +884,48 @@ Do
                     End If
                 Case 1   ' JAKT: följ BFS-fältet nedströms (4-riktning, inga diagonaler)
                     bcx = Int(enX(i)): bcy = Int(enY(i))
+                    ' Fas 4A zigzag bias: per-enemy personal target-cell offset,
+                    ' re-rolled every 0.5-1 s (random timing = own rhythm per enemy,
+                    ' NOT globally synced). The offset side ALTERNATES each re-roll
+                    ' (enZigS) so the target cell always changes; the offset is
+                    ' perpendicular to the line enemy->player; officers get a larger
+                    ' amplitude (etZigAmp); musketeers hold 3-5 cells (etHold).
+                    zamp = etZigAmp(enType(i)): zhold = etHold!(enType(i))
+                    If (zamp > 0 Or zhold > 0) And Timer >= enZigT(i) Then
+                        enZigT(i) = Timer + 0.5 + Rnd * 0.5
+                        pdx = px - enX(i): pdy = py - enY(i)
+                        pdist = Sqr(pdx * pdx + pdy * pdy): If pdist < 0.01 Then pdx = 1: pdy = 0: pdist = 1
+                        If zhold > 0 And edist < 6 Then
+                            ' musketeer: target cell ~zhold cells from the player, own side
+                            hdx = (enX(i) - px) / pdist: hdy = (enY(i) - py) / pdist
+                            zx = Int(px + hdx * zhold + 0.5): zy = Int(py + hdy * zhold + 0.5)
+                        Else
+                            ux = -pdy / pdist: uy = pdx / pdist
+                            zs = -enZigS(i): If zs = 0 Then zs = 1   ' alternate side every re-roll
+                            enZigS(i) = zs
+                            zx = Int(px) + Sgn(ux * zamp * zs) * Int(Abs(ux * zamp * zs) + 0.5)
+                            zy = Int(py) + Sgn(uy * zamp * zs) * Int(Abs(uy * zamp * zs) + 0.5)
+                        End If
+                        If zx < 0 Then zx = 0: If zx > 15 Then zx = 15
+                        If zy < 0 Then zy = 0: If zy > 15 Then zy = 15
+                        If Mid$(mapRow$(zy), zx + 1, 1) = "#" Then zx = Int(px): zy = Int(py)   ' wall -> no offset
+                        enZigX(i) = zx: enZigY(i) = zy
+                    End If
+                    If zamp = 0 And zhold = 0 Then enZigX(i) = Int(px): enZigY(i) = Int(py)   ' captain: straight BFS
                     If bfsForX >= 0 And bcx >= 0 And bcx <= 15 And bcy >= 0 And bcy <= 15 And bfsD(bcx, bcy) > 0 Then
-                        best = bfsD(bcx, bcy): bnx = -1: bny = -1
-                        If bcx + 1 <= 15 Then If Mid$(mapRow$(bcy), bcx + 2, 1) <> "#" Then If bfsD(bcx + 1, bcy) >= 0 And bfsD(bcx + 1, bcy) < best Then best = bfsD(bcx + 1, bcy): bnx = bcx + 1: bny = bcy
-                        If bcx - 1 >= 0 Then If Mid$(mapRow$(bcy), bcx, 1) <> "#" Then If bfsD(bcx - 1, bcy) >= 0 And bfsD(bcx - 1, bcy) < best Then best = bfsD(bcx - 1, bcy): bnx = bcx - 1: bny = bcy
-                        If bcy + 1 <= 15 Then If Mid$(mapRow$(bcy + 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy + 1) >= 0 And bfsD(bcx, bcy + 1) < best Then best = bfsD(bcx, bcy + 1): bnx = bcx: bny = bcy + 1
-                        If bcy - 1 >= 0 Then If Mid$(mapRow$(bcy - 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy - 1) >= 0 And bfsD(bcx, bcy - 1) < best Then best = bfsD(bcx, bcy - 1): bnx = bcx: bny = bcy - 1
+                        ' Fas 4A: strict BFS descent (lowest bfsD among open neighbors),
+                        ' but among equally-good neighbors pick the one closest to this
+                        ' enemy's personal zigzag target cell -> visible weaving
+                        minb = bfsD(bcx, bcy)
+                        If bcx + 1 <= 15 Then If Mid$(mapRow$(bcy), bcx + 2, 1) <> "#" Then If bfsD(bcx + 1, bcy) >= 0 And bfsD(bcx + 1, bcy) < minb Then minb = bfsD(bcx + 1, bcy)
+                        If bcx - 1 >= 0 Then If Mid$(mapRow$(bcy), bcx, 1) <> "#" Then If bfsD(bcx - 1, bcy) >= 0 And bfsD(bcx - 1, bcy) < minb Then minb = bfsD(bcx - 1, bcy)
+                        If bcy + 1 <= 15 Then If Mid$(mapRow$(bcy + 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy + 1) >= 0 And bfsD(bcx, bcy + 1) < minb Then minb = bfsD(bcx, bcy + 1)
+                        If bcy - 1 >= 0 Then If Mid$(mapRow$(bcy - 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy - 1) >= 0 And bfsD(bcx, bcy - 1) < minb Then minb = bfsD(bcx, bcy - 1)
+                        bnx = -1: bny = -1: bestz = 1E+30
+                        If bcx + 1 <= 15 Then If Mid$(mapRow$(bcy), bcx + 2, 1) <> "#" Then If bfsD(bcx + 1, bcy) = minb Then zd = (bcx + 1 - enZigX(i)) ^ 2 + (bcy - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx + 1: bny = bcy
+                        If bcx - 1 >= 0 Then If Mid$(mapRow$(bcy), bcx, 1) <> "#" Then If bfsD(bcx - 1, bcy) = minb Then zd = (bcx - 1 - enZigX(i)) ^ 2 + (bcy - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx - 1: bny = bcy
+                        If bcy + 1 <= 15 Then If Mid$(mapRow$(bcy + 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy + 1) = minb Then zd = (bcx - enZigX(i)) ^ 2 + (bcy + 1 - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx: bny = bcy + 1
+                        If bcy - 1 >= 0 Then If Mid$(mapRow$(bcy - 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy - 1) = minb Then zd = (bcx - enZigX(i)) ^ 2 + (bcy - 1 - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx: bny = bcy - 1
                         If bnx >= 0 Then
                             gdx = bnx + 0.5 - enX(i)
                             gdy = bny + 0.5 - enY(i)
@@ -990,6 +1042,7 @@ Do
                 flashDist = bestD
                 If enHP(bestE) <= 0 Then
                     enActive(bestE) = 0
+                    killsTotal = killsTotal + 1   ' Fas 4A: total kills gate the captain spawn
                     hpMsg$ = "FIENDE DÖD"
                     PlaySound SND_ENDIE
                     ' TID-FYS vid EXAKT sista killen: räkna levande NU (efter denna
@@ -1003,6 +1056,10 @@ Do
                 Else
                     hpMsg$ = "TRÄFF"
                     PlaySound SND_HIT
+                    ' Fas 4A: dodge-on-hit — per-type chance (register etDodge!) of an
+                    ' immediate 1-cell sidestep. Uses the dedicated seedable LCG
+                    ' (DodgeRnd#) so selftest can verify it at a known seed.
+                    If DodgeRnd# < etDodge!(enType(bestE)) Then Gosub EnemyDodge
                 End If
                 hpMsgTime = Timer
             End If
@@ -1248,7 +1305,10 @@ Do
                     ' avståndsskuggning som väggarna, skalad till kroppsfärgen
                     eshade = 255 - edist * 15
                     If eshade < 40 Then eshade = 40
-                    ebody& = _RGB32(Int(170 * eshade / 255), Int(35 * eshade / 255), Int(35 * eshade / 255))
+                    ' Fas 4A: body color comes from the enemy-type register (distance-shaded)
+                    ec& = etCol&(enType(i))
+                    er = (ec& \ 65536) Mod 256: eg = (ec& \ 256) Mod 256: eb = ec& Mod 256
+                    ebody& = _RGB32(Int(er * eshade / 255), Int(eg * eshade / 255), Int(eb * eshade / 255))
                     If ey1 > ey0 And ex1 >= ex0 Then
                         For sx = ex0 To ex1
                             If edistP < wallDist(sx) Then Line (sx, ey0)-(sx, ey1), ebody&
@@ -1438,12 +1498,25 @@ Do
 LOOP
 
 ' ======== SUBRUTINER (Fas 3 / 3.1) ========
+' InitEnemyTypes (Fas 4A): fills the data-driven enemy-type register.
+' Difficulty via variation, NOT HP swelling. shoot=0 for all types (melee only;
+' ranged weapons arrive in 4B). etCol& is the base body color (distance-shaded
+' at render time); etSpr is the sprite id (single shape for now, used by 4B).
+InitEnemyTypes:
+    etName$(ET_FOOT) = "FOOT SOLDIER":  etHP(ET_FOOT) = 3:  etDmg(ET_FOOT) = 10: etSpd!(ET_FOOT) = 0.45: etZigAmp(ET_FOOT) = 1: etDodge!(ET_FOOT) = 0.3: etShoot(ET_FOOT) = 0: etHold!(ET_FOOT) = 0:   etCol&(ET_FOOT) = _RGB32(170, 35, 35):   etSpr(ET_FOOT) = 0
+    etName$(ET_OFFICER) = "OFFICER":    etHP(ET_OFFICER) = 6:  etDmg(ET_OFFICER) = 10: etSpd!(ET_OFFICER) = 0.6:  etZigAmp(ET_OFFICER) = 2: etDodge!(ET_OFFICER) = 0.4: etShoot(ET_OFFICER) = 0: etHold!(ET_OFFICER) = 0:  etCol&(ET_OFFICER) = _RGB32(200, 30, 80):  etSpr(ET_OFFICER) = 0
+    etName$(ET_MUSKETEER) = "MUSKETEER": etHP(ET_MUSKETEER) = 5: etDmg(ET_MUSKETEER) = 10: etSpd!(ET_MUSKETEER) = 0.45: etZigAmp(ET_MUSKETEER) = 1: etDodge!(ET_MUSKETEER) = 0.4: etShoot(ET_MUSKETEER) = 0: etHold!(ET_MUSKETEER) = 4: etCol&(ET_MUSKETEER) = _RGB32(150, 90, 40):  etSpr(ET_MUSKETEER) = 0
+    etName$(ET_CAPTAIN) = "CAPTAIN":    etHP(ET_CAPTAIN) = 12: etDmg(ET_CAPTAIN) = 10: etSpd!(ET_CAPTAIN) = 0.3:  etZigAmp(ET_CAPTAIN) = 0: etDodge!(ET_CAPTAIN) = 0.5:  etShoot(ET_CAPTAIN) = 0: etHold!(ET_CAPTAIN) = 0:   etCol&(ET_CAPTAIN) = _RGB32(230, 180, 40): etSpr(ET_CAPTAIN) = 0
+    Return
+
 ' SpawnEnemies: startlägen för fiende-poolen (öppna rutor på kartan).
 ' Anropas vid init och vid full reset (R i dead-läget).
 SpawnEnemies:
+    Gosub InitEnemyTypes
+    waveNo = waveNo + 1
     For i = 0 To 10
         enActive(i) = 0
-        enHP(i) = 3          ' 3 träffar tar död på en fiende
+        enHP(i) = 3          ' default; overridden per type below
         enDmg(i) = 10        ' skada per närstridsslag
         enSpd(i) = 0.45      ' tiles/s i JAKT (långsammare än spelaren -> går att överleva)
         enLastHit(i) = 0
@@ -1454,6 +1527,8 @@ SpawnEnemies:
         enPatrolT(i) = 0
         enLx(i) = 0: enLy(i) = 0
         enTx(i) = 0: enTy(i) = 0
+        enType(i) = ET_FOOT
+        enZigX(i) = 0: enZigY(i) = 0: enZigT(i) = 0: enZigS(i) = 1
     Next i
     bfsForX = -1: bfsForY = -1
     ' Spawn-balans (2026-11-23): en0/en3 flyttade bort från startspawn (8.5,4.5) -
@@ -1461,14 +1536,31 @@ SpawnEnemies:
     ' via (6,2)(7,3)(8,4) (dist 4.2) -> JAKT direkt vid spelstart. Nu bakom vägg OCH
     ' dist >= 6 (LOS-tröskeln): en0 nere höger (LOS bruten av vägg 12,8, dist 7.1),
     ' en3 övre vänster hörnet (LOS bruten av vägg 4,2, dist 6.7). en1/en2 oförändrade.
-    enX(0) = 13.5: enY(0) = 9.5:  enActive(0) = 1: enSpd(0) = 0.5
+    enX(0) = 13.5: enY(0) = 9.5:  enActive(0) = 1
     enLx(0) = enX(0): enLy(0) = enY(0): enTx(0) = 13: enTy(0) = 9
-    enX(1) = 10.5: enY(1) = 9.5:  enActive(1) = 1: enSpd(1) = 0.4
+    enX(1) = 10.5: enY(1) = 9.5:  enActive(1) = 1
     enLx(1) = enX(1): enLy(1) = enY(1): enTx(1) = 10: enTy(1) = 9
-    enX(2) = 2.5:  enY(2) = 12.5: enActive(2) = 1: enSpd(2) = 0.35
+    enX(2) = 2.5:  enY(2) = 12.5: enActive(2) = 1
     enLx(2) = enX(2): enLy(2) = enY(2): enTx(2) = 2: enTy(2) = 12
-    enX(3) = 2.5:  enY(3) = 1.5:  enActive(3) = 1: enSpd(3) = 0.55
+    enX(3) = 2.5:  enY(3) = 1.5:  enActive(3) = 1
     enLx(3) = enX(3): enLy(3) = enY(3): enTx(3) = 2: enTy(3) = 1
+    ' Fas 4A spawn-mix per wave: slots 0-2 always FOOT SOLDIER (majority); slot 3
+    ' weighted officer/musketeer; CAPTAIN only when killsTotal > 5 (never wave 1).
+    ' HP/dmg/speed are applied from the type register (data-driven).
+    For sl = 0 To 3
+        If sl <= 2 Then
+            etPick = ET_FOOT
+        Else
+            rl = Rnd
+            etPick = ET_OFFICER
+            If rl >= 0.5 Then etPick = ET_MUSKETEER
+            If killsTotal > 5 And rl >= 0.8 Then etPick = ET_CAPTAIN
+        End If
+        enType(sl) = etPick
+        enHP(sl) = etHP(etPick): enDmg(sl) = etDmg(etPick): enSpd(sl) = etSpd!(etPick)
+        enZigX(sl) = Int(enX(sl)): enZigY(sl) = Int(enY(sl)): enZigT(sl) = 0
+        enZigS(sl) = 1: If Rnd < 0.5 Then enZigS(sl) = -1
+    Next sl
     Return
 
 ' FreezeAtLastKill: ENDA stället där runTimeFrozen sätts — anropas när en
@@ -1811,6 +1903,41 @@ BFSCompute:
     bfsForX = bfsTX: bfsForY = bfsTY
     Return
 
+' DodgeRnd# (Fas 4A): dedicated seedable LCG stream for dodge rolls, separate
+' from the global Rnd (which the procedural sound consumes sample-by-sample).
+' Selftest sets dodgeSeed& to a known value -> deterministic, verifiable dodge.
+Function DodgeRnd#
+    dodgeSeed& = (dodgeSeed& * 1103515245 + 12345) And &H7FFFFFFF
+    DodgeRnd# = dodgeSeed& / 2147483647#
+End Function
+
+' EnemyDodge (Fas 4A): immediate 1-cell sidestep perpendicular to the bullet
+' line (player->enemy). Target cell must be BFS-valid: inside the map, not a
+' wall, not the player's cell. Uses bestE (set by the shooting block).
+EnemyDodge:
+    bdx = enX(bestE) - px: bdy = enY(bestE) - py
+    bl = Sqr(bdx * bdx + bdy * bdy): If bl < 0.01 Then bdx = 1: bdy = 0: bl = 1
+    ux = -bdy / bl: uy = bdx / bl          ' unit perpendicular to the bullet line
+    If Abs(ux) >= Abs(uy) Then
+        rx = Sgn(ux): ry = 0
+    Else
+        rx = 0: ry = Sgn(uy)
+    End If
+    If rx = 0 And ry = 0 Then Return
+    zs = 1: If DodgeRnd# < 0.5 Then zs = -1
+    For dtr = 0 To 1                        ' chosen side first, then the other
+        s2 = zs: If dtr = 1 Then s2 = -zs
+        dtx2 = Int(enX(bestE)) + rx * s2
+        dty2 = Int(enY(bestE)) + ry * s2
+        If dtx2 >= 0 And dtx2 <= 15 And dty2 >= 0 And dty2 <= 15 Then
+            If Mid$(mapRow$(dty2), dtx2 + 1, 1) <> "#" And (dtx2 <> Int(px) Or dty2 <> Int(py)) Then
+                enX(bestE) = dtx2 + 0.5: enY(bestE) = dty2 + 0.5
+                dtr = 99
+            End If
+        End If
+    Next dtr
+    Return
+
 ' STLog: append:a en rad till selftest-loggen (fil + konsol)
 STLog:
     stF = FreeFile
@@ -1827,6 +1954,7 @@ SelftestDrive:
     ' Fas 3.1: fas1 patrull -> fas2 upptäckt -> fas3 jakt runt hörn -> fas4 förlorad->PATROLL
     ' därefter gamla Fas 3-kombattestet: fas5 jakt -> fas6 skada -> fas7 dör av skott -> fas8 spelare dör
     ' fas 9 = spawn-audit: akta SpawnEnemies, ingen fiende far se spelaren vid start (LOS<tröskel)
+    ' fas 14 = Fas 4A enemy types: register data, zigzag offset, dodge-on-hit (seeded), spawn-mix wave 1
     ' fas 10 = occlusion-audit: pixel-check (POINT) att ögon döljs bakom vägg och pickups rätt
     ' fas 11 = ljud-register-test: PlaySound för alla id, tillstånd ska vara oförändrat
     ' fas 12 = seger-trigger: kill-all -> result-state, inga levande fiender, tangent -> omladdning
@@ -2053,8 +2181,8 @@ SelftestDrive:
                 If hp = sh0 And state$ = sst0$ And ammo = sam0 And enState(0) = sen0 Then
                     stMsg$ = "PASS fas11-ljud-register (alla " + Str$(SND_COUNT) + " id anropade, tillstånd oförändrat, ingen krasch)"
                     Gosub STLog
-                    ' fas 12: seger-trigger-test (kill-all -> result -> tangent -> omladdning)
-                    testPhase = 12: testT0 = Timer: testFlag = 0
+                    ' fas 14: enemy types (Fas 4A) -> then fas 12: seger-trigger-test
+                    testPhase = 14: testT0 = Timer: testFlag = 0
                 Else
                     stMsg$ = "FAIL fas11-ljud-register hp=" + Str$(Int(hp)) + " state=" + state$ + " ammo=" + Str$(ammo)
                     Gosub STLog
@@ -2260,6 +2388,120 @@ SelftestDrive:
                 Gosub STLog
                 ShutdownSound
                 End
+            End If
+        Case 14  ' FAS 4A enemy types: (a) register data per type, (b) zigzag target-cell
+                 ' offset changes at least once within 1 s (seeded), (c) dodge sidestep
+                 ' on a seeded shot vs officer, (d) spawn-mix wave 1: no captain
+            If testFlag = 0 Then
+                ' (a) register data
+                okA = (etHP(ET_FOOT) = 3 And etHP(ET_OFFICER) = 6 And etHP(ET_MUSKETEER) = 5 And etHP(ET_CAPTAIN) = 12)
+                okA = okA And (etSpd!(ET_OFFICER) > etSpd!(ET_FOOT) And etSpd!(ET_FOOT) = etSpd!(ET_MUSKETEER) And etSpd!(ET_CAPTAIN) < etSpd!(ET_FOOT))
+                okA = okA And (etZigAmp(ET_FOOT) = 1 And etZigAmp(ET_OFFICER) = 2 And etZigAmp(ET_MUSKETEER) = 1 And etZigAmp(ET_CAPTAIN) = 0)
+                okA = okA And (etDodge!(ET_FOOT) = 0.3 And etDodge!(ET_OFFICER) = 0.4 And etDodge!(ET_MUSKETEER) = 0.4 And etDodge!(ET_CAPTAIN) = 0.5)
+                okA = okA And (etShoot(ET_FOOT) = 0 And etShoot(ET_OFFICER) = 0 And etShoot(ET_MUSKETEER) = 0 And etShoot(ET_CAPTAIN) = 0)
+                okA = okA And (etHold!(ET_MUSKETEER) >= 3 And etHold!(ET_MUSKETEER) <= 5 And etHold!(ET_FOOT) = 0)
+                okA = okA And (etCol&(ET_CAPTAIN) <> etCol&(ET_FOOT) And etCol&(ET_OFFICER) <> etCol&(ET_FOOT))
+                If okA Then
+                    stMsg$ = "PASS fas14a-register (HP 3/6/5/12, spd officer>foot=musketeer>captain, zig 1/2/1/0, dodge .3/.4/.4/.5, shoot all 0, musketeer hold 3-5, distinct colors)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas14a-register hp=" + Str$(etHP(ET_FOOT)) + "/" + Str$(etHP(ET_OFFICER)) + "/" + Str$(etHP(ET_MUSKETEER)) + "/" + Str$(etHP(ET_CAPTAIN)) + " dodge=" + Str$(etDodge!(ET_FOOT)) + "/" + Str$(etDodge!(ET_CAPTAIN)) + " shoot=" + Str$(etShoot(ET_CAPTAIN)) + " hold=" + Str$(etHold!(ET_MUSKETEER))
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' (b) setup: one OFFICER hunting the player in open row 4
+                For i = 0 To 10: enActive(i) = 0: Next i
+                px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 5
+                enX(0) = 12.5: enY(0) = 4.5: enActive(0) = 1
+                enType(0) = ET_OFFICER: enHP(0) = etHP(ET_OFFICER): enDmg(0) = etDmg(ET_OFFICER): enSpd(0) = etSpd!(ET_OFFICER)
+                enState(0) = 1: enLastSeen(0) = Timer: enLx(0) = px: enLy(0) = py: enCalmT(0) = 0: enLastHit(0) = 0
+                enTx(0) = 12: enTy(0) = 4: enPatrolT(0) = -99
+                enZigT(0) = 0: enZigX(0) = -1: enZigY(0) = -1: enZigS(0) = 1
+                bfsForX = -1: bfsForY = -1
+                Randomize 20261123
+                zigChanges = 0: zx0 = -1: zy0 = -1
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                If zx0 = -1 Then zx0 = enZigX(0): zy0 = enZigY(0)
+                If enZigX(0) <> zx0 Or enZigY(0) <> zy0 Then
+                    zigChanges = zigChanges + 1
+                    zx0 = enZigX(0): zy0 = enZigY(0)
+                End If
+                If Timer - testT0 >= 1.2 Then
+                    If zigChanges >= 1 Then
+                        stMsg$ = "PASS fas14b-zigzag (officer target-cell offset changed " + Str$(zigChanges) + "x within 1.2s, seeded RNG, per-enemy 0.5-1s timer; now zig=" + Str$(enZigX(0)) + "," + Str$(enZigY(0)) + ")"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas14b-zigzag (offset never changed within 1.2s, zig=" + Str$(enZigX(0)) + "," + Str$(enZigY(0)) + ")"
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' (c) setup: seeded shot straight at an officer in open row 4
+                    enX(0) = 10.5: enY(0) = 4.5: enState(0) = 1: enLastSeen(0) = Timer: enLx(0) = px: enLy(0) = py
+                    enZigT(0) = Timer + 99   ' no zigzag Rnd consumed before the shot
+                    lastShotTime = -1: ammo = 5
+                    preX = enX(0): preY = enY(0)
+                    dodgeSeed& = 2             ' known dodge seed -> first DodgeRnd# ~0.028 < officer dodge 0.4
+                    fireBtn = 1
+                    testFlag = 2: testT0 = Timer
+                End If
+            End If
+            If testFlag = 2 Then
+                If enHP(0) < etHP(ET_OFFICER) Then
+                    ' the seeded shot landed; verify the dodge sidestep (1 cell,
+                    ' perpendicular to the x-axis firing line)
+                    fireBtn = 0
+                    If enActive(0) = 1 And Abs(enY(0) - preY) >= 0.9 And Abs(enX(0) - preX) < 0.5 Then
+                        stMsg$ = "PASS fas14c-dodge (seeded shot vs officer dodgeSeed 2: HP " + Str$(etHP(ET_OFFICER)) + "->" + Str$(enHP(0)) + ", 1-cell sidestep to (" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + "))"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas14c-dodge (HP=" + Str$(enHP(0)) + " active=" + Str$(enActive(0)) + " pos " + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + " pre " + LTrim$(Str$(Int(preX * 10) / 10)) + "," + LTrim$(Str$(Int(preY * 10) / 10)) + " dodgeSeed 2)"
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' (d) spawn-mix wave 1: reset wave/kill counters, spawn, audit types
+                    killsTotal = 0: waveNo = 0
+                    Gosub SpawnEnemies
+                    capN = 0: footN = 0: offN = 0: musN = 0
+                    For i = 0 To 10
+                        If enActive(i) Then
+                            If enType(i) = ET_CAPTAIN Then capN = capN + 1
+                            If enType(i) = ET_FOOT Then footN = footN + 1
+                            If enType(i) = ET_OFFICER Then offN = offN + 1
+                            If enType(i) = ET_MUSKETEER Then musN = musN + 1
+                        End If
+                    Next i
+                    If capN = 0 And footN >= 3 And offN + musN >= 1 Then
+                        stMsg$ = "PASS fas14d-spawn-mix (wave 1: foot=" + Str$(footN) + " officer=" + Str$(offN) + " musketeer=" + Str$(musN) + " captain=" + Str$(capN) + " of 4 active; killsTotal=0 -> captain impossible)"
+                        Gosub STLog
+                        testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger)
+                    Else
+                        stMsg$ = "FAIL fas14d-spawn-mix foot=" + Str$(footN) + " officer=" + Str$(offN) + " musketeer=" + Str$(musN) + " captain=" + Str$(capN)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 2 Then
+                    fireBtn = 0
+                    stMsg$ = "FAIL fas14c-dodge (seeded shot never landed: enHP=" + Str$(enHP(0)) + " ammo=" + Str$(ammo) + ")"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
             End If
     End Select
     Return
