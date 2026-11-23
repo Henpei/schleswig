@@ -40,8 +40,11 @@ RH = _Height(display&)
 planeDist = 0.66 * (16 / 9) / (RW / RH)
 fovCut = 0.66 * (RW / RH) / (16 / 9)
 buf& = _NewImage(RW, RH, 32)
+DIM SHARED fontBuf&          ' knapptext renderas här och skalas 2x vid ritning
+fontBuf& = _NewImage(512, 40, 32)
+DIM mouseShown               ' guard: _MOUSESHOW max EN gång per state-övergång
 ' Fas 2.5: meny-knapp + ljud + fade-overgang (knappgeometri relativ RW/RH)
-btnW = Int(RW * 360 / 1920): btnH = Int(RH * 60 / 1080)
+btnW = Int(RW * 420 / 1920): btnH = Int(RH * 90 / 1080)   ' större knappar (2x-text)
 btnX0 = (RW - btnW) \ 2: btnY0 = RH \ 2 + Int(RH * 40 / 1080)
 btnX1 = btnX0 + btnW: btnY1 = btnY0 + btnH
 hover = 0: prevHover = 0
@@ -91,7 +94,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "b74c1f0"
+Const strBuild$ = "47bb6cc"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -209,6 +212,7 @@ If selftest Then
     state$ = "playing"          ' hoppa över menyn direkt
     LogMouse "HIDE_DISABLE selftest-init"
     _MOUSEHIDE _DISABLE
+    mouseShown = 0
     lockHint = 1
     runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0: winTime = -1   ' highscore-counters i selftest
     Gosub SpawnEnemies
@@ -296,9 +300,10 @@ Do
             If fa >= 1 Then
                 state$ = "playing"
                 LogMouse "HIDE_DISABLE StartRun fade-klar"
+                LogMouse "MOUSEMOVE center StartRun (före låset)"
+                _MOUSEMOVE RW \ 2, RH \ 2   ' färsk serial INNAN låset (ordning enligt fix)
                 _MOUSEHIDE _DISABLE   ' pointer-lock när faden är klar (samma för båda vägarna)
-                LogMouse "MOUSEMOVE center StartRun"
-                _MOUSEMOVE RW \ 2, RH \ 2
+                mouseShown = 0
                 lockHint = 1
                 fadeT0 = Timer
                 fading = 2
@@ -345,7 +350,7 @@ Do
             hover = 0: prevHover = 0
             state$ = "menu"
             LogMouse "SHOW dead-R-reset->menu"
-            _MOUSESHOW
+            If mouseShown = 0 Then _MOUSESHOW: mouseShown = 1   ' guard: show en gång per övergång
         End If
         ' dödsskärm: svart overlay fade 0.5 s, sedan stor röd text
         _Dest display&
@@ -411,7 +416,7 @@ Do
             fading = 0: deathTime = 0: hover = 0: prevHover = 0: winPending = 0: winTime = -1
             runT0 = Timer: shotsFired = 0: dmgTaken = 0
             LogMouse "SHOW result-ESC/HUVUDMENY->menu"
-            _MOUSESHOW
+            If mouseShown = 0 Then _MOUSESHOW: mouseShown = 1   ' guard: show en gång per övergång
             state$ = "menu"
         ElseIf mb And hoverR = 1 Then
             ' VIDARE: samma StartRun som huvudmenyns START (fade + lås vid fade-slut)
@@ -796,7 +801,7 @@ Do
         If selftest Then stMsg$ = "WIN-TRIG phase=" + Str$(testPhase) + " t=" + LTrim$(Str$(Int((Timer - winT0) * 10) / 10)): Gosub STLog
         state$ = "result"
         LogMouse "SHOW win->result"
-        _MOUSESHOW
+        If mouseShown = 0 Then _MOUSESHOW: mouseShown = 1   ' guard: show en gång per övergång
         score = CalcScore&   ' använder nu frysta winTime
         newRecord = 0
         If selftest = 0 And score > bestScore Then
@@ -815,7 +820,7 @@ Do
         state$ = "dead"
         deathTime = Timer
         LogMouse "SHOW death"
-        _MOUSESHOW   ' slapp pointer-lock vid död
+        If mouseShown = 0 Then _MOUSESHOW: mouseShown = 1   ' guard: show en gång per övergång (slapp pointer-lock vid död)
         ' Highscore: räkna score vid död; spara nytt rekord (ej i selftest = anti-cheese)
         score = CalcScore&
         newRecord = 0
@@ -1377,7 +1382,6 @@ End Sub
 '   normal: fill RGB(30,30,70), text RGB(255,255,255), vit kant, svart skugga
 '   hover:  fill RGB(255,200,0) (amber), text RGB(0,0,0), vit kant, ingen skugga
 Sub DrawButton (bx0, by0, bx1, by1, label$, hovered)
-    _PRINTMODE _KeepBackground   ' FIX 1: transparent text-bakgrund (ingen svart ruta bakom label)
     bw = bx1 - bx0: bh = by1 - by0
     If hovered Then
         Line (bx0, by0)-(bx1, by1), _RGB32(255, 200, 0), BF
@@ -1387,14 +1391,22 @@ Sub DrawButton (bx0, by0, bx1, by1, label$, hovered)
         tc& = _RGB32(255, 255, 255)
     End If
     Line (bx0, by0)-(bx1, by1), _RGB32(255, 255, 255), B
-    tx = bx0 + (bw - Len(label$) * 8) \ 2
-    ty = by0 + (bh - 16) \ 2
+    ' större text: label renderas i fontBuf& (transparent bg) och skalas 2x via _PutImage
+    _Dest fontBuf&
+    _PrintMode _KeepBackground   ' transparent text-bakgrund (ingen svart ruta)
+    Line (0, 0)-(511, 39), _RGBA32(0, 0, 0, 0), BF
     If hovered = 0 Then
         Color _RGB32(0, 0, 0)
-        _PrintString (tx + 2, ty + 2), label$   ' skugga bara i normal-läge
+        _PrintString (2, 2), label$   ' skugga bara i normal-läge
     End If
     Color tc&
-    _PrintString (tx, ty), label$
+    _PrintString (0, 0), label$
+    _Dest display&
+    _PrintMode _FillBackground
+    sw = Len(label$) * 8 + 3: sh = 34
+    tx = bx0 + (bw - sw * 2) \ 2
+    ty = by0 + (bh - sh * 2) \ 2
+    _PutImage (tx, ty)-(tx + sw * 2 - 1, ty + sh * 2 - 1), fontBuf&, (0, 0)-(sw - 1, sh - 1)
 End Sub
 
 ' LOSCheck: DDA-stråle från (fx,fy) till (tx,ty); losOK=1 om ingen väggcell på vägen
