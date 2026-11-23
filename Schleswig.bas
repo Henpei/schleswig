@@ -138,7 +138,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "aa26eee"
+Const strBuild$ = "4ab7814"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -252,14 +252,8 @@ Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 ' Highscore: nollställ counters, ladda bästa score från lokal fil (.schleswig_scores.txt)
 shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0
 winPending = 0: winT0 = 0: runTimeFrozen = -1: escCool = -99
-lockEngaged = 0: lockEngages = 0: lockDestroys = 0
+lockEngaged = 0: lockEngages = 0: lockDestroys = 0   ' låset engageras vid FÖRSTA fade-slutet (StartRun-vägen), INTE vid init
 vCurX = RW \ 2: vCurY = RH \ 2   ' PARKED: mouse experiment aa26eee (obrukbar)
-' LIVSTIDS-LÅS vid APP-START (efter alla init-nollställningar): låset engageras
-' NU, före första meny-framen (state=menu) — compositor-pekaren syns ALDRIG.
-' INGEN _MOUSESHOW finns i kodbasen (grep-bevis: 0 aktiva anrop).
-_MOUSEHIDE _DISABLE
-lockEngages = lockEngages + 1
-lockEngaged = 1
 If _FileExists(".schleswig_scores.txt") Then
     f = FreeFile
     Open ".schleswig_scores.txt" For Input As #f
@@ -272,7 +266,7 @@ If selftest Then
     Close #stF
     state$ = "playing"          ' hoppa över menyn direkt
     LogMouse "HIDE_DISABLE selftest-init"
-    stMsg$ = "app-start-livstidslas: lockEngaged=" + Str$(lockEngaged) + " engages=" + Str$(lockEngages) + " (lock vid init, före första meny-framen)": Gosub STLog
+    stMsg$ = "pre-lock-init: lockEngaged=" + Str$(lockEngaged) + " engages=" + Str$(lockEngages) + " (lås sker vid första fade-slut, ej vid init)": Gosub STLog
     lockHint = 1
     runT0 = Timer: shotsFired = 0: dmgTaken = 0: winPending = 0: runTimeFrozen = -1   ' highscore-counters i selftest
     Gosub SpawnEnemies
@@ -334,10 +328,10 @@ Do
         ' FIX 2: ESC i menu avslutar fortfarande, men inte precis efter ESC från
         ' result-skärmen (held ESC skulle annars bledda in i meny-grenen)
         If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then Gosub QuitGame
-        While _MouseInput: WEND   ' töm muskön (låst mus används ej i menyn; playing läser rörelsen)
-        ' TANGENTDRIVEN MENY (låset sitter från app-start, pekaren syns aldrig):
-        ' W/S eller upp/ner-pil flyttar markering (amber), ENTER väljer, SPACE=START.
-        ' Ingen mus-hover/klick här (PARKED: mouse experiment aa26eee).
+        While _MouseInput: WEND   ' töm muskön så inget läcker till playing
+        mx = _MouseX: my = _MouseY
+        ' TANGENT-nav (alltid aktiv, även efter låset): W/S eller upp/ner-pil
+        ' flyttar markering, ENTER väljer, SPACE=START (osynlig genväg).
         If state$ = "menu" And (k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432)) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 2
         If state$ = "menu" And (k$ = "s" Or k$ = "S" Or k$ = Chr$(0) + "P" Or _KeyDown(20480)) Then selIdx = selIdx + 1: If selIdx > 2 Then selIdx = 1
         If state$ = "menu" And k$ = " " Then
@@ -363,6 +357,27 @@ Do
         quitBtnTop = btnY1 + Int(RH * 16 / 1080)
         BtnGeom menuBtnW, RW \ 2, quitBtnTop, quitX0, quitY0, quitX1, quitY1      ' QUIT GAME
         menuPanelHalf = (quitY1 + Int(RH * 30 / 1080)) - RH \ 2   ' panel rymmer båda knapparna
+        ' MUS-driven meny FÖRE första låset (lockEngaged=0): riktig Wayland-pekare
+        ' (default, syns automatiskt — INGEN _MOUSESHOW). Hover via ButtonHit,
+        ' klick väljer. Efter låset (lockEngaged=1) är pekaren borta — då gäller
+        ' enbart tangent-nav ovan (selIdx).
+        hover = 0
+        If state$ = "menu" And lockEngaged = 0 Then
+            If ButtonHit%(mx, my, btnX0, btnY0, btnX1, btnY1) Then hover = 1
+            If ButtonHit%(mx, my, quitX0, quitY0, quitX1, quitY1) Then hover = 2
+            If hover <> prevHover Then
+                prevHover = hover
+                If hover > 0 Then SOUND 1500, 1   ' hover-tick
+            End If
+            If hover > 0 Then selIdx = hover   ' håll tangent-markering synkad
+            If _MouseButton(1) And hover = 1 Then
+                Gosub StartRun
+                SOUND 300, 2: SOUND 150, 3
+            End If
+            If _MouseButton(1) And hover = 2 Then Gosub QuitGame
+        Else
+            prevHover = 0
+        End If
         _Dest display&
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
         Line (RW \ 2 - 860, RH \ 2 - menuPanelHalf)-(RW \ 2 + 859, RH \ 2 + menuPanelHalf - 1), _RGB32(255, 200, 0), B
@@ -390,7 +405,14 @@ Do
                 state$ = "playing"
                 LogMouse "HIDE_DISABLE StartRun fade-klar"
                 LogMouse "MOUSEMOVE center StartRun (före låset)"
-                _MOUSEMOVE RW \ 2, RH \ 2   ' centrera (låset engagerades redan vid app-start)
+                _MOUSEMOVE RW \ 2, RH \ 2   ' färsk serial INNAN låset (ordning enligt fix)
+                ' LIVSTIDS-LÅS vid FÖRSTA fade-slutet — app-livets ENDA hide.
+                ' INGEN _MOUSESHOW finns i kodbasen (grep-bevis: 0 aktiva anrop).
+                If lockEngaged = 0 Then
+                    _MOUSEHIDE _DISABLE
+                    lockEngages = lockEngages + 1
+                    lockEngaged = 1
+                End If
                 lockHint = 1
                 fadeT0 = Timer
                 fading = 2
@@ -433,7 +455,7 @@ Do
                 ' fas12f: LIVSTIDS-LÅS från app-start — lockEngaged=1 redan vid första
                 ' meny-framen, exakt 1 engage, 0 destroys under sessionen (0 _MOUSESHOW)
                 If vcOk1 And vcOk2 And bhHit = -1 And bhMiss = 0 And lockEngaged = 1 And lockEngages = 1 And lockDestroys = 0 And cursorBuf& <> 0 And cursorSize >= 16 Then
-                    stMsg$ = "PASS fas12e-parkerade-funktioner (klamring OK, ButtonHit hit/miss OK, pil-buffer " + Str$(cursorSize) + "px ej renderad) + fas12f-livstidslas-appstart (lockEngaged=1, engages=" + Str$(lockEngages) + ", destroys=" + Str$(lockDestroys) + ", 0 _MOUSESHOW i kod)"
+                    stMsg$ = "PASS fas12e-parkerade-funktioner (klamring OK, ButtonHit hit/miss OK, pil-buffer " + Str$(cursorSize) + "px ej renderad) + fas12f-livstidslas-fadeslut (lockEngaged=1, engages=" + Str$(lockEngages) + ", destroys=" + Str$(lockDestroys) + ", 0 _MOUSESHOW i kod)"
                     Gosub STLog
                     stMsg$ = "SELFTEST OK"
                     Gosub STLog
@@ -2090,8 +2112,8 @@ SelftestDrive:
                 ' i StartRun) ska ha ökat med exakt +1 sedan VIDARE-klicket.
                 ' runTimeFrozen = -1 vid playing-start: rundstart efter VIDARE får
                 ' INTE vara fryst (~0) — det var buggen (alive==0 utan kill fryyste)
-                If mvF = 0 And mvB = 0 And mvL = 0 And mvR = 0 And turnL = 0 And turnR = 0 And fireBtn = 0 And startRuns = sr0 + 1 And runTimeFrozen = -1 Then
-                    stMsg$ = "PASS fas12b-vidare-klick (VIDARE -> state=playing via MENY-START-vägen: startRuns " + Str$(sr0) + "->" + Str$(startRuns) + " (+1), rörelse-flaggor=0, runTimeFrozen=-1 ej fryst vid start)"
+                If mvF = 0 And mvB = 0 And mvL = 0 And mvR = 0 And turnL = 0 And turnR = 0 And fireBtn = 0 And startRuns = sr0 + 1 And runTimeFrozen = -1 And lockEngaged = 1 And lockEngages = 1 Then
+                    stMsg$ = "PASS fas12b-vidare-klick (VIDARE -> state=playing via MENY-START-vägen: startRuns " + Str$(sr0) + "->" + Str$(startRuns) + " (+1), rörelse-flaggor=0, runTimeFrozen=-1, lock vid FADE-SLUT: lockEngaged=1 engages=1)"
                     Gosub STLog
                 Else
                     stMsg$ = "FAIL fas12b-rorelse/startRuns/frz mvF=" + Str$(mvF) + " mvB=" + Str$(mvB) + " mvL=" + Str$(mvL) + " mvR=" + Str$(mvR) + " turnL=" + Str$(turnL) + " turnR=" + Str$(turnR) + " fireBtn=" + Str$(fireBtn) + " startRuns=" + Str$(startRuns) + " (väntade " + Str$(sr0 + 1) + ") runTimeFrozen=" + Str$(runTimeFrozen) + " (väntade -1)"
