@@ -13,6 +13,12 @@ weapons rendering).
 - ALL in-game text: English.
 - Variable/function names: English.
 
+## Input schema
+- KeyUse = universal interaction key (E) — upcoming phases reuse this
+  exact check (Const KeyUse + Function KeyUseHit% in Schleswig.bas).
+  SPACE is NOT a menu selector; menus select with E, mouse click works
+  in parallel where applicable.
+
 ## Build (from /home/andre/QB64pe, NOT repo root)
   ./qb64pe -c schleswig/Schleswig.bas -o schleswig/schleswig -x
 - Requirement: exit code 0. Shell is FISH: check
@@ -51,6 +57,11 @@ weapons rendering).
   cursor in main menu (before first lock), ONE
   _MOUSEHIDE _DISABLE at first fade end, no destroys
   except QuitGame.
+- Procedural sound (GenSample# noise) consumes the
+  global Rnd stream sample-by-sample, so Rnd is NOT
+  predictable around PlaySound. For seeded/deterministic
+  selftest checks use a dedicated LCG stream instead
+  (see Function DodgeRnd# / dodgeSeed& in Schleswig.bas).
 
 ## PARKED (do not reactivate without André's OK)
 - Virtual cursor + arrow sprite (commit aa26eee):

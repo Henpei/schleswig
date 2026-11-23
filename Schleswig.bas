@@ -138,39 +138,42 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "5271dea"
+Const strBuild$ = "97688f7"
 
-' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
-' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
-' denna sektion till engelska (och LICENSE/README läggs till). Selftestets
-' loggsträngar (stMsg$) är diagnostik och ligger kvar vid selftest-koden.
-Const strAppName$ = "Schleswig"                    ' fönstertitel (_Title)
-Const strTitle$ = "SCHLESWIG"                      ' stor titel på titelskärmen
-Const strStartBtn$ = "START GAME"                  ' menyknapp
-Const strQuitBtn$ = "QUIT GAME"                    ' menyknapp 2 (samma meny, samma bredd)
-Const strDead$ = "DU DÖ"                           ' dödsskärm, stor text
-Const strRestart$ = "Tryck R för att starta om"    ' dödsskärm, rad 2
-Const strHudHp$ = "HP:"                            ' HUD-etikett
-Const strHudAmmo$ = "AMMO:"                        ' HUD-etikett
-Const strFps$ = "FPS:"                             ' debug-rad + fönstertitel
-Const strDmgDebug$ = "-5 HP"                       ' debug-knapp G
-Const strMedkit$ = "+25 HP"                        ' medkit-pickup
-Const strAmmoPick$ = "+5 AMMO"                     ' ammo-pickup (FIX 3: +5, cap 20)
-Const strScore$ = "SCORE:"                         ' dödsskärm/HUD: score-rad
-Const strBest$ = "BÄSTA:"                          ' dödsskärm/resultat: bästa score
-Const strNewRec$ = "NY REKORD!"                    ' dödsskärm/resultat: vid nytt rekord
-Const strWin$ = "KARTAN KLAR"                      ' resultatskärm: titel
-Const strTime$ = "TID:"                            ' resultatskärm: mm:ss
-Const strShots$ = "SKOTT:"                         ' resultatskärm
-Const strDmg$ = "SKADA:"                           ' resultatskärm
-Const strEscMenu$ = "ESC = PAUS"                       ' resultat-skärm, nederst (ESC -> paus)
-Const strClickCont$ = "CLICK TO CONTINUE"              ' result: fortsätt med klick/SPACE/ENTER (snabb blink)
-Const strPaused$ = "PAUSAD"                            ' pausmeny: titel
-Const strResume$ = "FORTSÄTT"                          ' pausmeny: knapp 1
-Const strRestartRound$ = "RESTART ROND"                ' pausmeny: knapp 2
-Const strQuitPause$ = "AVSLUTA SPELET"                 ' pausmeny: knapp 3
-Const strNextMap$ = "VIDARE"                           ' resultatmeny: knapp 1 (ny runda)
-Const strMainMenu$ = "HUVUDMENY"                       ' resultatmeny: knapp 2
+' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
+' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
+Const KeyUse = 101   ' Asc("E")
+
+' ===== GAME TEXT (centralized) =================
+' All user-visible text lives here, in English. Selftest log strings (stMsg$)
+' are diagnostics and stay with the selftest code.
+Const strAppName$ = "Schleswig"                    ' window title (_Title)
+Const strTitle$ = "SCHLESWIG"                      ' big title on the title screen
+Const strStartBtn$ = "START GAME"                  ' menu button
+Const strQuitBtn$ = "QUIT GAME"                    ' menu button 2 (same menu, same width)
+Const strDead$ = "YOU DIED"                        ' death screen, big text
+Const strRestart$ = "Press R to restart"           ' death screen, line 2
+Const strHudHp$ = "HP:"                            ' HUD label
+Const strHudAmmo$ = "AMMO:"                        ' HUD label
+Const strFps$ = "FPS:"                             ' debug line + window title
+Const strDmgDebug$ = "-5 HP"                       ' debug key G
+Const strMedkit$ = "+25 HP"                        ' medkit pickup
+Const strAmmoPick$ = "+5 AMMO"                     ' ammo pickup (cap 20)
+Const strScore$ = "SCORE:"                         ' death screen/HUD: score line
+Const strBest$ = "BEST:"                           ' death/result screen: best score
+Const strNewRec$ = "NEW RECORD!"                   ' death/result screen: on new record
+Const strWin$ = "MAP CLEARED"                      ' result screen: title
+Const strTime$ = "TIME:"                           ' result screen: mm:ss
+Const strShots$ = "SHOTS:"                         ' result screen
+Const strDmg$ = "DAMAGE:"                          ' result screen
+Const strEscMenu$ = "ESC = PAUSE"                  ' result screen, bottom (ESC -> pause)
+Const strClickCont$ = "CLICK OR E TO CONTINUE"     ' result: continue with click/E (fast blink)
+Const strPaused$ = "PAUSED"                        ' pause menu: title
+Const strResume$ = "RESUME"                        ' pause menu: button 1
+Const strRestartRound$ = "RESTART LEVEL"           ' pause menu: button 2
+Const strQuitPause$ = "QUIT GAME"                  ' pause menu: button 3
+Const strNextMap$ = "CONTINUE"                     ' result menu: button 1 (next round)
+Const strMainMenu$ = "MAIN MENU"                   ' result menu: button 2
 ' (strLockHint$ borttagen 2026-11-23: Wayland-låset ska bara SKE vid klick — ingen hint-text)
 ' ============================================================================
 
@@ -346,20 +349,16 @@ Do
         If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then Gosub QuitGame
         While _MouseInput: WEND   ' töm muskön så inget läcker till playing
         mx = _MouseX: my = _MouseY
-        ' TANGENT-nav (alltid aktiv, även efter låset): W/S eller upp/ner-pil
-        ' flyttar markering, ENTER väljer, SPACE=START (osynlig genväg).
+        ' KEY-nav (always active, even after the lock): W/S or up/down arrows
+        ' move the selection; E (KeyUse) selects. SPACE is NOT a menu selector.
         If state$ = "menu" And (k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432)) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 2
         If state$ = "menu" And (k$ = "s" Or k$ = "S" Or k$ = Chr$(0) + "P" Or _KeyDown(20480)) Then selIdx = selIdx + 1: If selIdx > 2 Then selIdx = 1
-        If state$ = "menu" And k$ = " " Then
-            Gosub StartRun   ' SPACE = osynlig genväg för START
-            SOUND 300, 2: SOUND 150, 3        ' klick/plopp
-        End If
-        If state$ = "menu" And k$ = Chr$(13) Then   ' ENTER väljer markerad knapp
+        If state$ = "menu" And KeyUseHit%(k$) Then   ' E (KeyUse) selects the highlighted row
             If selIdx = 1 Then
                 Gosub StartRun
                 SOUND 300, 2: SOUND 150, 3
             Else
-                Gosub QuitGame   ' QUIT GAME = samma exit som meny-ESC
+                Gosub QuitGame   ' QUIT GAME = same exit as menu-ESC
             End If
         End If
         ' knapp-geometri: GEMENSAM bredd för hela huvudmenyn = längsta labeln
@@ -566,8 +565,8 @@ Do
         ' DrawButton-widget, hover, fill/border). Musen är VÄLKOMMEN synlig här.
         ' AI/fysik/tid fryst (egen gren). Knappar: VIDARE / HUVUDMENY. ESC=meny.
         ' RESULTAT är KLICK-FRITT: ingen knapp, ingen ButtonHit. Statistik +
-        ' CLICK TO CONTINUE. Valfritt musklick (låst mus funkar osynligt) eller
-        ' SPACE/ENTER -> pendingStart (nästa runda via meny-START-vägen).
+        ' CLICK OR E TO CONTINUE. Any mouse click (locked mouse works invisibly)
+        ' or E (KeyUse) -> pendingStart (nästa runda via meny-START-vägen).
         ' ESC -> paus (resumeState=result). INGEN pekare ritas här.
         resPanelHalf = Int(RH * 240 / 1080)   ' panel rymmer statistik + textrader
         resEscY = RH \ 2 + Int(RH * 70 / 1080)
@@ -584,8 +583,9 @@ Do
             selIdx = 1
             _KeyClear
             state$ = "paused"
-        ElseIf (mb Or k$ = " " Or k$ = Chr$(13)) And state$ = "result" Then
-            ' FORTSÄTT till nästa runda: BARA pendingStart=1 + state=menu (samma
+        ElseIf (mb Or KeyUseHit%(k$)) And state$ = "result" Then
+            ' CONTINUE to next round with mouse click OR E (KeyUse); SPACE/ENTER
+            ' do nothing here. BARA pendingStart=1 + state=menu (samma
             ' frame) — meny-grenen går samma START-väg (StartRun -> fadeout ->
             ' playing). Ingen egen övergångskod här.
             pendingStart = 1
@@ -654,7 +654,7 @@ Do
         If k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 3
         If k$ = "s" Or k$ = "S" Or k$ = Chr$(0) + "P" Or _KeyDown(20480) Then selIdx = selIdx + 1: If selIdx > 3 Then selIdx = 1
         pauAct = 0
-        If k$ = Chr$(13) Then pauAct = selIdx                     ' ENTER väljer
+        If k$ = Chr$(13) Or KeyUseHit%(k$) Then pauAct = selIdx   ' ENTER kept as extra; E (KeyUse) selects
         If (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then pauAct = 1   ' ESC i paus = FORTSÄTT
         If pauAct = 1 Then
             ' FORTSÄTT: återgå utan reset; pausens längd dras bort från run-tiden
@@ -1043,7 +1043,7 @@ Do
                 If enHP(bestE) <= 0 Then
                     enActive(bestE) = 0
                     killsTotal = killsTotal + 1   ' Fas 4A: total kills gate the captain spawn
-                    hpMsg$ = "FIENDE DÖD"
+                    hpMsg$ = "ENEMY DOWN"
                     PlaySound SND_ENDIE
                     ' TID-FYS vid EXAKT sista killen: räkna levande NU (efter denna
                     ' död-registrering); om 0 -> frys run-tiden här, första gången.
@@ -1054,7 +1054,7 @@ Do
                     Next j
                     If aliveNow = 0 Then Gosub FreezeAtLastKill
                 Else
-                    hpMsg$ = "TRÄFF"
+                    hpMsg$ = "HIT"
                     PlaySound SND_HIT
                     ' Fas 4A: dodge-on-hit — per-type chance (register etDodge!) of an
                     ' immediate 1-cell sidestep. Uses the dedicated seedable LCG
@@ -1751,6 +1751,16 @@ End Sub
 
 ' PARKED: mouse experiment aa26eee — meny-hit-test är tangentdriven nu.
 ' ButtonHit%: -1 om (px,py) ligger inuti knapp-rektangeln, annars 0.
+' KeyUseHit%: central check for the universal interaction key E (Const KeyUse).
+' Menus select/confirm with it now; doors etc. phase 5+ — reuse this exact check.
+Function KeyUseHit% (k$)
+    If k$ = Chr$(KeyUse) Or k$ = UCase$(Chr$(KeyUse)) Or _KeyDown(KeyUse) Then
+        KeyUseHit% = -1
+    Else
+        KeyUseHit% = 0
+    End If
+End Function
+
 Function ButtonHit% (px, py, x0, y0, x1, y1)
     If px >= x0 And px <= x1 And py >= y0 And py <= y1 Then
         ButtonHit% = -1
