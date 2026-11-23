@@ -43,6 +43,7 @@ fovCut = 0.66 * (RW / RH) / (16 / 9)
 buf& = _NewImage(RW, RH, 32)
 DIM SHARED btnFont&          ' TTF-font för knapptext (ca 2x HUD-fonten); 0 = ej laddad
 DIM SHARED btnFontSize       ' px-storlek, skalad med RH (32 vid 1080p = 2x HUD 16px)
+DIM SHARED cursorBuf&, cursorSize   ' pil-sprite-buffer för menyerna (skapas i init, ritas varje meny-frame)
 ' DIM SHARED: dessa används inuti riktiga SUBs (EngageLock/MoveVirtualCursor/
 ' DrawCursor) — i QB64-PE blir annars sub-lokala kopior (samma gotcha som ljudet).
 DIM SHARED lockEngaged       ' livstids-lås: 1 efter första EngageLock, låses ALDRIG upp förrän exit
@@ -60,6 +61,23 @@ If Not _FileExists(fontCand$) Then fontCand$ = "/home/andre/QB64pe/schleswig/Lib
 If Not _FileExists(fontCand$) Then fontCand$ = "/home/andre/QB64pe/tests/compile_tests/font/LiberationMono-Regular.ttf"
 If Not _FileExists(fontCand$) Then fontCand$ = "/usr/share/fonts/TTF/DejaVuSansMono.ttf"
 If _FileExists(fontCand$) Then btnFont& = _LoadFont(fontCand$, btnFontSize, "MONOSPACE")
+' pil-sprite för menyerna: buffer skapas EN gång i init (~40x40 vid 1080p,
+' skalad med RH). Spetsig triangel: svart outline + amber kärna RGB(255,200,0).
+' Pilens TOPP hamnar exakt på pekar-koordinaten (hotspot för ButtonHit%).
+cursorSize = Int(RH * 40 / 1080): If cursorSize < 16 Then cursorSize = 16
+cursorBuf& = _NewImage(cursorSize, cursorSize, 32)
+_Dest cursorBuf&
+Line (0, 0)-(cursorSize - 1, cursorSize - 1), _RGBA32(0, 0, 0, 0), BF   ' transparent bakgrund
+ccx = cursorSize \ 2
+For cy = 0 To cursorSize - 1
+    chw = Int(cy * 0.75)
+    Line (ccx - chw - 1, cy)-(ccx + chw + 1, cy), _RGB32(0, 0, 0)        ' svart outline
+Next cy
+For cy = 0 To cursorSize - 1
+    chw = Int(cy * 0.75) - 1: If chw < 0 Then chw = 0
+    Line (ccx - chw, cy)-(ccx + chw, cy), _RGB32(255, 200, 0)            ' amber kärna
+Next cy
+_Dest display&
 ' btnX0..btnY1 sätts i meny-grenen via BtnGeom med GEMENSAM bredd per meny
 ' (längsta label + padding — alla knappar inom en meny lika brede).
 ' pendingStart: VIDARE från result går samma START-väg som meny-klicket (se meny-grenen)
@@ -112,7 +130,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "1a9c382"
+Const strBuild$ = "6f1b5ad"
 
 ' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
 ' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
@@ -138,6 +156,10 @@ Const strTime$ = "TID:"                            ' resultatskärm: mm:ss
 Const strShots$ = "SKOTT:"                         ' resultatskärm
 Const strDmg$ = "SKADA:"                           ' resultatskärm
 Const strEscMenu$ = "ESC = MENY"                       ' resultatmeny, nederst
+Const strPaused$ = "PAUSAD"                            ' pausmeny: titel
+Const strResume$ = "FORTSÄTT"                          ' pausmeny: knapp 1
+Const strRestartRound$ = "RESTART ROND"                ' pausmeny: knapp 2
+Const strQuitPause$ = "AVSLUTA SPELET"                 ' pausmeny: knapp 3
 Const strNextMap$ = "VIDARE"                           ' resultatmeny: knapp 1 (ny runda)
 Const strMainMenu$ = "HUVUDMENY"                       ' resultatmeny: knapp 2
 ' (strLockHint$ borttagen 2026-11-23: Wayland-låset ska bara SKE vid klick — ingen hint-text)
@@ -204,7 +226,11 @@ DIM enAlertT(10), enStepAcc(10)   ' används även i huvudloopen -> globala
 ' DIM SHARED: används även i CalcScore& (sub-lokala annars, se ljud-debuggen).
 DIM SHARED shotsFired, dmgTaken, runT0, bestScore, score, newRecord
 DIM winPending, winT0        ' seger-trigger: alla fiender döda -> vänta 1 s -> result
-DIM runTimeFrozen            ' FRYST run-tid (s) — sätts vid SJÄLVA sista killen; -1 = ej fryst (tiden tickar live)
+DIM SHARED runTimeFrozen     ' FRYST run-tid (s) — sätts vid SJÄLVA sista killen; -1 = ej fryst. SHARED: läses av Function CurRunTime% (annars funktions-lokal=0 och tidsstraffet försvinner ur CalcScore&!)
+DIM SHARED liveScore&        ' LIVE-score-räknare: EN variabel — uppdateras varje playing-frame; HUD/result/highscore läser SAMMA värde
+DIM resumeState$             ' paus: vilket läge återgår till (playing/result)
+DIM pauseT0                  ' paus: när pausen började (runT0 justeras vid resume)
+DIM selIdx                   ' pausmeny: markerad rad (1=FORTSÄTT 2=RESTART 3=AVSLUTA)
 DIM escCool                  ' FIX 2: ESC cooldown så held ESC från result inte avslutar i menu
 DIM lockHint                 ' 1 = visa 'klicka för att låsa musen' (tills första klicket i rundan)
 DIM stepAcc                   ' ackumulerad gångsträcka (spelarfotsteg)
@@ -277,7 +303,7 @@ Do
     If k$ = Chr$(0) Then k$ = Chr$(0) + InKey$
 
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
-    If selftest And (state$ = "menu" Or state$ = "result") Then Gosub SelftestDrive   ' fas12 kör även utanför playing
+    If selftest And (state$ = "menu" Or state$ = "result" Or state$ = "paused") Then Gosub SelftestDrive   ' fas12/13 kör även utanför playing
     If state$ = "menu" Or state$ = "fadeout" Then
         ' pendingStart (VIDARE från result): gå EXAKT samma START-väg som när
         ' användaren klickar START — före någon render denna frame. Ingen egen
@@ -348,8 +374,15 @@ Do
         ' två knappar via samma DrawButton-widget: START GAME + QUIT GAME (samma bredd)
         DrawButton btnX0, btnY0, btnX1, btnY1, strStartBtn$, (hover = 1)
         DrawButton quitX0, quitY0, quitX1, quitY1, strQuitBtn$, (hover = 2)
-        ' virtuell pekare ritas ÖVER panel/knappar (efter knapparna, före _Display)
-        If lockEngaged Then DrawCursor vCurX, vCurY
+        ' pil-sprite ritas ÖVER panel/knappar (sist, före _Display). När låset
+        ' sitter: virtuell pekare (vCur). App-start-meny (ej låst än): riktig
+        ' pekare synlig (_MOUSESHOW, ingen lock finns att förstöra) + pil på den.
+        If lockEngaged Then
+            DrawCursor vCurX, vCurY
+        Else
+            _MOUSESHOW
+            DrawCursor mx, my
+        End If
         ' versionshörn nere till höger på titelskärmen (ver + commit-hash)
         Color _RGB32(110, 110, 140)
         _PrintString (RW - Len(ver$ + " " + strBuild$) * 8 - 16, RH - 24), ver$ + " " + strBuild$
@@ -395,8 +428,9 @@ Do
             bhHit = ButtonHit%((btnX0 + btnX1) \ 2, (btnY0 + btnY1) \ 2, btnX0, btnY0, btnX1, btnY1)
             bhMiss = ButtonHit%(0, 0, btnX0, btnY0, btnX1, btnY1)
             ' fas12f: LIVSTIDS-LÅS — lockEngaged=1, exakt 1 engage, 0 destroys under sessionen
-            If vcOk1 And vcOk2 And bhHit = -1 And bhMiss = 0 And lockEngaged = 1 And lockEngages = 1 And lockDestroys = 0 Then
-                stMsg$ = "PASS fas12e-virtuell-pekare (klamring OK, ButtonHit hit/miss OK) + fas12f-livstidslas (lockEngaged=1, engages=" + Str$(lockEngages) + ", destroys=" + Str$(lockDestroys) + ")"
+            ' + pil-sprite: buffer skapad i init (cursorBuf& > 0, cursorSize >= 16)
+            If vcOk1 And vcOk2 And bhHit = -1 And bhMiss = 0 And lockEngaged = 1 And lockEngages = 1 And lockDestroys = 0 And cursorBuf& <> 0 And cursorSize >= 16 Then
+                stMsg$ = "PASS fas12e-virtuell-pekare (klamring OK, ButtonHit hit/miss OK, pil-buffer " + Str$(cursorSize) + "px) + fas12f-livstidslas (lockEngaged=1, engages=" + Str$(lockEngages) + ", destroys=" + Str$(lockDestroys) + ")"
                 Gosub STLog
                 stMsg$ = "SELFTEST OK"
                 Gosub STLog
@@ -417,7 +451,7 @@ Do
         If selftest And testPhase = 8 Then
             stMsg$ = "PASS fas8-spelare-kan-do (hp=0, state=dead)": Gosub STLog
             ' anti-cheese-vakt: score måste vara >= 0 (aldrig negativ)
-            sc8& = CalcScore&
+            sc8& = liveScore&
             If sc8& >= 0 Then
                 stMsg$ = "PASS fas8-score score=" + Str$(sc8&) + " (>=0 OK, ej negativ; s=" + Str$(Int(Timer - runT0)) + " skott=" + Str$(shotsFired) + " skada=" + Str$(dmgTaken) + ")"
             Else
@@ -520,8 +554,16 @@ Do
         hoverR = 0
         If ButtonHit%(mx, my, resB1X0, resB1Y0, resB1X1, resB1Y1) Then hoverR = 1
         If ButtonHit%(mx, my, resB2X0, resB2Y0, resB2X1, resB2Y1) Then hoverR = 2
-        If (k$ = Chr$(27) Or _KeyDown(27)) Or (mb And hoverR = 2) Then
-            ' ESC eller HUVUDMENY -> huvudmenyn (full reset)
+        If (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then
+            ' ESC i result -> PAUS (resumeState=result; FORTSÄTT återgår hit)
+            resumeState$ = "result"
+            pauseT0 = Timer
+            escCool = Timer
+            selIdx = 1
+            _KeyClear
+            state$ = "paused"
+        ElseIf mb And hoverR = 2 Then
+            ' HUVUDMENY -> huvudmenyn (full reset)
             escCool = Timer
             hp = 100: ammo = 5
             px = 8.5: py = 4.5: angle = 0: pitch = 0
@@ -577,17 +619,90 @@ Do
         ' två knappar via samma widget som huvudmenyn (samma palett)
         DrawButton resB1X0, resB1Y0, resB1X1, resB1Y1, strNextMap$, (hoverR = 1)
         DrawButton resB2X0, resB2Y0, resB2X1, resB2Y1, strMainMenu$, (hoverR = 2)
-        ' virtuell pekare över knapparna (när låset sitter)
-        If lockEngaged Then DrawCursor vCurX, vCurY
+        ' pil-sprite över knapparna (sist, före _Display)
+        If lockEngaged Then DrawCursor vCurX, vCurY Else DrawCursor mx, my
         Color _RGB32(150, 150, 150)
         _PrintString ((RW - Len(strEscMenu$) * 8) \ 2, resEscY), strEscMenu$
         Color _RGB32(110, 110, 140)
         _PrintString (RW - Len(ver$ + " " + strBuild$) * 8 - 16, RH - 24), ver$ + " " + strBuild$
         _Display
         If selftest Then Gosub SelftestDrive   ' fas12: observera state=result här
+    ElseIf state$ = "paused" Then
+        ' ================= PAUSMENY (ESC i playing/result) =================
+        ' Tiden stannar här (runT0 justeras vid FORTSÄTT så pausen inte äter
+        ' sekunder). Playing-input (rörelse/skott) körs INTE i denna gren.
+        ' Input BÅDA vägar: tangent (W/S eller pilar + ENTER, ESC=FORTSÄTT)
+        ' och virtuell pekare (låset sitter kvar — inga unlocks här).
+        If selftest And testPhase = 13 Then
+            If testFlag = 7 And inj7 = 0 Then k$ = Chr$(0) + "P": inj7 = 1
+            If testFlag = 8 And inj8 = 0 Then k$ = Chr$(0) + "H": inj8 = 1
+            If testFlag = 9 And inj9 = 0 Then k$ = Chr$(13): inj9 = 1
+            If testFlag = 11 And inj11 = 0 Then k$ = Chr$(13): inj11 = 1
+        End If
+        If lockEngaged Then
+            While _MouseInput
+                MoveVirtualCursor _MouseMovementX, _MouseMovementY
+            Wend
+            mx = vCurX: my = vCurY
+        Else
+            While _MouseInput: WEND
+            mx = _MouseX: my = _MouseY
+        End If
+        ' 3 knappar, uniform bredd (längsta label + 2*padX), staplade under titeln
+        padX = Int(btnFontSize * 0.9): If padX < 12 Then padX = 12
+        BtnTextW strResume$, w1: BtnTextW strRestartRound$, w2: BtnTextW strQuitPause$, w3
+        If w2 > w1 Then w1 = w2
+        If w3 > w1 Then w1 = w3
+        pauBtnW = w1 + padX * 2
+        pauTop = RH \ 2 + Int(RH * 10 / 1080)
+        BtnGeom pauBtnW, RW \ 2, pauTop, pB1X0, pB1Y0, pB1X1, pB1Y1
+        BtnGeom pauBtnW, RW \ 2, pB1Y1 + Int(RH * 14 / 1080), pB2X0, pB2Y0, pB2X1, pB2Y1
+        BtnGeom pauBtnW, RW \ 2, pB2Y1 + Int(RH * 14 / 1080), pB3X0, pB3Y0, pB3X1, pB3Y1
+        ' tangent-markering: W/S eller upp/ner-pil, wrapar 1..3
+        If k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 3
+        If k$ = "s" Or k$ = "S" Or k$ = Chr$(0) + "P" Or _KeyDown(20480) Then selIdx = selIdx + 1: If selIdx > 3 Then selIdx = 1
+        hoverP = 0
+        If ButtonHit%(mx, my, pB1X0, pB1Y0, pB1X1, pB1Y1) Then hoverP = 1
+        If ButtonHit%(mx, my, pB2X0, pB2Y0, pB2X1, pB2Y1) Then hoverP = 2
+        If ButtonHit%(mx, my, pB3X0, pB3Y0, pB3X1, pB3Y1) Then hoverP = 3
+        If hoverP > 0 Then selIdx = hoverP   ' pekaren låser markering
+        pauAct = 0
+        If k$ = Chr$(13) Then pauAct = selIdx                     ' ENTER väljer
+        If (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then pauAct = 1   ' ESC i paus = FORTSÄTT
+        If _MouseButton(1) And hoverP > 0 Then pauAct = hoverP   ' pekar-klick
+        If pauAct = 1 Then
+            ' FORTSÄTT: återgå utan reset; pausens längd dras bort från run-tiden
+            If resumeState$ = "playing" And runTimeFrozen < 0 Then runT0 = runT0 + (Timer - pauseT0)
+            escCool = Timer
+            state$ = resumeState$
+        ElseIf pauAct = 2 Then
+            ' RESTART ROND: samma väg som result-VIDARE (pendingStart via menyn)
+            pendingStart = 1
+            state$ = "menu"
+        ElseIf pauAct = 3 Then
+            Gosub QuitGame   ' AVSLUTA: enda unlock/destroy-platsen (app-exit)
+        End If
+        ' render: halvtransparent overlay över befintlig frame + titel + knappar + pil
+        _Dest display&
+        Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, 160), BF
+        Color _RGB32(255, 200, 0)
+        _PrintString ((RW - Len(strPaused$) * 8) \ 2, RH \ 2 - Int(RH * 60 / 1080)), strPaused$
+        DrawButton pB1X0, pB1Y0, pB1X1, pB1Y1, strResume$, (hoverP = 1 Or (hoverP = 0 And selIdx = 1))
+        DrawButton pB2X0, pB2Y0, pB2X1, pB2Y1, strRestartRound$, (hoverP = 2 Or (hoverP = 0 And selIdx = 2))
+        DrawButton pB3X0, pB3Y0, pB3X1, pB3Y1, strQuitPause$, (hoverP = 3 Or (hoverP = 0 And selIdx = 3))
+        If lockEngaged Then DrawCursor vCurX, vCurY Else DrawCursor mx, my
+        _Display
     Else
 
-    If k$ = Chr$(27) Or _KeyDown(27) Then End
+    ' ESC i playing -> PAUS (inte längre End; avsluta sker via pausmenyn)
+    If k$ = Chr$(27) Or _KeyDown(27) Or (selftest And testPhase = 13 And (testFlag = 6 Or testFlag = 10)) Then
+        resumeState$ = "playing"
+        pauseT0 = Timer
+        escCool = Timer
+        selIdx = 1
+        _KeyClear
+        state$ = "paused"
+    End If
     ' debug-knapp: G = -5 HP (min 0), bara i playing-läge
     If k$ = "g" Or k$ = "G" Or _KeyDown(Asc("G")) Then
         hp = hp - 5
@@ -953,7 +1068,7 @@ Do
             state$ = "result"
             LogMouse "LIVSTIDSLAS win->result (ingen unlock, virtuell pekare)"
             If lockEngaged Then vCurX = RW \ 2: vCurY = RH \ 2   ' pekare till centrum vid result-inmatning
-            score = CalcScore&   ' använder nu frysta runTimeFrozen (via CurRunTime%)
+            score = liveScore&   ' samma räknare som HUD — fryst värde vid sista kill
             newRecord = 0
             If selftest = 0 And score > bestScore Then
                 bestScore = score
@@ -966,6 +1081,12 @@ Do
         End If
     End If
 
+    ' LIVE-SCORE-RÄKNARE: EN variabel, uppdateras varje playing-frame.
+    ' Skada/skott dras direkt (via CalcScore&), tid per HEL sekund (CurRunTime%).
+    ' HUD, result och highscore läser SAMMA värde (liveScore&) — vägarna kan
+    ' inte skilja. Vid sista kill är runTimeFrozen redan satt -> fryst värde.
+    liveScore& = CalcScore&
+
     ' ======== DÖD (Fas 2.6): hp<=0 i playing -> dead; ingen resurrection efter detta ======
     If hp <= 0 Then
         hp = 0
@@ -973,7 +1094,7 @@ Do
         deathTime = Timer
         LogMouse "LIVSTIDSLAS death (ingen unlock)"
         ' Highscore: räkna score vid död; spara nytt rekord (ej i selftest = anti-cheese)
-        score = CalcScore&
+        score = liveScore&
         newRecord = 0
         If selftest = 0 And score > bestScore Then
             bestScore = score
@@ -1263,7 +1384,7 @@ Do
     Color _RGB32(255, 255, 0)
     _PrintString (0, 0), strFps$ + Str$(fpsShow) + " mmx:" + Str$(mmx) + " mmy:" + Str$(mmy) + " ang:" + Str$(Int(angle * 57.2958)) + " x:" + LTrim$(Str$(px)) + " y:" + LTrim$(Str$(py)) + " pitch:" + Str$(Int(pitch))
     ' HUD: live SCORE i övre HÖGRA hörnet (FPS-debug är övre vänstra, HP/ammo nere) — ingen kollision
-    scHud$ = strScore$ + " " + LTrim$(Str$(CalcScore&))
+    scHud$ = strScore$ + " " + LTrim$(Str$(liveScore&))   ' live-räknare — tickar ner med tiden
     Color _RGB32(255, 255, 0)
     _PrintString (RW - Len(scHud$) * 8 - 8, 4), scHud$
     ' (muslås-hint borttagen — Wayland låser vid första klicket, ingen text behövs)
@@ -1577,20 +1698,11 @@ Function ButtonHit% (px, py, x0, y0, x1, y1)
     End If
 End Function
 
-' DrawCursor: pekar-sprite på (x,y). VAL: crosshair (kors) — svart outline +
-' amber kärna RGB(255,200,0) (matchar knapp/hover-paletten), tydlig över både
-' mörk meny-bakgrund och knappar. Skalar med RW/RH.
+' DrawCursor: ritar pil-spriten från cursorBuf& (skapas i init) så att pilens
+' SPETS (topp) hamnar exakt på (x,y) — samma punkt som ButtonHit% testar.
+' Samma sprite i alla menyer; i playing är crosshair oförändrad (stridsläge).
 Sub DrawCursor (x, y)
-    l = Int(RW * 12 / 1920): If l < 6 Then l = 6
-    t = Int(RH * 3 / 1080): If t < 2 Then t = 2
-    Line (x - l - t, y - t)-(x - t, y + t), _RGB32(0, 0, 0), BF
-    Line (x + t, y - t)-(x + l + t, y + t), _RGB32(0, 0, 0), BF
-    Line (x - t, y - l - t)-(x + t, y - t), _RGB32(0, 0, 0), BF
-    Line (x - t, y + t)-(x + t, y + l + t), _RGB32(0, 0, 0), BF
-    Line (x - l, y - 1)-(x - 1, y + 1), _RGB32(255, 200, 0), BF
-    Line (x + 1, y - 1)-(x + l, y + 1), _RGB32(255, 200, 0), BF
-    Line (x - 1, y - l)-(x + 1, y - 1), _RGB32(255, 200, 0), BF
-    Line (x - 1, y + 1)-(x + 1, y + l), _RGB32(255, 200, 0), BF
+    If cursorBuf& <> 0 Then _PutImage (x - cursorSize \ 2, y), cursorBuf&   ' <>0: handtag kan vara negativa i QB64-PE
 End Sub
 
 StartRun:
@@ -2001,13 +2113,15 @@ SelftestDrive:
                         If enActive(i) Then alive12 = alive12 + 1
                     Next i
                     ' wt1 >= 1 krävs: fryst tid måste vara ett verkligt tidsvärde
-                    ' (inte ~0 från rundstart/spawn-gap) — annars blir tidsstraffet 0
-                    If runTimeFrozen = wt1 And alive12 = 0 And wt1 >= 1 Then
-                        stMsg$ = "PASS fas12a-killall-result-fryst (state=result, levande=0, runTimeFrozen=" + Str$(wt1) + " fryst vid kill, >=1s, score=" + Str$(CalcScore&) + " < 10000 => tidsstraff aktivt)"
+                    ' (inte ~0 från rundstart/spawn-gap). Dessutom: score måste vara
+                    ' liveScore& (samma variabel som HUD) och STRICKT lägre än vad
+                    ' bara skada/skott ger — bevis på att TIDSTRAFFET verkligen finns.
+                    If runTimeFrozen = wt1 And alive12 = 0 And wt1 >= 1 And score = liveScore& And liveScore& < 10000 - 10 * shotsFired - 25 * dmgTaken Then
+                        stMsg$ = "PASS fas12a-killall-result-fryst (state=result, levande=0, runTimeFrozen=" + Str$(wt1) + " fryst vid kill, score=liveScore&=" + Str$(liveScore&) + " < " + Str$(10000 - 10 * shotsFired - 25 * dmgTaken) + " (skada/skott utan tid) => tidsstraff aktivt)"
                         Gosub STLog
                         testFlag = 2: testT0 = Timer: sr0 = startRuns   ' result-grenen injicerar VIDARE-klick; spara räknare
                     Else
-                        stMsg$ = "FAIL fas12a runTimeFrozen " + Str$(wt1) + "->" + Str$(runTimeFrozen) + " levande=" + Str$(alive12) + " (wt1>=1 krävs)"
+                        stMsg$ = "FAIL fas12a runTimeFrozen " + Str$(wt1) + "->" + Str$(runTimeFrozen) + " levande=" + Str$(alive12) + " score=" + Str$(score) + " liveScore&=" + Str$(liveScore&) + " skadaSkottOnly=" + Str$(10000 - 10 * shotsFired - 25 * dmgTaken)
                         Gosub STLog
                         stMsg$ = "SELFTEST FAIL"
                         Gosub STLog
@@ -2040,10 +2154,8 @@ SelftestDrive:
                     ShutdownSound
                     End
                 End If
-                For i = 0 To 10: enActive(i) = 0: Next i   ' kill-all igen för fas12c
-                Gosub FreezeAtLastKill   ' samma freeze-punkt som riktig sista-kill
-                winPending = 0
-                testFlag = 3: testT0 = Timer
+                ' nästa: pausmeny-test (fas13) innan fas12c — kill-all görs där
+                testPhase = 13: testFlag = 6: testT0 = Timer
             ElseIf testFlag = 2 And Timer - testT0 >= 3 Then
                 stMsg$ = "FAIL fas12b state=" + state$ + " (förväntade playing efter VIDARE-klick)"
                 Gosub STLog
@@ -2076,6 +2188,113 @@ SelftestDrive:
             End If
             If testFlag = 5 And Timer - testT0 >= 3 Then
                 stMsg$ = "FAIL fas12d state=" + state$ + " (meny-branchen renderade ej inom 3s)"
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+        Case 13  ' PAUSMENY-TEST: ESC->paused, piltangenter byter markering,
+                 ' ENTER=FORTSÄTT (ingen tidsförlust via runT0-offset), ENTER=RESTART (pendingStart)
+            If testFlag = 6 And state$ = "paused" Then
+                If resumeState$ = "playing" Then
+                    stMsg$ = "PASS fas13a-esc-paus (state=paused, resumeState=playing, pausstart)"
+                    Gosub STLog
+                    testFlag = 7: testT0 = Timer: inj7 = 0
+                Else
+                    stMsg$ = "FAIL fas13a resumeState=" + resumeState$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            ElseIf testFlag = 6 And Timer - testT0 >= 2 Then
+                stMsg$ = "FAIL fas13a state=" + state$ + " (förväntade paused)"
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 7 And selIdx = 2 Then
+                stMsg$ = "PASS fas13b-ner-pil (selIdx 1->2 via nedåtpil)"
+                Gosub STLog
+                testFlag = 8: testT0 = Timer: inj8 = 0
+            ElseIf testFlag = 7 And Timer - testT0 >= 2 Then
+                stMsg$ = "FAIL fas13b selIdx=" + Str$(selIdx) + " (väntade 2)"
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 8 And selIdx = 1 Then
+                stMsg$ = "PASS fas13c-upp-pil (selIdx 2->1 via uppåtpil)"
+                Gosub STLog
+                ct0 = CurRunTime%: runT0b = runT0
+                testFlag = 9: testT0 = Timer: inj9 = 0
+            ElseIf testFlag = 8 And Timer - testT0 >= 2 Then
+                stMsg$ = "FAIL fas13c selIdx=" + Str$(selIdx) + " (väntade 1)"
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 9 And state$ = "playing" Then
+                ' FORTSÄTT: pausen får INTE äta run-tid — CurRunTime% ska vara kvar
+                ' på ct0 (±1s), och runT0 ska ha flyttats fram med pausens längd
+                If CurRunTime% - ct0 <= 1 And runT0 - runT0b >= (Timer - pauseT0) - 1 Then
+                    stMsg$ = "PASS fas13d-fortsatt-ingen-tidsforlust (CurRunTime% " + Str$(ct0) + "->" + Str$(CurRunTime%) + ", runT0 offset " + LTrim$(Str$(runT0 - runT0b)) + "s, paus " + LTrim$(Str$(Timer - pauseT0)) + "s)"
+                    Gosub STLog
+                    testFlag = 10: testT0 = Timer
+                Else
+                    stMsg$ = "FAIL fas13d tidsforlust CurRunTime% " + Str$(ct0) + "->" + Str$(CurRunTime%) + " runT0delta=" + LTrim$(Str$(runT0 - runT0b)) + " paus=" + LTrim$(Str$(Timer - pauseT0))
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            ElseIf testFlag = 9 And Timer - testT0 >= 2 Then
+                stMsg$ = "FAIL fas13d state=" + state$ + " (förväntade playing efter FORTSÄTT)"
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 10 And state$ = "paused" Then
+                testFlag = 11: testT0 = Timer: selIdx = 2: inj11 = 0   ' välj RESTART ROND, ENTER
+            ElseIf testFlag = 10 And Timer - testT0 >= 2 Then
+                stMsg$ = "FAIL fas13e-pre state=" + state$ + " (förväntade paused igen)"
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 11 And state$ = "playing" Then
+                ' RESTART ROND via pendingStart -> meny-START-vägen: startRuns +1 till
+                If startRuns = sr0 + 2 Then
+                    stMsg$ = "PASS fas13e-restart-rond-pendingstart (startRuns " + Str$(sr0) + "->" + Str$(startRuns) + ", state=playing)"
+                    Gosub STLog
+                    ' vidare till fas12c: kill-all igen -> result -> HUVUDMENY
+                    For i = 0 To 10: enActive(i) = 0: Next i
+                    Gosub FreezeAtLastKill
+                    winPending = 0
+                    testPhase = 12: testFlag = 3: testT0 = Timer
+                Else
+                    stMsg$ = "FAIL fas13e startRuns=" + Str$(startRuns) + " (väntade " + Str$(sr0 + 2) + ")"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            ElseIf testFlag = 11 And Timer - testT0 >= 5 Then
+                stMsg$ = "FAIL fas13e state=" + state$ + " (förväntade playing efter RESTART)"
                 Gosub STLog
                 stMsg$ = "SELFTEST FAIL"
                 Gosub STLog
