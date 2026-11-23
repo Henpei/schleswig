@@ -89,6 +89,24 @@ Const pitchSens = 2
 ' Placering: git-tagg (v0.1.0) + denna rad + titelskärm-hörn + _Title.
 Const ver$ = "v0.1.0"
 
+' ===== SPELTEXT (centraliserad enligt GPLv3-PREP 2026-11-23) =================
+' All användarvisad text samlas här. Svenska nu -- vid release 1.0+ översätts
+' denna sektion till engelska (och LICENSE/README läggs till). Selftestets
+' loggsträngar (stMsg$) är diagnostik och ligger kvar vid selftest-koden.
+Const strAppName$ = "Schleswig"                    ' fönstertitel (_Title)
+Const strTitle$ = "SCHLESWIG"                      ' stor titel på titelskärmen
+Const strStartBtn$ = "START GAME"                  ' menyknapp
+Const strOrSpace$ = "(eller SPACE)"               ' rad under menyknappen
+Const strDead$ = "DU DÖ"                           ' dödsskärm, stor text
+Const strRestart$ = "Tryck R för att starta om"    ' dödsskärm, rad 2
+Const strHudHp$ = "HP:"                            ' HUD-etikett
+Const strHudAmmo$ = "AMMO:"                        ' HUD-etikett
+Const strFps$ = "FPS:"                             ' debug-rad + fönstertitel
+Const strDmgDebug$ = "-5 HP"                       ' debug-knapp G
+Const strMedkit$ = "+25 HP"                        ' medkit-pickup
+Const strAmmoPick$ = "+10 AMMO"                    ' ammo-pickup
+' ============================================================================
+
 ceilingCol& = _RGB32(24, 24, 48)
 floorCol& = _RGB32(70, 45, 25)
 
@@ -196,13 +214,13 @@ Do
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
         Line (RW \ 2 - 860, RH \ 2 - 190)-(RW \ 2 + 859, RH \ 2 + 189), _RGB32(255, 200, 0), B
         Color _RGB32(255, 200, 0)
-        ttx = (RW - Len("SCHLESWIG") * 8) \ 2
+        ttx = (RW - Len(strTitle$) * 8) \ 2
         tty = RH \ 2 - 40
         Color _RGB32(120, 60, 0)
-        _PrintString (ttx + 3, tty + 3), "SCHLESWIG"
-        _PrintString (ttx - 2, tty), "SCHLESWIG"
+        _PrintString (ttx + 3, tty + 3), strTitle$
+        _PrintString (ttx - 2, tty), strTitle$
         Color _RGB32(255, 200, 0)
-        _PrintString (ttx, tty), "SCHLESWIG"
+        _PrintString (ttx, tty), strTitle$
         ' START GAME-knapp: centrerad rektangel, hover = highlight
         If hover = 1 Then
             btnFill& = _RGB32(255, 200, 0)
@@ -213,14 +231,14 @@ Do
         End If
         Line (btnX0, btnY0)-(btnX1, btnY1), btnFill&, BF
         Line (btnX0, btnY0)-(btnX1, btnY1), _RGB32(255, 255, 255), B
-        tx = btnX0 + (btnW - Len("START GAME") * 8) \ 2
+        tx = btnX0 + (btnW - Len(strStartBtn$) * 8) \ 2
         ty = btnY0 + (btnH - 16) \ 2
         Color _RGB32(0, 0, 0)
-        _PrintString (tx + 2, ty + 2), "START GAME"   ' skugga -> fet stil
+        _PrintString (tx + 2, ty + 2), strStartBtn$   ' skugga -> fet stil
         Color btnText&
-        _PrintString (tx, ty), "START GAME"
+        _PrintString (tx, ty), strStartBtn$
         Color _RGB32(150, 150, 150)
-        _PrintString ((RW - Len("(eller SPACE)") * 8) \ 2, btnY1 + 16), "(eller SPACE)"
+        _PrintString ((RW - Len(strOrSpace$) * 8) \ 2, btnY1 + 16), strOrSpace$
         ' versionshörn nere till höger på titelskärmen
         Color _RGB32(110, 110, 140)
         _PrintString (RW - Len(ver$) * 8 - 16, RH - 24), ver$
@@ -268,15 +286,15 @@ Do
         If da > 1 Then da = 1
         Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, Int(da * 255)), BF
         If da >= 1 Then
-            dtx = (RW - Len("DU DÖ") * 8) \ 2
+            dtx = (RW - Len(strDead$) * 8) \ 2
             dty = RH \ 2 - 40
             Color _RGB32(120, 0, 0)
-            _PrintString (dtx + 3, dty + 3), "DU DÖ"
-            _PrintString (dtx - 2, dty), "DU DÖ"
+            _PrintString (dtx + 3, dty + 3), strDead$
+            _PrintString (dtx - 2, dty), strDead$
             Color _RGB32(220, 0, 0)
-            _PrintString (dtx, dty), "DU DÖ"
+            _PrintString (dtx, dty), strDead$
             Color _RGB32(200, 200, 200)
-            _PrintString ((RW - Len("Tryck R för att starta om") * 8) \ 2, RH \ 2 + 40), "Tryck R för att starta om"
+            _PrintString ((RW - Len(strRestart$) * 8) \ 2, RH \ 2 + 40), strRestart$
         End If
         _Display
     Else
@@ -286,7 +304,7 @@ Do
     If k$ = "g" Or k$ = "G" Or _KeyDown(Asc("G")) Then
         hp = hp - 5
         If hp < 0 Then hp = 0
-        hpMsg$ = "-5 HP"
+        hpMsg$ = strDmgDebug$
         hpMsgTime = Timer
         lastDamageTime = Timer   ' G räknas som skada: resetta regen-grace
     End If
@@ -355,7 +373,7 @@ Do
                 pkActive(i) = 0
                 hp = hp + 25
                 If hp > 100 Then hp = 100
-                hpMsg$ = "+25 HP"
+                hpMsg$ = strMedkit$
                 hpMsgTime = Timer
             End If
         End If
@@ -367,7 +385,7 @@ Do
             If Sqr((amX(i) - px) ^ 2 + (amY(i) - py) ^ 2) < 0.5 Then
                 amActive(i) = 0
                 ammo = ammo + 10
-                hpMsg$ = "+10 AMMO"
+                hpMsg$ = strAmmoPick$
                 hpMsgTime = Timer
             End If
         End If
@@ -787,7 +805,7 @@ Do
     Line (cx - ct, cy - ca - cg)-(cx + ct, cy - cg), _RGB32(255, 255, 255), BF
     Line (cx - ct, cy + cg)-(cx + ct, cy + ca + cg), _RGB32(255, 255, 255), BF
     Color _RGB32(255, 255, 0)
-    _PrintString (0, 0), "FPS:" + Str$(fpsShow) + " mmx:" + Str$(mmx) + " mmy:" + Str$(mmy) + " ang:" + Str$(Int(angle * 57.2958)) + " x:" + LTrim$(Str$(px)) + " y:" + LTrim$(Str$(py)) + " pitch:" + Str$(Int(pitch))
+    _PrintString (0, 0), strFps$ + Str$(fpsShow) + " mmx:" + Str$(mmx) + " mmy:" + Str$(mmy) + " ang:" + Str$(Int(angle * 57.2958)) + " x:" + LTrim$(Str$(px)) + " y:" + LTrim$(Str$(py)) + " pitch:" + Str$(Int(pitch))
 
     ' HP-ruta nertill vänster: bar-längd + siffra (tydligt även utan färgseende)
     ' HUD-koordinaterna är RELATIVA RW/RH (hudY = RH-28 osv; vid 1920x1080 samma värden som tidigare)
@@ -805,14 +823,14 @@ Do
     End If
     If hp > 0 Then Line (hpX0 + 2, hudY + 2)-(hpX0 + 2 + Int(hp * (hpW - 8) / 100), hudY + 18), barCol&, BF
     Color _RGB32(255, 255, 255)
-    _PrintString (hpX1 + 8, hudY + 4), "HP:" + Str$(Int(hp))
+    _PrintString (hpX1 + 8, hudY + 4), strHudHp$ + Str$(Int(hp))
     ' ammo-ruta relativt HP-boxens bredd/högerkant (gul kant = ammo-pickups)
     amX0 = hpX1 + Int(RW * 104 / 1920): amW = Int(RW * 100 / 1920): amX1 = amX0 + amW
     Line (amX0, hudY)-(amX1, hudY + 20), _RGB32(40, 40, 40), BF
     Line (amX0, hudY)-(amX1, hudY + 20), _RGB32(230, 200, 0), B
     Line (amX0 + 1, hudY + 1)-(amX1 - 1, hudY + 19), _RGB32(230, 200, 0), B
     Color _RGB32(230, 200, 0)
-    _PrintString (amX1 + 8, hudY + 4), "AMMO:" + Str$(ammo)
+    _PrintString (amX1 + 8, hudY + 4), strHudAmmo$ + Str$(ammo)
     If Timer - hpMsgTime < 2 Then
         Color _RGB32(0, 255, 0)
         _PrintString (amX1 + Int(RW * 140 / 1920), hudY + 4), hpMsg$
@@ -845,7 +863,7 @@ Do
     End If
     If curTime - lastTime >= 1 Then
         fpsShow = Int(frames / (curTime - lastTime))
-        _Title "Schleswig " + ver$ + " - FPS: " + LTrim$(Str$(fpsShow))
+        _Title strAppName$ + " " + ver$ + " - " + strFps$ + LTrim$(Str$(fpsShow))
         frames = 0
         lastTime = curTime
     End If
