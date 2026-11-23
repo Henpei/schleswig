@@ -76,3 +76,21 @@ weapons rendering).
 - Virtual cursor + arrow sprite (commit aa26eee):
   vCurX/vCurY, MoveVirtualCursor, ButtonHit%,
   DrawCursor, cursorBuf&.
+
+## Map format (.map) — Fas 5A
+Load a map: `./schleswig/schleswig path/to/map.map` (no arg = embedded default
+16x16; `selftest` = selftest). Rows = map rows, one char per cell.
+CASE-SENSITIVE parse — TRAP: 'S' = player start, 's' = silver KEY; uppercase =
+enemies, lowercase = keys:
+  '#' wall    '.' floor    ' ' out-of-bounds (wall in BFS/render)
+  'S' player start
+  'F' FOOT  'O' OFFICER  'U' MUSKETEER  'K' CAPTAIN  'G' GENERAL (enemy spawns)
+  'M' medkit   'A' ammo pickup
+  'd' wood door (E always opens)   '1' bronze  '2' silver  '3' gold door (E + key)
+  'b' bronze key   's' silver key   'g' gold key
+Row length = width, row count = height. Historical maps: at least 64x64
+(shipped test map: schleswig/maps/test64.map; MAP_MAX=128 in code).
+Malformed map (ragged rows / invalid char) -> embedded default grid + log, no crash.
+Map-declared enemies spawn as typed every wave; remaining slots are filled by
+the register mix (etMinWave gating). Opened doors stay open for the round;
+closed doors are walls for BFS/movement/render-hit.

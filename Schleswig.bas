@@ -70,6 +70,7 @@ DIM gunX, gunY, recoil, muzzleT, shakeT, bobPhase, turnDelta, anglePrev
 DIM gunSway, gunTX, gunTY, movedCells   ' Fas 4C working vars (selftest reads gunSway/gunX)
 DIM gunBW, gunBH, gunBuf&, gunBaseX, gunRendered   ' sprite buffer + rest pos + selftest counter
 DIM inj16r, gr16a, gr16b, gunX0, minGunX, mf16n, ej16, c16done   ' Fas 4C selftest working vars
+DIM inj17a, inj17b, inj17c, f17, ej17, k17, c17, el17, per17, d17   ' Fas 5A selftest working vars
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
@@ -141,25 +142,45 @@ fading = 0: fadeT0 = 0   ' fading: 0=nej, 2=fade-in i playing
 deathTime = 0            ' Fas 2.6: när state$ = "dead"
 dummy = _MouseMovementX
 
-Dim mapRow$(15)
+' Fas 5A: .map-format — dynamic map grid (no hardcoded 16x16). MAP_MAX bounds all
+' map arrays (64x64 historical maps + margin). mapRow$ = parsed grid (spawn chars
+' converted to '.', door chars 'd'/'1'/'2'/'3' kept for render color); doorOpen%
+' marks opened doors (Solid% treats closed doors as walls). Raw lines live in
+' mapSrc$; defMap$ keeps the embedded default for fallback.
+Const MAP_MAX = 128
+DIM SHARED mapRow$(MAP_MAX - 1)
+DIM SHARED mapW, mapH
+DIM SHARED doorOpen%(MAP_MAX - 1, MAP_MAX - 1)
+DIM mapSrc$(MAP_MAX - 1), defMap$(15)
+DIM spEnT(10), spEnX(10), spEnY(10), spEnN     ' Fas 5A: enemy spawns from map (F/O/U/K/G)
+DIM spPkX(10), spPkY(10), spPkN                 ' medkits (M)
+DIM spAmX(10), spAmY(10), spAmN                 ' ammo (A)
+DIM spKeyT(10), spKeyX(10), spKeyY(10), spKeyN  ' keys: 1=bronze 2=silver 3=gold (b/s/g)
+DIM keyX(10), keyY(10), keyType(10), keyActive(10)
+DIM hasBronze, hasSilver, hasGold               ' Fas 5A: owned keys
+DIM plStartX, plStartY                          ' player start cell ('S')
+DIM mapFile$, loadedMapFile$, lmPath$, lmOK, pmOK, srcN
+srcN = 16
 For i = 0 To 15
-    Read mapRow$(i)
+    Read mapSrc$(i)
+    defMap$(i) = mapSrc$(i)
 Next i
+' Default map (16x16) — S/M/A are spawn metadata, parsed to '.' by ParseMap.
 Data "################"
-Data "#..............#"
+Data "#M.....M......M#"
 Data "#..##......##..#"
 Data "#..##......##..#"
-Data "#..............#"
+Data "#..A...S....A..#"
 Data "#.....####.....#"
 Data "#.....#..#.....#"
-Data "#.....#..#.....#"
+Data "#....M#..#.....#"
 Data "#..#..####..#..#"
-Data "#..#........#..#"
+Data "#..#..A....#...#"
 Data "#..#.####.#.#..#"
 Data "#....#..#...#..#"
 Data "#..............#"
 Data "#......##......#"
-Data "#..............#"
+Data "#.....M........#"
 Data "################"
 
 Dim pal&(255)
@@ -169,8 +190,7 @@ Next i
 
 ' RW/RH satta ovan från fönstrets dimension (var tidigare Const 960/540)
 
-px = 8.5
-py = 4.5
+' px/py sätts EFTER kartladdningen (plStart från kartans 'S') — se LoadMapAuto nedan
 angle = 0
 pitch = 0
 state$ = "menu"
@@ -183,7 +203,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "be22cc0"
+Const strBuild$ = "8877a8b"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -200,6 +220,14 @@ Const strDead$ = "YOU DIED"                        ' death screen, big text
 Const strRestart$ = "Press R to restart"           ' death screen, line 2
 Const strHudHp$ = "HP:"                            ' HUD label
 Const strHudAmmo$ = "AMMO:"                        ' HUD label
+Const strKeys$ = "KEYS:"                           ' Fas 5A: HUD keys row (owned keys only)
+Const strNeedBronze$ = "NEED BRONZE KEY"           ' Fas 5A: locked door, missing key (2 s HUD msg)
+Const strNeedSilver$ = "NEED SILVER KEY"
+Const strNeedGold$ = "NEED GOLD KEY"
+Const strDoorOpen$ = "DOOR OPEN"                   ' Fas 5A: door opened with E
+Const strGotBronze$ = "GOT BRONZE KEY"             ' Fas 5A: key pickups
+Const strGotSilver$ = "GOT SILVER KEY"
+Const strGotGold$ = "GOT GOLD KEY"
 Const strFps$ = "FPS:"                             ' debug line + window title
 Const strDmgDebug$ = "-5 HP"                       ' debug key G
 Const strMedkit$ = "+25 HP"                        ' medkit pickup
@@ -234,11 +262,8 @@ DIM pkX(10), pkY(10), pkActive(10)
 hp = 100
 hpMsg$ = ""
 hpMsgTime = 0
-pkX(0) = 1.5: pkY(0) = 1.5: pkActive(0) = 1
-pkX(1) = 7.5: pkY(1) = 1.5: pkActive(1) = 1
-pkX(2) = 14.5: pkY(2) = 1.5: pkActive(2) = 1
-pkX(3) = 5.5: pkY(3) = 7.5: pkActive(3) = 1
-pkX(4) = 6.5: pkY(4) = 14.5: pkActive(4) = 1
+' Fas 5A: pickup-positioner sätts av ApplyMapSpawns från kartans M/A-tecken
+' (defaultkartan har samma celler som tidigare hårdkodade värden).
 
 ' Fas 2: ammo + skjutning (ingen HP-regen; samma array-pool-mönster som medkit)
 Const maxAmmo = 20         ' ammo-cap — samma konstant används av HUD-streckantalet
@@ -248,16 +273,13 @@ lastShotTime = -1        ' cooldown 0.3 s mellan skott
 tracerTime = -1          ' tracer-flash synlig 2-3 frames
 flashTime = -1           ' träff-flash
 flashDist = 99
-amX(0) = 3.5: amY(0) = 4.5: amActive(0) = 1
-amX(1) = 12.5: amY(1) = 4.5: amActive(1) = 1
-amX(2) = 6.5: amY(2) = 9.5: amActive(2) = 1
 
 ' Fas 3/3.1: fiende-pool (samma array-pool-mönster som pickups): pos, aktiv flagga,
 ' hp (3 träffar), skada, hastighet + AI-tillstånd. Startlägen i SpawnEnemies.
 ' enState: 0=PATROLL, 1=JAKT, 2=ANFALL. bfsD = BFS-avståndskarta (flödesfält).
 DIM enX(10), enY(10), enActive(10), enHP(10), enDmg(10), enSpd(10), enLastHit(10)
 DIM enState(10), enSeen(10), enTx(10), enTy(10), enPatrolT(10), enLastSeen(10)
-DIM enLx(10), enLy(10), enCalmT(10), bfsD(15, 15), qx(255), qy(255)
+DIM enLx(10), enLy(10), enCalmT(10), bfsD(MAP_MAX - 1, MAP_MAX - 1), qx(MAP_MAX * MAP_MAX - 1), qy(MAP_MAX * MAP_MAX - 1)
 ' Fas 4A: data-driven enemy-type register ("the Danish regiment"). Per type:
 ' HP, melee dmg, speed, zigzag amplitude (cells), dodge chance, shoot ability
 ' (0 = melee only; ranged weapons arrive in 4B), hold distance (0 = none),
@@ -339,6 +361,11 @@ DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
 selftest = 0
 cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, bara LTrim$/RTrim$
 If cmdArg$ = "selftest" Then selftest = 1
+' Fas 5A: 'schleswig mapfile.map' loads that map; no arg -> embedded default map
+mapFile$ = MapFileFromCmd$(cmdArg$)
+Gosub LoadMapAuto
+Gosub ApplyMapSpawns
+px = plStartX + 0.5: py = plStartY + 0.5   ' Fas 5A: player start from map ('S')
 If selftest Then Randomize 987654: dodgeSeed& = 987654: aiSeed& = 13579   ' Fas 4A/4B: seeded RNG in selftest -> deterministic zigzag/dodge/spread tests
 testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFlag = 0
 Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
@@ -366,7 +393,7 @@ If selftest Then
     Gosub SpawnEnemies
     ' Fas 3.1-scenario: EN fiende i PATROLL utan LOS till spelaren (10.5,6.5)->(8.5,4.5)
     For i = 1 To 10: enActive(i) = 0: Next i
-    px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 5
+    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: hp = 100: ammo = 5   ' Fas 5A: start from map 'S'
     enX(0) = 10.5: enY(0) = 6.5: enActive(0) = 1
     enHP(0) = 3: enDmg(0) = 10: enSpd(0) = 2
     enState(0) = 0: enLastHit(0) = 0: enLastSeen(0) = 0: enCalmT(0) = 0
@@ -408,6 +435,10 @@ Do
     ' selftest fas12d: meny-nav via tangent — ner-pil (navStep 0->1), upp-pil (2->3)
     If selftest And testPhase = 12 And testFlag = 5 And navStep = 0 Then k$ = Chr$(0) + "P": navStep = 1
     If selftest And testPhase = 12 And testFlag = 5 And navStep = 2 Then k$ = Chr$(0) + "H": navStep = 3
+    ' Fas 5A fas17: inject E (KeyUse) presses for the door tests
+    If selftest And testPhase = 17 And testFlag = 2 And inj17a = 0 Then k$ = "e": inj17a = 1
+    If selftest And testPhase = 17 And testFlag = 4 And inj17b = 0 Then k$ = "e": inj17b = 1
+    If selftest And testPhase = 17 And testFlag = 5 And inj17c = 0 Then k$ = "e": inj17c = 1
 
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
     If selftest And (state$ = "menu" Or state$ = "result" Or state$ = "paused") Then Gosub SelftestDrive   ' fas12/13 kör även utanför playing
@@ -584,7 +615,7 @@ Do
             ' fas 9: spawn-audit pa AKTA startlage (SpawnEnemies) innan vi avslutar
             state$ = "playing"
             hp = 100: ammo = 5
-            px = 8.5: py = 4.5: angle = 0: pitch = 0
+            px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0   ' Fas 5A: start from map 'S'
             Gosub SpawnEnemies
             testPhase = 9: testT0 = Timer: testFlag = 0
         End If
@@ -593,11 +624,8 @@ Do
         If k$ = "r" Or k$ = "R" Or k$ = " " Or _KeyDown(Asc("R")) Or _KeyDown(32) Then
             ' reset ALLT -> tillbaka till menyn
             hp = 100: ammo = 5
-            px = 8.5: py = 4.5: angle = 0: pitch = 0
-            For i = 0 To 10
-                If i <= 4 Then pkActive(i) = 1 Else pkActive(i) = 0
-                If i <= 2 Then amActive(i) = 1 Else amActive(i) = 0
-            Next i
+            px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0   ' Fas 5A: start from map 'S'
+            Gosub ApplyMapSpawns   ' Fas 5A: pickups/keys/doors from map, doors closed
             Gosub SpawnEnemies   ' Fas 3: fiender respawnas också vid full reset
             hpMsg$ = "": hpMsgTime = 0
             lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
@@ -770,6 +798,45 @@ Do
         _KeyClear
         state$ = "paused"
     End If
+    ' Fas 5A: doors — E (KeyUse) while standing next to a door cell tries to open it.
+    ' 'd' always opens; '1'/'2'/'3' need bronze/silver/gold key (else 2 s HUD msg).
+    ' Opened doors stay open for the rest of the round (V1, no re-close).
+    If state$ = "playing" And KeyUseHit%(k$) Then
+        doorPX = Int(px): doorPY = Int(py)
+        For doorI = 0 To 3
+            If doorI = 0 Then doorCX = doorPX + 1: doorCY = doorPY
+            If doorI = 1 Then doorCX = doorPX - 1: doorCY = doorPY
+            If doorI = 2 Then doorCX = doorPX: doorCY = doorPY + 1
+            If doorI = 3 Then doorCX = doorPX: doorCY = doorPY - 1
+            doorCh$ = CellAt$(doorCX, doorCY)
+            If doorCh$ = "d" Or doorCh$ = "1" Or doorCh$ = "2" Or doorCh$ = "3" Then
+                If doorOpen%(doorCX, doorCY) = 0 Then
+                    If doorCh$ = "d" Then
+                        doorOpen%(doorCX, doorCY) = 1
+                        hpMsg$ = strDoorOpen$: hpMsgTime = Timer
+                        PlaySound SND_HIT
+                    Else
+                        doorNeed = 0
+                        If doorCh$ = "1" And hasBronze = 0 Then doorNeed = 1
+                        If doorCh$ = "2" And hasSilver = 0 Then doorNeed = 1
+                        If doorCh$ = "3" And hasGold = 0 Then doorNeed = 1
+                        If doorNeed Then
+                            If doorCh$ = "1" Then hpMsg$ = strNeedBronze$
+                            If doorCh$ = "2" Then hpMsg$ = strNeedSilver$
+                            If doorCh$ = "3" Then hpMsg$ = strNeedGold$
+                            hpMsgTime = Timer
+                            PlaySoundVol SND_HIT, 0.3
+                        Else
+                            doorOpen%(doorCX, doorCY) = 1
+                            hpMsg$ = strDoorOpen$: hpMsgTime = Timer
+                            PlaySound SND_HIT
+                        End If
+                    End If
+                End If
+                doorI = 99   ' one door per keypress
+            End If
+        Next doorI
+    End If
     ' debug-knapp: G = -5 HP (min 0), bara i playing-läge
     If k$ = "g" Or k$ = "G" Or _KeyDown(Asc("G")) Then
         hp = hp - 5
@@ -801,26 +868,26 @@ Do
     If mvF Then
         nx = px + dirX * moveStep * speed
         ny = py + dirY * moveStep * speed
-        If Mid$(mapRow$(Int(py)), Int(nx + Sgn(nx - px) * 0.2) + 1, 1) <> "#" Then px = nx
-        If Mid$(mapRow$(Int(ny + Sgn(ny - py) * 0.2)), Int(px) + 1, 1) <> "#" Then py = ny
+        If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
+        If OpenCell%(Int(ny + Sgn(ny - py) * 0.2), Int(px)) Then py = ny
     End If
     If mvB Then
         nx = px - dirX * moveStep * speed
         ny = py - dirY * moveStep * speed
-        If Mid$(mapRow$(Int(py)), Int(nx + Sgn(nx - px) * 0.2) + 1, 1) <> "#" Then px = nx
-        If Mid$(mapRow$(Int(ny + Sgn(ny - py) * 0.2)), Int(px) + 1, 1) <> "#" Then py = ny
+        If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
+        If OpenCell%(Int(ny + Sgn(ny - py) * 0.2), Int(px)) Then py = ny
     End If
     If mvL Then
         nx = px + dirY * moveStep * 0.6 * speed
         ny = py - dirX * moveStep * 0.6 * speed
-        If Mid$(mapRow$(Int(py)), Int(nx + Sgn(nx - px) * 0.2) + 1, 1) <> "#" Then px = nx
-        If Mid$(mapRow$(Int(ny + Sgn(ny - py) * 0.2)), Int(px) + 1, 1) <> "#" Then py = ny
+        If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
+        If OpenCell%(Int(ny + Sgn(ny - py) * 0.2), Int(px)) Then py = ny
     End If
     If mvR Then
         nx = px - dirY * moveStep * 0.6 * speed
         ny = py + dirX * moveStep * 0.6 * speed
-        If Mid$(mapRow$(Int(py)), Int(nx + Sgn(nx - px) * 0.2) + 1, 1) <> "#" Then px = nx
-        If Mid$(mapRow$(Int(ny + Sgn(ny - py) * 0.2)), Int(px) + 1, 1) <> "#" Then py = ny
+        If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
+        If OpenCell%(Int(ny + Sgn(ny - py) * 0.2), Int(px)) Then py = ny
     End If
 
     ' Fas 4B: player velocity (cells/s) — used by the general's mortar lead
@@ -902,6 +969,20 @@ Do
         End If
     Next i
 
+    ' Fas 5A: key pickups (b/s/g in map) — same pickup radius as medkits
+    For i = 0 To 10
+        If keyActive(i) Then
+            If Sqr((keyX(i) - px) ^ 2 + (keyY(i) - py) ^ 2) < 0.5 Then
+                keyActive(i) = 0
+                If keyType(i) = 1 Then hasBronze = 1: hpMsg$ = strGotBronze$
+                If keyType(i) = 2 Then hasSilver = 1: hpMsg$ = strGotSilver$
+                If keyType(i) = 3 Then hasGold = 1: hpMsg$ = strGotGold$
+                hpMsgTime = Timer
+                PlaySound SND_PICKUP
+            End If
+        End If
+    Next i
+
     ' ======== FIENDER (Fas 3.1): tillstånd PATROLL(0)/JAKT(1)/ANFALL(2) + LOS + BFS-fält ========
     ' pass 1: LOS (DDA fiende->spelare) + siktbokföring + tillståndsväxling
     anySee = 0
@@ -966,8 +1047,8 @@ Do
                             If dr = 1 Then cx2 = Int(enX(i)) - 1: cy2 = Int(enY(i))
                             If dr = 2 Then cx2 = Int(enX(i)): cy2 = Int(enY(i)) + 1
                             If dr = 3 Then cx2 = Int(enX(i)): cy2 = Int(enY(i)) - 1
-                            If cx2 >= 0 And cx2 <= 15 And cy2 >= 0 And cy2 <= 15 Then
-                                If Mid$(mapRow$(cy2), cx2 + 1, 1) <> "#" Then
+                            If cx2 >= 0 And cx2 <= mapW - 1 And cy2 >= 0 And cy2 <= mapH - 1 Then
+                                If OpenCell%(cx2, cy2) Then
                                     enTx(i) = cx2: enTy(i) = cy2
                                     tr = 99
                                 End If
@@ -980,8 +1061,8 @@ Do
                     If gdist > 0.05 Then
                         nex = enX(i) + gdx / gdist * 0.2 * dt
                         ney = enY(i) + gdy / gdist * 0.2 * dt
-                        If Mid$(mapRow$(Int(enY(i))), Int(nex + Sgn(nex - enX(i)) * 0.2) + 1, 1) <> "#" Then enX(i) = nex
-                        If Mid$(mapRow$(Int(ney + Sgn(ney - enY(i)) * 0.2)), Int(enX(i)) + 1, 1) <> "#" Then enY(i) = ney
+                        If OpenCell%(Int(nex + Sgn(nex - enX(i)) * 0.2), Int(enY(i))) Then enX(i) = nex
+                        If OpenCell%(Int(enX(i)), Int(ney + Sgn(ney - enY(i)) * 0.2)) Then enY(i) = ney
                     End If
                 Case 1   ' JAKT: följ BFS-fältet nedströms (4-riktning, inga diagonaler)
                     bcx = Int(enX(i)): bcy = Int(enY(i))
@@ -1007,26 +1088,26 @@ Do
                             zx = Int(px) + Sgn(ux * zamp * zs) * Int(Abs(ux * zamp * zs) + 0.5)
                             zy = Int(py) + Sgn(uy * zamp * zs) * Int(Abs(uy * zamp * zs) + 0.5)
                         End If
-                        If zx < 0 Then zx = 0: If zx > 15 Then zx = 15
-                        If zy < 0 Then zy = 0: If zy > 15 Then zy = 15
-                        If Mid$(mapRow$(zy), zx + 1, 1) = "#" Then zx = Int(px): zy = Int(py)   ' wall -> no offset
+                        If zx < 0 Then zx = 0: If zx > mapW - 1 Then zx = mapW - 1
+                        If zy < 0 Then zy = 0: If zy > mapH - 1 Then zy = mapH - 1
+                        If Solid%(zx, zy) Then zx = Int(px): zy = Int(py)   ' wall/closed door -> no offset
                         enZigX(i) = zx: enZigY(i) = zy
                     End If
                     If zamp = 0 And zhold = 0 Then enZigX(i) = Int(px): enZigY(i) = Int(py)   ' captain: straight BFS
-                    If bfsForX >= 0 And bcx >= 0 And bcx <= 15 And bcy >= 0 And bcy <= 15 And bfsD(bcx, bcy) > 0 Then
+                    If bfsForX >= 0 And bcx >= 0 And bcx <= mapW - 1 And bcy >= 0 And bcy <= mapH - 1 And bfsD(bcx, bcy) > 0 Then
                         ' Fas 4A: strict BFS descent (lowest bfsD among open neighbors),
                         ' but among equally-good neighbors pick the one closest to this
                         ' enemy's personal zigzag target cell -> visible weaving
                         minb = bfsD(bcx, bcy)
-                        If bcx + 1 <= 15 Then If Mid$(mapRow$(bcy), bcx + 2, 1) <> "#" Then If bfsD(bcx + 1, bcy) >= 0 And bfsD(bcx + 1, bcy) < minb Then minb = bfsD(bcx + 1, bcy)
-                        If bcx - 1 >= 0 Then If Mid$(mapRow$(bcy), bcx, 1) <> "#" Then If bfsD(bcx - 1, bcy) >= 0 And bfsD(bcx - 1, bcy) < minb Then minb = bfsD(bcx - 1, bcy)
-                        If bcy + 1 <= 15 Then If Mid$(mapRow$(bcy + 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy + 1) >= 0 And bfsD(bcx, bcy + 1) < minb Then minb = bfsD(bcx, bcy + 1)
-                        If bcy - 1 >= 0 Then If Mid$(mapRow$(bcy - 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy - 1) >= 0 And bfsD(bcx, bcy - 1) < minb Then minb = bfsD(bcx, bcy - 1)
+                        If bcx + 1 <= mapW - 1 Then If OpenCell%(bcx + 1, bcy) Then If bfsD(bcx + 1, bcy) >= 0 And bfsD(bcx + 1, bcy) < minb Then minb = bfsD(bcx + 1, bcy)
+                        If bcx - 1 >= 0 Then If OpenCell%(bcx - 1, bcy) Then If bfsD(bcx - 1, bcy) >= 0 And bfsD(bcx - 1, bcy) < minb Then minb = bfsD(bcx - 1, bcy)
+                        If bcy + 1 <= mapH - 1 Then If OpenCell%(bcx, bcy + 1) Then If bfsD(bcx, bcy + 1) >= 0 And bfsD(bcx, bcy + 1) < minb Then minb = bfsD(bcx, bcy + 1)
+                        If bcy - 1 >= 0 Then If OpenCell%(bcx, bcy - 1) Then If bfsD(bcx, bcy - 1) >= 0 And bfsD(bcx, bcy - 1) < minb Then minb = bfsD(bcx, bcy - 1)
                         bnx = -1: bny = -1: bestz = 1E+30
-                        If bcx + 1 <= 15 Then If Mid$(mapRow$(bcy), bcx + 2, 1) <> "#" Then If bfsD(bcx + 1, bcy) = minb Then zd = (bcx + 1 - enZigX(i)) ^ 2 + (bcy - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx + 1: bny = bcy
-                        If bcx - 1 >= 0 Then If Mid$(mapRow$(bcy), bcx, 1) <> "#" Then If bfsD(bcx - 1, bcy) = minb Then zd = (bcx - 1 - enZigX(i)) ^ 2 + (bcy - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx - 1: bny = bcy
-                        If bcy + 1 <= 15 Then If Mid$(mapRow$(bcy + 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy + 1) = minb Then zd = (bcx - enZigX(i)) ^ 2 + (bcy + 1 - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx: bny = bcy + 1
-                        If bcy - 1 >= 0 Then If Mid$(mapRow$(bcy - 1), bcx + 1, 1) <> "#" Then If bfsD(bcx, bcy - 1) = minb Then zd = (bcx - enZigX(i)) ^ 2 + (bcy - 1 - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx: bny = bcy - 1
+                        If bcx + 1 <= mapW - 1 Then If OpenCell%(bcx + 1, bcy) Then If bfsD(bcx + 1, bcy) = minb Then zd = (bcx + 1 - enZigX(i)) ^ 2 + (bcy - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx + 1: bny = bcy
+                        If bcx - 1 >= 0 Then If OpenCell%(bcx - 1, bcy) Then If bfsD(bcx - 1, bcy) = minb Then zd = (bcx - 1 - enZigX(i)) ^ 2 + (bcy - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx - 1: bny = bcy
+                        If bcy + 1 <= mapH - 1 Then If OpenCell%(bcx, bcy + 1) Then If bfsD(bcx, bcy + 1) = minb Then zd = (bcx - enZigX(i)) ^ 2 + (bcy + 1 - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx: bny = bcy + 1
+                        If bcy - 1 >= 0 Then If OpenCell%(bcx, bcy - 1) Then If bfsD(bcx, bcy - 1) = minb Then zd = (bcx - enZigX(i)) ^ 2 + (bcy - 1 - enZigY(i)) ^ 2: If zd < bestz Then bestz = zd: bnx = bcx: bny = bcy - 1
                         If bnx >= 0 Then
                             gdx = bnx + 0.5 - enX(i)
                             gdy = bny + 0.5 - enY(i)
@@ -1035,8 +1116,8 @@ Do
                                 nex = enX(i) + gdx / gdist * enSpd(i) * dt
                                 ney = enY(i) + gdy / gdist * enSpd(i) * dt
                                 ' väggkollision behålls även i JAKT (samma 0.2-marginal)
-                                If Mid$(mapRow$(Int(enY(i))), Int(nex + Sgn(nex - enX(i)) * 0.2) + 1, 1) <> "#" Then enX(i) = nex
-                                If Mid$(mapRow$(Int(ney + Sgn(ney - enY(i)) * 0.2)), Int(enX(i)) + 1, 1) <> "#" Then enY(i) = ney
+                                If OpenCell%(Int(nex + Sgn(nex - enX(i)) * 0.2), Int(enY(i))) Then enX(i) = nex
+                                If OpenCell%(Int(enX(i)), Int(ney + Sgn(ney - enY(i)) * 0.2)) Then enY(i) = ney
                             End If
                         End If
                     Else
@@ -1047,8 +1128,8 @@ Do
                         If gdist > 0.02 Then
                             nex = enX(i) + gdx / gdist * enSpd(i) * dt
                             ney = enY(i) + gdy / gdist * enSpd(i) * dt
-                            If Mid$(mapRow$(Int(enY(i))), Int(nex + Sgn(nex - enX(i)) * 0.2) + 1, 1) <> "#" Then enX(i) = nex
-                            If Mid$(mapRow$(Int(ney + Sgn(ney - enY(i)) * 0.2)), Int(enX(i)) + 1, 1) <> "#" Then enY(i) = ney
+                            If OpenCell%(Int(nex + Sgn(nex - enX(i)) * 0.2), Int(enY(i))) Then enX(i) = nex
+                            If OpenCell%(Int(enX(i)), Int(ney + Sgn(ney - enY(i)) * 0.2)) Then enY(i) = ney
                         End If
                     End If
                     ' förlorad syn > 2 s: gå till sista kända (fältet pekar dit);
@@ -1091,9 +1172,9 @@ Do
                 ElseIf etShoot(enType(i)) = 2 And edist < 12 Then
                     ft! = etMortarT!(enType(i))
                     mtx = Int(px + pvx * ft!): mty = Int(py + pvy * ft!)
-                    If mtx < 0 Then mtx = 0: If mtx > 15 Then mtx = 15
-                    If mty < 0 Then mty = 0: If mty > 15 Then mty = 15
-                    If Mid$(mapRow$(mty), mtx + 1, 1) = "#" Then mtx = Int(px): mty = Int(py)
+                    If mtx < 0 Then mtx = 0: If mtx > mapW - 1 Then mtx = mapW - 1
+                    If mty < 0 Then mty = 0: If mty > mapH - 1 Then mty = mapH - 1
+                    If Solid%(mtx, mty) Then mtx = Int(px): mty = Int(py)
                     spX = enX(i): spY = enY(i): spDX = 0: spDY = 0: spSpd! = 0
                     spOwner = 1: spDmg = 0: spType = PR_MORTAR
                     spSrcType = enType(i): spTX = mtx: spTY = mty
@@ -1149,7 +1230,7 @@ Do
                 Else
                     sdy = sdy + ddy: mapY = mapY + stepY
                 End If
-            Loop Until Mid$(mapRow$(mapY), mapX + 1, 1) = "#"
+            Loop Until Solid%(mapX, mapY)
             If sdx < sdy Then hitDist = sdx - ddx Else hitDist = sdy - ddy
             If hitDist < 0.2 Then hitDist = 0.2
             flashDist = hitDist   ' muzzle flash: wall distance only (visual)
@@ -1274,8 +1355,9 @@ Do
                 mapY = mapY + stepY
                 side = 1
             End If
-            If Mid$(mapRow$(mapY), mapX + 1, 1) = "#" Then hit = 1
+            If Solid%(mapX, mapY) Then hit = 1
         Loop Until hit = 1
+        hitCh$ = CellAt$(mapX, mapY)   ' Fas 5A: door cells get their own render color
         If side = 0 Then
             dist = sdx - ddx
         Else
@@ -1300,7 +1382,20 @@ Do
         shade = 255 - dist * 18
         If shade < 30 Then shade = 30
         If side = 1 Then shade = shade \ 2
-        Line (x, ys)-(x, ye), pal&(Int(shade))
+        ' Fas 5A: doors render differently from walls — 'd' = brown wood,
+        ' '1'/'2'/'3' = dark metal tinted by key color (bronze/silver/gold)
+        If hitCh$ = "d" Then
+            wcol& = _RGB32(Int(shade * 0.72), Int(shade * 0.47), Int(shade * 0.22))
+        ElseIf hitCh$ = "1" Then
+            wcol& = _RGB32(Int(shade * 0.55), Int(shade * 0.38), Int(shade * 0.18))
+        ElseIf hitCh$ = "2" Then
+            wcol& = _RGB32(Int(shade * 0.55), Int(shade * 0.55), Int(shade * 0.62))
+        ElseIf hitCh$ = "3" Then
+            wcol& = _RGB32(Int(shade * 0.68), Int(shade * 0.58), Int(shade * 0.2))
+        Else
+            wcol& = pal&(Int(shade))
+        End If
+        Line (x, ys)-(x, ye), wcol&
     Next x
 
     ' ======== SPRITES/PICKUPS: projektion + vägg-ocklusion ========
@@ -1372,6 +1467,41 @@ Do
                     For sx = x0 To x1
                         If pdistP < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(230, 200, 0)
                     Next sx
+                End If
+            End If
+        End If
+    Next i
+
+    ' Fas 5A: key pickups — small colored dots on the floor (bronze/silver/gold)
+    ' + white glimt, same projection + wall occlusion as the other pickups
+    For i = 0 To 10
+        If keyActive(i) Then
+            keyDx = keyX(i) - px
+            keyDy = keyY(i) - py
+            keyDist = Sqr(keyDx * keyDx + keyDy * keyDy)
+            If keyDist > 0.05 Then
+                keyAng = _ATan2(keyDy, keyDx) - angle
+                While keyAng > 3.14159265: keyAng = keyAng - 6.2831853: Wend
+                While keyAng < -3.14159265: keyAng = keyAng + 6.2831853: Wend
+                If Abs(keyAng) < fovCut Then
+                    keyDistP = keyDist * Cos(keyAng)
+                    keyCx = RW / 2 * (1 + Tan(keyAng) / planeDist)
+                    keyW = RW / keyDist * 0.12
+                    keyH = RH / keyDist * 0.12
+                    keyBase = midY + RH / (2 * keyDist) + pitch
+                    keyX0 = Int(keyCx - keyW / 2): keyX1 = Int(keyCx + keyW / 2)
+                    If keyX0 < 0 Then keyX0 = 0
+                    If keyX1 > RW - 1 Then keyX1 = RW - 1
+                    If keyType(i) = 1 Then keyCol& = _RGB32(205, 127, 50)
+                    If keyType(i) = 2 Then keyCol& = _RGB32(200, 200, 215)
+                    If keyType(i) = 3 Then keyCol& = _RGB32(255, 215, 0)
+                    For sx = keyX0 To keyX1
+                        If keyDistP < wallDist(sx) Then Line (sx, keyBase - keyH)-(sx, keyBase), keyCol&
+                    Next sx
+                    keyCx2 = Int(keyCx)
+                    If keyCx2 < 0 Then keyCx2 = 0
+                    If keyCx2 > RW - 1 Then keyCx2 = RW - 1
+                    If keyDistP < wallDist(keyCx2) Then Line (keyCx2, keyBase - keyH)-(keyCx2, keyBase), _RGB32(255, 255, 255)
                 End If
             End If
         End If
@@ -1658,6 +1788,16 @@ Do
     Next ti
     Color _RGB32(230, 200, 0)
     _PrintString (amX1 + 8, hudY + 4), strHudAmmo$ + Str$(ammo)
+    ' Fas 5A: keys row — only OWNED keys are shown (HUD is drawn after the weapon
+    ' sprite, so it always has precedence over the viewmodel)
+    If hasBronze Or hasSilver Or hasGold Then
+        keyHud$ = strKeys$
+        If hasBronze Then keyHud$ = keyHud$ + " B"
+        If hasSilver Then keyHud$ = keyHud$ + " S"
+        If hasGold Then keyHud$ = keyHud$ + " G"
+        Color _RGB32(255, 215, 0)
+        _PrintString (hpX0, hudY - 18), keyHud$
+    End If
     If Timer - hpMsgTime < 2 Then
         Color _RGB32(0, 255, 0)
         _PrintString (amX1 + Int(RW * 140 / 1920), hudY + 4), hpMsg$
@@ -1739,21 +1879,36 @@ SpawnEnemies:
     ' via (6,2)(7,3)(8,4) (dist 4.2) -> JAKT direkt vid spelstart. Nu bakom vägg OCH
     ' dist >= 6 (LOS-tröskeln): en0 nere höger (LOS bruten av vägg 12,8, dist 7.1),
     ' en3 övre vänster hörnet (LOS bruten av vägg 4,2, dist 6.7). en1/en2 oförändrade.
-    enX(0) = 13.5: enY(0) = 9.5:  enActive(0) = 1
-    enLx(0) = enX(0): enLy(0) = enY(0): enTx(0) = 13: enTy(0) = 9
-    enX(1) = 10.5: enY(1) = 9.5:  enActive(1) = 1
-    enLx(1) = enX(1): enLy(1) = enY(1): enTx(1) = 10: enTy(1) = 9
-    enX(2) = 2.5:  enY(2) = 12.5: enActive(2) = 1
-    enLx(2) = enX(2): enLy(2) = enY(2): enTx(2) = 2: enTy(2) = 12
-    enX(3) = 2.5:  enY(3) = 1.5:  enActive(3) = 1
-    enLx(3) = enX(3): enLy(3) = enY(3): enTx(3) = 2: enTy(3) = 1
+    ' Fas 5A: om kartan deklarerar fiende-spawns (F/O/U/K/G) så överskrider de
+    ' dessa legacy-positioner — då är kartans innehåll som bestämmer rundet.
+    nSlots = 4
+    If spEnN > 0 Then
+        nSlots = spEnN: If nSlots > 10 Then nSlots = 10
+        For sl = 0 To nSlots - 1
+            enX(sl) = spEnX(sl) + 0.5: enY(sl) = spEnY(sl) + 0.5: enActive(sl) = 1
+            enLx(sl) = enX(sl): enLy(sl) = enY(sl): enTx(sl) = spEnX(sl): enTy(sl) = spEnY(sl)
+        Next sl
+    Else
+        enX(0) = 13.5: enY(0) = 9.5:  enActive(0) = 1
+        enLx(0) = enX(0): enLy(0) = enY(0): enTx(0) = 13: enTy(0) = 9
+        enX(1) = 10.5: enY(1) = 9.5:  enActive(1) = 1
+        enLx(1) = enX(1): enLy(1) = enY(1): enTx(1) = 10: enTy(1) = 9
+        enX(2) = 2.5:  enY(2) = 12.5: enActive(2) = 1
+        enLx(2) = enX(2): enLy(2) = enY(2): enTx(2) = 2: enTy(2) = 12
+        enX(3) = 2.5:  enY(3) = 1.5:  enActive(3) = 1
+        enLx(3) = enX(3): enLy(3) = enY(3): enTx(3) = 2: enTy(3) = 1
+    End If
     ' Fas 4A/4B spawn-mix per wave (gated progression, data-driven via etMinWave):
     ' slots 0-2 always FOOT SOLDIER (majority). Slot 3 weighted officer/musketeer/
     ' captain — each gated by its etMinWave AND (captain) killsTotal > 5, so waves
     ' 1-2 are ALL foot soldiers. Boss waves (waveNo >= 5 and Mod 5 = 0): slot 3 is
     ' ALWAYS the GENERAL (max 1 per wave). HP/dmg/speed come from the register.
-    For sl = 0 To 3
-        If sl <= 2 Then
+    ' Fas 5A: map-declared slots keep their declared type; only the REMAINING
+    ' slots (map with fewer than 4 spawns) are filled by the register mix.
+    For sl = 0 To nSlots - 1
+        If spEnN > 0 And sl < spEnN Then
+            etPick = spEnT(sl)
+        ElseIf sl <= 2 Then
             etPick = ET_FOOT
         ElseIf waveNo >= ET_BOSS_STEP And (waveNo Mod ET_BOSS_STEP) = 0 Then
             etPick = ET_GENERAL
@@ -1995,11 +2150,8 @@ StartRun:
     ' startRuns räknar triggeringar — selftest fas12b bevisar att VIDARE går här.
     startRuns = startRuns + 1
     hp = 100: ammo = 5
-    px = 8.5: py = 4.5: angle = 0: pitch = 0
-    For i = 0 To 10
-        If i <= 4 Then pkActive(i) = 1 Else pkActive(i) = 0
-        If i <= 2 Then amActive(i) = 1 Else amActive(i) = 0
-    Next i
+    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0   ' Fas 5A: start from map 'S'
+    Gosub ApplyMapSpawns   ' Fas 5A: pickups/keys/doors from map, doors closed each round
     Gosub SpawnEnemies
     hpMsg$ = "": hpMsgTime = 0
     lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
@@ -2080,6 +2232,206 @@ Sub DrawButton (bx0, by0, bx1, by1, label$, hovered)
     _Font f&                     ' återställ föregående font — inget _FONT-spill
 End Sub
 
+' ======== Fas 5A: .MAP LOADER + CELL HELPERS ========
+' .map format (documented in AGENTS.md): rows = map rows, char = cell.
+'   '#' wall   '.' floor   ' ' out-of-bounds (wall in BFS/render)
+'   'S' player start (CASE: 'S' != 's'!)
+'   'F','O','U','K','G' = FOOT/OFFICER/MUSKETEER/CAPTAIN/GENERAL enemy spawns
+'   'M' medkit  'A' ammo pickup
+'   'd' wood door (E always opens)  '1'/'2'/'3' = bronze/silver/gold door
+'   'b','s','g' = bronze/silver/gold KEY pickups (lowercase = keys, uppercase = enemies)
+' Row length = width, row count = height. Malformed (ragged rows / bad char)
+' -> safe default grid + log, never a crash.
+
+' MapFileFromCmd$: command-line arg -> map file path ("" for selftest/none)
+Function MapFileFromCmd$ (c$)
+    t$ = LCase$(LTrim$(RTrim$(c$)))
+    If t$ = "" Or t$ = "selftest" Then
+        MapFileFromCmd$ = ""
+    Else
+        MapFileFromCmd$ = t$
+    End If
+End Function
+
+' CellAt$: raw map char at cell (x,y); outside the map -> " " (OOB = wall)
+Function CellAt$ (cx, cy)
+    If cx < 0 Or cy < 0 Or cx >= mapW Or cy >= mapH Then
+        CellAt$ = " "
+    Else
+        CellAt$ = Mid$(mapRow$(cy), cx + 1, 1)
+    End If
+End Function
+
+' Solid%: 1 = not walkable (wall, OOB, or CLOSED door)
+Function Solid% (cx, cy)
+    c$ = CellAt$(cx, cy)
+    If c$ = "#" Or c$ = " " Then
+        Solid% = 1
+    ElseIf c$ = "d" Or c$ = "1" Or c$ = "2" Or c$ = "3" Then
+        Solid% = 1 - doorOpen%(cx, cy)   ' closed door = wall, open door = walkable
+    Else
+        Solid% = 0
+    End If
+End Function
+
+' OpenCell%: 1 = walkable (not solid)
+Function OpenCell% (cx, cy)
+    OpenCell% = 1 - Solid%(cx, cy)
+End Function
+
+' LoadMapFile: reads lmPath$ into mapSrc$(0..srcN-1). lmOK=1 if any rows read.
+LoadMapFile:
+    lmOK = 0
+    lmF = FreeFile
+    Open lmPath$ For Input As #lmF
+    srcN = 0
+    While Not Eof(lmF) And srcN < MAP_MAX
+        Line Input #lmF, lmLn$
+        If Right$(lmLn$, 1) = Chr$(13) Then lmLn$ = Left$(lmLn$, Len(lmLn$) - 1)
+        mapSrc$(srcN) = lmLn$
+        srcN = srcN + 1
+    Wend
+    Close #lmF
+    If srcN > 0 Then lmOK = 1
+    Return
+
+' ParseMap: parses mapSrc$(0..srcN-1) into mapRow$/mapW/mapH + spawn lists.
+' Spawn chars become '.' in the grid (doors keep their char). pmOK=1 on success.
+ParseMap:
+    pmOK = 0
+    If srcN < 1 Or srcN > MAP_MAX Then Return
+    mw2 = Len(mapSrc$(0))
+    If mw2 < 1 Or mw2 > MAP_MAX Then Return
+    For pi = 1 To srcN - 1
+        If Len(mapSrc$(pi)) <> mw2 Then Return   ' ragged rows -> malformed
+    Next pi
+    mapW = mw2   ' only commit mapW/mapH after full validation (no partial state)
+    mapH = srcN
+    For yy = 0 To mapH - 1
+        For xx = 0 To mapW - 1
+            doorOpen%(xx, yy) = 0
+        Next xx
+    Next yy
+    spEnN = 0: spPkN = 0: spAmN = 0: spKeyN = 0
+    plStartX = -1: plStartY = -1
+    For py2 = 0 To mapH - 1
+        r$ = mapSrc$(py2)
+        prow$ = ""
+        For px2 = 0 To mapW - 1
+            ch$ = Mid$(r$, px2 + 1, 1)
+            good = 0
+            Select Case ch$
+                Case "#", ".", " "
+                    prow$ = prow$ + ch$: good = 1
+                Case "S"
+                    prow$ = prow$ + ".": plStartX = px2: plStartY = py2: good = 1
+                Case "F", "O", "U", "K", "G"
+                    prow$ = prow$ + "."
+                    If spEnN < 10 Then
+                        If ch$ = "F" Then spEnT(spEnN) = ET_FOOT
+                        If ch$ = "O" Then spEnT(spEnN) = ET_OFFICER
+                        If ch$ = "U" Then spEnT(spEnN) = ET_MUSKETEER
+                        If ch$ = "K" Then spEnT(spEnN) = ET_CAPTAIN
+                        If ch$ = "G" Then spEnT(spEnN) = ET_GENERAL
+                        spEnX(spEnN) = px2: spEnY(spEnN) = py2: spEnN = spEnN + 1
+                    End If
+                    good = 1
+                Case "M"
+                    prow$ = prow$ + "."
+                    If spPkN < 10 Then spPkX(spPkN) = px2: spPkY(spPkN) = py2: spPkN = spPkN + 1
+                    good = 1
+                Case "A"
+                    prow$ = prow$ + "."
+                    If spAmN < 10 Then spAmX(spAmN) = px2: spAmY(spAmN) = py2: spAmN = spAmN + 1
+                    good = 1
+                Case "d", "1", "2", "3"
+                    prow$ = prow$ + ch$: good = 1   ' door stays in grid (render color)
+                Case "b", "s", "g"
+                    prow$ = prow$ + "."
+                    If spKeyN < 10 Then
+                        If ch$ = "b" Then spKeyT(spKeyN) = 1
+                        If ch$ = "s" Then spKeyT(spKeyN) = 2
+                        If ch$ = "g" Then spKeyT(spKeyN) = 3
+                        spKeyX(spKeyN) = px2: spKeyY(spKeyN) = py2: spKeyN = spKeyN + 1
+                    End If
+                    good = 1
+            End Select
+            If good = 0 Then Return   ' invalid char -> malformed
+        Next px2
+        mapRow$(py2) = prow$
+    Next py2
+    If plStartX < 0 Then
+        ' no 'S' in map: first open cell as start
+        plStartX = 1: plStartY = 1: foundS = 0
+        For py2 = 0 To mapH - 1
+            For px2 = 0 To mapW - 1
+                If foundS = 0 Then
+                    If Mid$(mapRow$(py2), px2 + 1, 1) = "." Then plStartX = px2: plStartY = py2: foundS = 1
+                End If
+            Next px2
+        Next py2
+    End If
+    pmOK = 1
+    Return
+
+' BuildDefaultMap: last-resort guaranteed-valid 16x16 grid (border wall, open
+' interior, start at 8,4). Used only if even the embedded default fails to parse.
+BuildDefaultMap:
+    mapW = 16: mapH = 16
+    For yy = 0 To 15
+        r$ = ""
+        For xx = 0 To 15
+            If xx = 0 Or yy = 0 Or xx = 15 Or yy = 15 Then r$ = r$ + "#" Else r$ = r$ + "."
+        Next xx
+        mapRow$(yy) = r$
+        For xx = 0 To 15: doorOpen%(xx, yy) = 0: Next xx
+    Next yy
+    spEnN = 0: spPkN = 0: spAmN = 0: spKeyN = 0
+    plStartX = 8: plStartY = 4
+    pmOK = 1
+    Return
+
+' LoadMapAuto: resolve mapFile$ -> load+parse file; on any failure fall back to
+' the embedded default (defMap$). Always ends with a valid map. Sets loadedMapFile$.
+LoadMapAuto:
+    loadedMapFile$ = ""
+    lmOK = 0
+    If Len(mapFile$) > 0 And _FileExists(mapFile$) Then
+        lmPath$ = mapFile$: Gosub LoadMapFile
+        If lmOK Then
+            pmOK = 0: Gosub ParseMap
+            If pmOK Then
+                loadedMapFile$ = mapFile$
+            Else
+                lmOK = 0   ' file read but parse failed -> fall back to default
+            End If
+        End If
+    End If
+    If lmOK = 0 Then
+        ' embedded default map (defMap$ was copied from the Data block at init)
+        srcN = 16
+        For i = 0 To 15: mapSrc$(i) = defMap$(i): Next i
+        pmOK = 0: Gosub ParseMap
+        If pmOK = 0 Then Gosub BuildDefaultMap
+    End If
+    Return
+
+' ApplyMapSpawns: push map spawn lists into the live arrays; reset keys + doors
+' (each round starts with all doors closed and no keys).
+ApplyMapSpawns:
+    For i = 0 To 10
+        If i < spPkN Then pkX(i) = spPkX(i) + 0.5: pkY(i) = spPkY(i) + 0.5: pkActive(i) = 1 Else pkActive(i) = 0
+        If i < spAmN Then amX(i) = spAmX(i) + 0.5: amY(i) = spAmY(i) + 0.5: amActive(i) = 1 Else amActive(i) = 0
+        If i < spKeyN Then keyX(i) = spKeyX(i) + 0.5: keyY(i) = spKeyY(i) + 0.5: keyType(i) = spKeyT(i): keyActive(i) = 1 Else keyActive(i) = 0
+    Next i
+    hasBronze = 0: hasSilver = 0: hasGold = 0
+    For yy = 0 To mapH - 1
+        For xx = 0 To mapW - 1
+            doorOpen%(xx, yy) = 0
+        Next xx
+    Next yy
+    Return
+
 ' LOSCheck: DDA-stråle från (fx,fy) till (tx,ty); losOK=1 om ingen väggcell på vägen
 LOSCheck:
     losOK = 1
@@ -2093,37 +2445,38 @@ LOSCheck:
     If lrx < 0 Then lstepX = -1: lsdx = (fx - lmx) * lddx Else lstepX = 1: lsdx = (lmx + 1 - fx) * lddx
     If lry < 0 Then lstepY = -1: lsdy = (fy - lmy) * lddy Else lstepY = 1: lsdy = (lmy + 1 - fy) * lddy
     ltx = Int(tx): lty = Int(ty)
-    For lguard = 1 To 64
+    For lguard = 1 To mapW + mapH   ' Fas 5A: LOS guard covers any map size
         If lsdx < lsdy Then
             lsdx = lsdx + lddx: lmx = lmx + lstepX
         Else
             lsdy = lsdy + lddy: lmy = lmy + lstepY
         End If
-        If lmx < 0 Or lmx > 15 Or lmy < 0 Or lmy > 15 Then Exit For
-        If Mid$(mapRow$(lmy), lmx + 1, 1) = "#" Then losOK = 0: Exit For
+        If lmx < 0 Or lmx > mapW - 1 Or lmy < 0 Or lmy > mapH - 1 Then Exit For
+        If Solid%(lmx, lmy) Then losOK = 0: Exit For
         If lmx = ltx And lmy = lty Then Exit For
     Next lguard
     Return
 
 ' BFSCompute: avståndskarta bfsD(x,y) från målcell (bfsTX,bfsTY), BFS 4-riktning över
-' öppna celler (kartan är 16x16, liten). Sätts bfsForX/bfsForY till målcellen.
+' öppna celler (Fas 5A: valfri kartstorlek; stängd dörr = vägg via Solid%).
+' Sätts bfsForX/bfsForY till målcellen. Räknas bara vid cellbyte (callern).
 BFSCompute:
-    For yy = 0 To 15
-        For xx = 0 To 15
+    For yy = 0 To mapH - 1
+        For xx = 0 To mapW - 1
             bfsD(xx, yy) = -1
         Next xx
     Next yy
-    If bfsTX < 0 Or bfsTX > 15 Or bfsTY < 0 Or bfsTY > 15 Then bfsForX = -1: bfsForY = -1: Return
-    If Mid$(mapRow$(bfsTY), bfsTX + 1, 1) = "#" Then bfsForX = -1: bfsForY = -1: Return
+    If bfsTX < 0 Or bfsTX > mapW - 1 Or bfsTY < 0 Or bfsTY > mapH - 1 Then bfsForX = -1: bfsForY = -1: Return
+    If Solid%(bfsTX, bfsTY) Then bfsForX = -1: bfsForY = -1: Return
     qh = 0: qt = 0
     qx(0) = bfsTX: qy(0) = bfsTY: bfsD(bfsTX, bfsTY) = 0: qt = 1
     While qh < qt
         cx = qx(qh): cy = qy(qh): qh = qh + 1
         cd = bfsD(cx, cy) + 1
-        If cx + 1 <= 15 Then If Mid$(mapRow$(cy), cx + 2, 1) <> "#" Then If bfsD(cx + 1, cy) = -1 Then bfsD(cx + 1, cy) = cd: qx(qt) = cx + 1: qy(qt) = cy: qt = qt + 1
-        If cx - 1 >= 0 Then If Mid$(mapRow$(cy), cx, 1) <> "#" Then If bfsD(cx - 1, cy) = -1 Then bfsD(cx - 1, cy) = cd: qx(qt) = cx - 1: qy(qt) = cy: qt = qt + 1
-        If cy + 1 <= 15 Then If Mid$(mapRow$(cy + 1), cx + 1, 1) <> "#" Then If bfsD(cx, cy + 1) = -1 Then bfsD(cx, cy + 1) = cd: qx(qt) = cx: qy(qt) = cy + 1: qt = qt + 1
-        If cy - 1 >= 0 Then If Mid$(mapRow$(cy - 1), cx + 1, 1) <> "#" Then If bfsD(cx, cy - 1) = -1 Then bfsD(cx, cy - 1) = cd: qx(qt) = cx: qy(qt) = cy - 1: qt = qt + 1
+        If cx + 1 <= mapW - 1 Then If OpenCell%(cx + 1, cy) Then If bfsD(cx + 1, cy) = -1 Then bfsD(cx + 1, cy) = cd: qx(qt) = cx + 1: qy(qt) = cy: qt = qt + 1
+        If cx - 1 >= 0 Then If OpenCell%(cx - 1, cy) Then If bfsD(cx - 1, cy) = -1 Then bfsD(cx - 1, cy) = cd: qx(qt) = cx - 1: qy(qt) = cy: qt = qt + 1
+        If cy + 1 <= mapH - 1 Then If OpenCell%(cx, cy + 1) Then If bfsD(cx, cy + 1) = -1 Then bfsD(cx, cy + 1) = cd: qx(qt) = cx: qy(qt) = cy + 1: qt = qt + 1
+        If cy - 1 >= 0 Then If OpenCell%(cx, cy - 1) Then If bfsD(cx, cy - 1) = -1 Then bfsD(cx, cy - 1) = cd: qx(qt) = cx: qy(qt) = cy - 1: qt = qt + 1
     Wend
     bfsForX = bfsTX: bfsForY = bfsTY
     Return
@@ -2154,8 +2507,8 @@ EnemyDodge:
         s2 = zs: If dtr = 1 Then s2 = -zs
         dtx2 = Int(enX(bestE)) + rx * s2
         dty2 = Int(enY(bestE)) + ry * s2
-        If dtx2 >= 0 And dtx2 <= 15 And dty2 >= 0 And dty2 <= 15 Then
-            If Mid$(mapRow$(dty2), dtx2 + 1, 1) <> "#" And (dtx2 <> Int(px) Or dty2 <> Int(py)) Then
+        If dtx2 >= 0 And dtx2 <= mapW - 1 And dty2 >= 0 And dty2 <= mapH - 1 Then
+            If OpenCell%(dtx2, dty2) And (dtx2 <> Int(px) Or dty2 <> Int(py)) Then
                 enX(bestE) = dtx2 + 0.5: enY(bestE) = dty2 + 0.5
                 dtr = 99
             End If
@@ -2232,9 +2585,9 @@ UpdateProjectiles:
                 For s = 1 To steps
                     nx = prX(pi) + prDX(pi) * stp!
                     ny = prY(pi) + prDY(pi) * stp!
-                    If nx < 0 Or nx > 15.999 Or ny < 0 Or ny > 15.999 Then dead = 1: s = steps
+                    If nx < 0 Or nx >= mapW Or ny < 0 Or ny >= mapH Then dead = 1: s = steps
                     If dead = 0 Then
-                        If Mid$(mapRow$(Int(ny)), Int(nx) + 1, 1) = "#" Then dead = 1: s = steps
+                        If Solid%(Int(nx), Int(ny)) Then dead = 1: s = steps
                     End If
                     If dead = 0 Then prX(pi) = nx: prY(pi) = ny
                 Next s
@@ -2409,7 +2762,7 @@ SelftestDrive:
                     End
                 End If
                 ' förbered gamla Fas 3-kombattestet (fas5-8)
-                px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 5
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: hp = 100: ammo = 5   ' Fas 5A: start from map 'S'
                 enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1
                 enHP(0) = 3: enDmg(0) = 10: enSpd(0) = 2
                 enState(0) = 0: enLastHit(0) = 0: enLastSeen(0) = 0: enCalmT(0) = 0
@@ -2792,7 +3145,7 @@ SelftestDrive:
                 End If
                 ' (b) setup: one OFFICER hunting the player in open row 4
                 For i = 0 To 10: enActive(i) = 0: Next i
-                px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 5
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: hp = 100: ammo = 5   ' Fas 5A: start from map 'S'
                 enX(0) = 12.5: enY(0) = 4.5: enActive(0) = 1
                 enType(0) = ET_OFFICER: enHP(0) = etHP(ET_OFFICER): enDmg(0) = etDmg(ET_OFFICER): enSpd(0) = etSpd!(ET_OFFICER)
                 enState(0) = 1: enLastSeen(0) = Timer: enLx(0) = px: enLy(0) = py: enCalmT(0) = 0: enLastHit(0) = 0
@@ -2890,7 +3243,7 @@ SelftestDrive:
                 ' (a) setup: one FOOT in open row 4, player ball straight +x
                 For i = 0 To 10: enActive(i) = 0: Next i
                 For i = 0 To PR_MAX: prActive(i) = 0: Next i
-                px = 8.5: py = 4.5: angle = 0: hp = 100: ammo = 5
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: hp = 100: ammo = 5   ' Fas 5A: start from map 'S'
                 enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1
                 enType(0) = ET_FOOT: enHP(0) = etHP(ET_FOOT): enDmg(0) = etDmg(ET_FOOT): enSpd(0) = etSpd!(ET_FOOT)
                 enState(0) = 1: enLastSeen(0) = Timer: enLx(0) = px: enLy(0) = py: enCalmT(0) = 0: enLastHit(0) = 0
@@ -3458,7 +3811,7 @@ SelftestDrive:
                     If gunRendered > gr16b Then
                         stMsg$ = "PASS fas16c-rendered-in-playing (gunRendered " + Str$(gr16b) + " -> " + Str$(gunRendered) + " after resume)"
                         Gosub STLog
-                        testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger -> menu -> SELFTEST OK)
+                        testPhase = 17: testT0 = Timer: testFlag = 0   ' continue to fas17 (.map loader + doors), then fas12
                     Else
                         stMsg$ = "FAIL fas16c-playing-static gr16b=" + Str$(gr16b) + " gunRendered=" + Str$(gunRendered)
                         Gosub STLog
@@ -3475,6 +3828,320 @@ SelftestDrive:
                 Gosub STLog
                 ShutdownSound
                 End
+            End If
+        Case 17  ' FAS 5A: .map loader + keys/doors. Runs in playing; test maps are
+                 ' written to /tmp and loaded via LoadMapAuto (same path as init).
+                 ' (a) loader grid+spawn lists, (b) case S vs s, (c) keys+doors via E,
+                 ' (d) BFS closed/open door, (e) broken map -> default, (f) 64x64
+                 ' BFS timing, (g) command-line arg simulation. Ends by restoring
+                 ' the default map and continuing to fas12.
+            hp = 100
+            If testFlag = 0 Then
+                ' --- test map A: 12x10 with S, enemies, pickups, doors, keys ---
+                f17 = FreeFile
+                Open "/tmp/schleswig_fas17a.map" For Output As #f17
+                Print #f17, "############"
+                Print #f17, "#S...M...A.#"
+                Print #f17, "#.F..d..O..#"
+                Print #f17, "#..##.##...#"
+                Print #f17, "#.b..1..2..#"
+                Print #f17, "#....U...K.#"
+                Print #f17, "#..##..##..#"
+                Print #f17, "#.G....3.g.#"
+                Print #f17, "#....s.....#"
+                Print #f17, "############"
+                Close #f17
+                mapFile$ = "/tmp/schleswig_fas17a.map"
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0
+                ' park one enemy inside the map so the win-trigger never fires
+                For ej17 = 0 To 10: enActive(ej17) = 0: Next ej17
+                enActive(0) = 1: enX(0) = 1.5: enY(0) = mapH - 1.5: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                ' (a) loader: grid + spawn lists exact
+                If mapW = 12 And mapH = 10 And loadedMapFile$ = mapFile$ And CellAt$(5, 2) = "d" And CellAt$(5, 4) = "1" And CellAt$(8, 4) = "2" And CellAt$(1, 1) = "." And CellAt$(2, 2) = "." And mapRow$(0) = "############" And spEnN = 5 And spEnT(0) = ET_FOOT And spEnX(0) = 2 And spEnY(0) = 2 And spEnT(1) = ET_OFFICER And spEnX(1) = 8 And spEnY(1) = 2 And spEnT(2) = ET_MUSKETEER And spEnX(2) = 5 And spEnY(2) = 5 And spEnT(3) = ET_CAPTAIN And spEnX(3) = 9 And spEnY(3) = 5 And spEnT(4) = ET_GENERAL And spEnX(4) = 2 And spEnY(4) = 7 And spPkN = 1 And spPkX(0) = 5 And spPkY(0) = 1 And spAmN = 1 And spAmX(0) = 9 And spAmY(0) = 1 And spKeyN = 3 And spKeyT(0) = 1 And spKeyX(0) = 2 And spKeyY(0) = 4 And spKeyT(1) = 3 And spKeyX(1) = 9 And spKeyY(1) = 7 And spKeyT(2) = 2 And spKeyX(2) = 5 And spKeyY(2) = 8 And pkX(0) = 5.5 And pkY(0) = 1.5 And keyActive(2) = 1 Then
+                    stMsg$ = "PASS fas17a-loader (mapW=12 mapH=10, grid+doors parsed, spawns F/O/U/K/G at exact cells, M/A, keys b/g/s, pkX(0)=5.5)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas17a-loader mapW=" + Str$(mapW) + " mapH=" + Str$(mapH) + " spEnN=" + Str$(spEnN) + " spPkN=" + Str$(spPkN) + " spAmN=" + Str$(spAmN) + " spKeyN=" + Str$(spKeyN) + " cell52=" + CellAt$(5, 2)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' (b) case-sensitivity: 'S' (1,1) = player start, 's' (5,8) = silver KEY
+                If plStartX = 1 And plStartY = 1 And spKeyN = 3 And spKeyT(2) = 2 And spKeyX(2) = 5 And spKeyY(2) = 8 Then
+                    stMsg$ = "PASS fas17b-case (S=(1,1) start vs s=(5,8) silver key — case-sensitive parse OK)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas17b-case plStart=" + Str$(plStartX) + "," + Str$(plStartY) + " spKeyN=" + Str$(spKeyN)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                ' (c) part 1: stand next to '1' door WITHOUT key, press E -> deny
+                px = 5.5: py = 3.5: angle = 0   ' cell (5,3)='.', door '1' at (5,4)
+                hasBronze = 0: hasSilver = 0: hasGold = 0
+                inj17a = 0
+                stMsg$ = "fas17c: at '1' door without bronze key, injecting E"
+                Gosub STLog
+                testFlag = 2: testT0 = Timer
+            End If
+            If testFlag = 2 Then
+                ' inj17a=1 means the injected E already went through the door block
+                If inj17a = 1 Then
+                    If doorOpen%(5, 4) = 0 And hpMsg$ = strNeedBronze$ And Solid%(5, 4) = 1 Then
+                        stMsg$ = "PASS fas17c-locked-deny (door '1' closed, hpMsg=" + hpMsg$ + ", Solid=1)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas17c-deny doorOpen=" + Str$(doorOpen%(5, 4)) + " hpMsg=" + hpMsg$
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' now walk over the bronze key 'b' at (2,4) -> pickup sets hasBronze
+                    px = 2.5: py = 4.5
+                    testFlag = 3: testT0 = Timer
+                ElseIf Timer - testT0 >= 2 Then
+                    stMsg$ = "FAIL fas17c-no-inject inj17a=" + Str$(inj17a)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 3 Then
+                If hasBronze = 1 And keyActive(0) = 0 And hpMsg$ = strGotBronze$ Then
+                    stMsg$ = "PASS fas17c-keypickup (walked over 'b' -> hasBronze=1, msg=" + hpMsg$ + ")"
+                    Gosub STLog
+                ElseIf Timer - testT0 >= 2 Then
+                    stMsg$ = "FAIL fas17c-keypickup hasBronze=" + Str$(hasBronze) + " keyActive0=" + Str$(keyActive(0))
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                If hasBronze = 1 And keyActive(0) = 0 Then
+                    px = 5.5: py = 3.5   ' back next to the '1' door, now WITH key
+                    inj17b = 0
+                    testFlag = 4: testT0 = Timer
+                End If
+            End If
+            If testFlag = 4 Then
+                If inj17b = 1 Then
+                    If doorOpen%(5, 4) = 1 And Solid%(5, 4) = 0 Then
+                        stMsg$ = "PASS fas17c-open-with-key (E + bronze -> door '1' open, Solid=0)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas17c-open doorOpen=" + Str$(doorOpen%(5, 4))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' '2' door at (8,4) still needs SILVER key — stand next to it, E
+                    px = 8.5: py = 3.5
+                    hasSilver = 0
+                    inj17c = 0
+                    testFlag = 5: testT0 = Timer
+                ElseIf Timer - testT0 >= 2 Then
+                    stMsg$ = "FAIL fas17c-no-inject-b inj17b=" + Str$(inj17b)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 5 Then
+                If inj17c = 1 Then
+                    If doorOpen%(8, 4) = 0 And hpMsg$ = strNeedSilver$ And Solid%(8, 4) = 1 Then
+                        stMsg$ = "PASS fas17c-silver-required ('2' door denied without silver, hpMsg=" + hpMsg$ + ")"
+                        Gosub STLog
+                        testFlag = 6: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL fas17c-silver doorOpen=" + Str$(doorOpen%(8, 4)) + " hpMsg=" + hpMsg$
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 2 Then
+                    stMsg$ = "FAIL fas17c-no-inject-c inj17c=" + Str$(inj17c)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 6 Then
+                ' (d) BFS through a door: sealed-room map B (8x6), door '1' at (4,1)
+                f17 = FreeFile
+                Open "/tmp/schleswig_fas17b.map" For Output As #f17
+                Print #f17, "########"
+                Print #f17, "#S..1..#"
+                Print #f17, "#...#..#"
+                Print #f17, "#...#..#"
+                Print #f17, "#...#..#"
+                Print #f17, "########"
+                Close #f17
+                mapFile$ = "/tmp/schleswig_fas17b.map"
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = 1.5: py = 1.5: angle = 0
+                For ej17 = 0 To 10: enActive(ej17) = 0: Next ej17
+                enActive(0) = 1: enX(0) = 1.5: enY(0) = mapH - 1.5: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                bfsTX = 1: bfsTY = 1: Gosub BFSCompute
+                d17 = bfsD(5, 1)   ' right side of the sealed wall — unreachable when closed
+                doorOpen%(4, 1) = 1
+                bfsTX = 1: bfsTY = 1: Gosub BFSCompute
+                If mapW = 8 And d17 = -1 And bfsD(5, 1) = 4 And Solid%(4, 1) = 0 Then
+                    stMsg$ = "PASS fas17d-bfs-door (closed door: bfsD(5,1)=-1; open: bfsD(5,1)=4, Solid=0)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas17d-bfs-door dClosed=" + Str$(d17) + " dOpen=" + Str$(bfsD(5, 1)) + " mapW=" + Str$(mapW)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                testFlag = 7: testT0 = Timer
+            End If
+            If testFlag = 7 Then
+                ' (e) broken map (ragged rows + invalid char) -> safe default, no crash
+                f17 = FreeFile
+                Open "/tmp/schleswig_fas17bad.map" For Output As #f17
+                Print #f17, "##########"
+                Print #f17, "#S..#...."
+                Print #f17, "#...X....#"
+                Print #f17, "##########"
+                Close #f17
+                mapFile$ = "/tmp/schleswig_fas17bad.map"
+                Gosub LoadMapAuto
+                If mapW = 16 And mapH = 16 And loadedMapFile$ = "" And mapRow$(0) = "################" And pmOK = 1 Then
+                    stMsg$ = "PASS fas17e-broken-map-default (ragged+invalid char -> embedded default 16x16, no crash)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL fas17e mapW=" + Str$(mapW) + " mapH=" + Str$(mapH) + " loaded=" + loadedMapFile$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                testFlag = 8: testT0 = Timer
+            End If
+            If testFlag = 8 Then
+                ' (f) 64x64 map + BFS timing (< 1 ms per cell per BFS)
+                f17 = FreeFile
+                Open "/tmp/schleswig_fas17_64.map" For Output As #f17
+                For yy = 0 To 63
+                    r17$ = ""
+                    For xx = 0 To 63
+                        c17$ = "."
+                        If xx = 0 Or yy = 0 Or xx = 63 Or yy = 63 Then c17$ = "#"
+                        If xx = 32 And yy >= 20 And yy <= 43 Then c17$ = "#"
+                        If xx = 1 And yy = 1 Then c17$ = "S"
+                        If xx = 32 And yy = 32 Then c17$ = "d"
+                        If xx = 60 And yy = 60 Then c17$ = "F"
+                        r17$ = r17$ + c17$
+                    Next xx
+                    Print #f17, r17$
+                Next yy
+                Close #f17
+                mapFile$ = "/tmp/schleswig_fas17_64.map"
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0
+                For ej17 = 0 To 10: enActive(ej17) = 0: Next ej17
+                enActive(0) = 1: enX(0) = 1.5: enY(0) = mapH - 1.5: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                If mapW = 64 And mapH = 64 And loadedMapFile$ = mapFile$ Then
+                    bfsTX = 1: bfsTY = 1
+                    t17 = Timer
+                    For k17 = 1 To 500: Gosub BFSCompute: Next k17
+                    el17 = Timer - t17
+                    c17 = 0
+                    For yy = 0 To mapH - 1
+                        For xx = 0 To mapW - 1
+                            If bfsD(xx, yy) >= 0 Then c17 = c17 + 1
+                        Next xx
+                    Next yy
+                    per17 = el17 / (500 * c17)
+                    If per17 < 0.001 Then
+                        stMsg$ = "PASS fas17f-bfs-64x64 (500 BFS over " + Str$(c17) + " cells in " + LTrim$(Str$(Int(el17 * 1000) / 1000)) + "s -> " + LTrim$(Str$(Int(per17 * 1000000) / 1000)) + " us/cell < 1 ms)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas17f-bfs-64x64 perCell=" + LTrim$(Str$(Int(per17 * 1000000) / 1000)) + "us cells=" + Str$(c17)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                Else
+                    stMsg$ = "FAIL fas17f-load mapW=" + Str$(mapW) + " mapH=" + Str$(mapH)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                testFlag = 9: testT0 = Timer
+            End If
+            If testFlag = 9 Then
+                ' (g) command-line arg simulation: MapFileFromCmd$ + LoadMapAuto
+                If MapFileFromCmd$("selftest") = "" And MapFileFromCmd$("/tmp/schleswig_fas17_64.map") = "/tmp/schleswig_fas17_64.map" Then
+                    mapFile$ = MapFileFromCmd$("/tmp/schleswig_fas17_64.map")
+                    Gosub LoadMapAuto
+                    If loadedMapFile$ = "/tmp/schleswig_fas17_64.map" And mapW = 64 And mapH = 64 Then
+                        stMsg$ = "PASS fas17g-cmdline-arg ('schleswig mapfile.map' -> MapFileFromCmd$ -> LoadMapAuto loads it, 64x64)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas17g-cmdline loaded=" + loadedMapFile$ + " mapW=" + Str$(mapW)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                Else
+                    stMsg$ = "FAIL fas17g-parse MapFileFromCmd$(selftest)=" + MapFileFromCmd$("selftest")
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' restore the default map + spawns, then continue to fas12
+                mapFile$ = ""
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0
+                For ej17 = 0 To 10: enActive(ej17) = 0: Next ej17
+                enActive(0) = 1: enX(0) = 13.5: enY(0) = 9.5: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                If mapW = 16 And mapH = 16 Then
+                    stMsg$ = "PASS fas17-end (default map restored 16x16)"
+                    Gosub STLog
+                End If
+                testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger -> menu -> SELFTEST OK)
             End If
     End Select
     Return

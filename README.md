@@ -46,3 +46,14 @@ self-test.
 
 GPLv3 (planned). The license text will be attached as a LICENSE file at the
 1.0 public release; the choice is decided but the file is not added yet.
+
+## Maps (.map files, Fas 5A)
+
+    ./schleswig/schleswig maps/test64.map    # load a specific map (64x64 test map shipped)
+
+One char per cell, rows = map rows (CASE-SENSITIVE: 'S' start vs 's' silver key):
+`#` wall, `.` floor, ` ` out-of-bounds, `S` player start,
+`F`/`O`/`U`/`K`/`G` = foot/officer/musketeer/captain/general spawn,
+`M` medkit, `A` ammo, `d` wood door (E opens), `1`/`2`/`3` = bronze/silver/gold
+door (E needs the key), `b`/`s`/`g` = bronze/silver/gold key pickups.
+See AGENTS.md for the full table.
