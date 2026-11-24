@@ -55,7 +55,7 @@ data) — see AGENTS.md.
 ## Controls
 
 - SPACE or click START GAME: start the game
-- W / S: forward / back, A / D: strafe (start ammo 5, max 20, ammo pickups +5)
+- W / S: forward / back, A / D: strafe (start ammo 15, max 20, ammo pickups +10)
 - Mouse: look around. NOTE (Wayland): pointer lock engages on the first mouse
   click in game (the protocol requires a user gesture)
 - Left mouse button: shoot

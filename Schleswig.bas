@@ -77,6 +77,7 @@ DIM ej18, px18(20), py18(20), pch$(20), pm18, pj1&, pj2&, p18n, hash18&, row18sa
 DIM c19hash&, c19alive, c19seg, c19lvl, c19i, c19x, c19y, c19cnt(5), c19f, c19prAll, c19died, inj19d, inj19v, ok19, f19, r19$, c19ok, c19hud$, c19bfs   ' Fas 5C (level progression) selftest vars
 DIM inj20a, inj20c, c20hud$, c20hash&, c20alive   ' Fas 5D start-menu selftest vars
 DIM c21t0, c21shots, c21corner, c21edge, c21mortar, c21alive, c21i, c21j, c21x, c21y, c21f, c21r$, c21d, c21en, c21killed, c21edgeOK, c21cornerOK, c21mortOK   ' Fas 5D 64x64 runtime-regression selftest vars
+DIM c22m$(6), c22x, c22y, c22i, c22j, c22n, c22bad, c22open, c22bfs, c22f, c22min, c22lvl, c22alive, c22wp, c22wpN, c22wx(8), c22wy(8), c22wd(127, 127), c22dir, c22ok4, c22t, c22ok, c22exp, c22tx, c22ty, c22cx, c22cy, c22nx, c22ny, c22d, c22best, c22bnx, c22bny, c22shots, c22am, c22ammo0, c22bd, c22bi, c22msave, c22maxd, c22c$, c22key$, c22dbgT, ok22, c22hash&   ' Fas 5E selftest vars
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
@@ -183,6 +184,7 @@ DIM SHARED segShots, segDmg, segT0, segStartT          ' per-level-segment score
 DIM SHARED restarts, pendingNext                       ' HUD restart counter / CONTINUE->next-level flag
 DIM SHARED menuPick, autoCamp                          ' 5D: menuPick=1 -> no-arg pick menu (1 ARENA / 2 CAMPAIGN); autoCamp=1 -> campaign arg starts straight in
 DIM mapValid                 ' 1 only after a FULL successful ParseMap commit
+DIM mapBadN                  ' 5E: cells with a non-normalized char left in the grid (must be 0; HUD debug rad via Const dbgCellScan)
 DIM loadFatal, fatalMsg$, errRow, errCol, errWhy$, nStartS, tStartX, tStartY, mapWarn$
 mapValid = 0
 Const selftestMap$ = "/tmp/schleswig_selftest16.map"   ' 5A-hotfix2 addendum: default.map is the 64x64 TEST ARENA; selftest phases 1-16 run on this classic 16x16 temp map
@@ -207,7 +209,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "0c11a5a"
+Const strBuild$ = "81bf415"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -236,7 +238,7 @@ Const strFatalQuit$ = "Press Q to quit"            ' Fas 5A-hotfix2: fatal map-l
 Const strFps$ = "FPS:"                             ' debug line + window title
 Const strDmgDebug$ = "-5 HP"                       ' debug key G
 Const strMedkit$ = "+25 HP"                        ' medkit pickup
-Const strAmmoPick$ = "+5 AMMO"                     ' ammo pickup (cap 20)
+Const strAmmoPick$ = "+10 AMMO"                    ' 5E: ammo pickup amount (was +5)
 Const strScore$ = "SCORE:"                         ' death screen/HUD: score line
 Const strBest$ = "BEST:"                           ' death/result screen: best score
 Const strNewRec$ = "NEW RECORD!"                   ' death/result screen: on new record
@@ -283,8 +285,11 @@ hpMsgTime = 0
 
 ' Fas 2: ammo + skjutning (ingen HP-regen; samma array-pool-mönster som medkit)
 Const maxAmmo = 20         ' ammo-cap — samma konstant används av HUD-streckantalet
+Const startAmmo = 15       ' 5E ammo-balans: start-ammo 5 -> 15 (~3x, André dog of ammo before level 3)
+Const ammoPickup = 10      ' 5E ammo-balans: per A-pickup +5 -> +10
+Const dbgCellScan = 0      ' 5E: 1 = HUD debug-rad med antal kvarblivna (icke-normaliserade) celltecken (mapBadN, ska vara 0)
 DIM amX(10), amY(10), amActive(10)
-ammo = 5
+ammo = startAmmo
 lastShotTime = -1        ' cooldown 0.3 s mellan skott
 tracerTime = -1          ' tracer-flash synlig 2-3 frames
 flashTime = -1           ' träff-flash
@@ -523,6 +528,9 @@ Do
     If selftest And testPhase = 17 And testFlag = 2 And inj17a = 0 Then k$ = "e": inj17a = 1
     If selftest And testPhase = 17 And testFlag = 4 And inj17b = 0 Then k$ = "e": inj17b = 1
     If selftest And testPhase = 17 And testFlag = 5 And inj17c = 0 Then k$ = "e": inj17c = 1
+    ' 5E fas22: walk-bot/ammo-bot movement key — mvF is computed from k$ further
+    ' down this same frame, so the injection must happen HERE (top of loop)
+    If selftest And testPhase = 22 Then k$ = c22key$
 
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
     If selftest And (state$ = "menu" Or state$ = "result" Or state$ = "paused" Or state$ = "victory") Then Gosub SelftestDrive   ' fas12/13 kör även utanför playing (5C: även victory)
@@ -773,7 +781,7 @@ Do
         End If
         If gameMode$ <> "campaign" And (k$ = "r" Or k$ = "R" Or k$ = " " Or _KeyDown(Asc("R")) Or _KeyDown(32)) Then
             ' reset ALLT -> tillbaka till menyn
-            hp = 100: ammo = 5
+            hp = 100: ammo = startAmmo
             px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0   ' Fas 5A: start from map 'S'
             Gosub ApplyMapSpawns   ' Fas 5A: pickups/keys/doors from map, doors closed
             Gosub SpawnEnemies   ' Fas 3: fiender respawnas också vid full reset
@@ -1122,25 +1130,25 @@ Do
         nx = px + dirX * moveStep * speed
         ny = py + dirY * moveStep * speed
         If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
-        If OpenCell%(Int(ny + Sgn(ny - py) * 0.2), Int(px)) Then py = ny
+        If OpenCell%(Int(px), Int(ny + Sgn(ny - py) * 0.2)) Then py = ny   ' 5E FIX: was swapped (checked (y,x) — invisible phantom walls on vertical moves)
     End If
     If mvB Then
         nx = px - dirX * moveStep * speed
         ny = py - dirY * moveStep * speed
         If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
-        If OpenCell%(Int(ny + Sgn(ny - py) * 0.2), Int(px)) Then py = ny
+        If OpenCell%(Int(px), Int(ny + Sgn(ny - py) * 0.2)) Then py = ny   ' 5E FIX: was swapped (checked (y,x) — invisible phantom walls on vertical moves)
     End If
     If mvL Then
         nx = px + dirY * moveStep * 0.6 * speed
         ny = py - dirX * moveStep * 0.6 * speed
         If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
-        If OpenCell%(Int(ny + Sgn(ny - py) * 0.2), Int(px)) Then py = ny
+        If OpenCell%(Int(px), Int(ny + Sgn(ny - py) * 0.2)) Then py = ny   ' 5E FIX: was swapped (checked (y,x) — invisible phantom walls on vertical moves)
     End If
     If mvR Then
         nx = px - dirY * moveStep * 0.6 * speed
         ny = py + dirX * moveStep * 0.6 * speed
         If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
-        If OpenCell%(Int(ny + Sgn(ny - py) * 0.2), Int(px)) Then py = ny
+        If OpenCell%(Int(px), Int(ny + Sgn(ny - py) * 0.2)) Then py = ny   ' 5E FIX: was swapped (checked (y,x) — invisible phantom walls on vertical moves)
     End If
 
     ' Fas 4B: player velocity (cells/s) — used by the general's mortar lead
@@ -1213,7 +1221,7 @@ Do
         If amActive(i) Then
             If Sqr((amX(i) - px) ^ 2 + (amY(i) - py) ^ 2) < 0.5 Then
                 amActive(i) = 0
-                ammo = ammo + 5              ' FIX 3: ammo-pickup ger +5
+                ammo = ammo + ammoPickup     ' 5E: ammo-pickup ger +10 (was +5)
                 If ammo > maxAmmo Then ammo = maxAmmo  ' FIX 3: max-cap (överskott försvinner)
                 hpMsg$ = strAmmoPick$
                 hpMsgTime = Timer
@@ -2026,6 +2034,12 @@ Do
     If Len(lvlHud$) > RW \ 8 - 1 Then lvlHud$ = Left$(lvlHud$, RW \ 8 - 1)
     Color _RGB32(150, 150, 230)
     _PrintString (0, 18), lvlHud$
+    ' 5E debug-rad (Const dbgCellScan=1): antal kvarblivna icke-normaliserade
+    ' celltecken i grid:en (mapBadN — ska ALLTID vara 0 efter ParseMap)
+    If dbgCellScan Then
+        Color _RGB32(255, 120, 120)
+        _PrintString (0, 36), "BADCELLS " + LTrim$(Str$(mapBadN)) + " (spawn/item chars left in grid — must be 0)"
+    End If
     ' (muslås-hint borttagen — Wayland låser vid första klicket, ingen text behövs)
 
     ' HP-ruta nertill vänster: bar-längd + siffra (tydligt även utan färgseende)
@@ -2430,7 +2444,7 @@ StartRun:
     ' ENDA start-vägen (meny START-klick/SPACE + pendingStart från VIDARE).
     ' startRuns räknar triggeringar — selftest fas12b bevisar att VIDARE går här.
     startRuns = startRuns + 1
-    hp = 100: ammo = 5
+    hp = 100: ammo = startAmmo
     px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0   ' Fas 5A: start from map 'S'
     If gameMode$ = "campaign" Then killsTotal = 0: restarts = 0: waveNo = 0   ' 5C: fresh campaign counters, wave register starts at wave 1
     Gosub ApplyMapSpawns   ' Fas 5A: pickups/keys/doors from map, doors closed each round
@@ -2638,12 +2652,35 @@ Function CellAt$ (cx, cy)
     End If
 End Function
 
+' 5E — SINGLE SOURCE OF CHAR SEMANTICS:
+' WallChar%/DoorChar% own the meaning of a grid char; Solid% is the ONLY
+' collision/render query and is built on them. ParseMap NORMALIZES all
+' spawn/item chars (S/F/O/U/K/G/M/A/b/s/g) to '.' at commit — so a successfully
+' parsed grid only ever contains '#', '.', ' ' (OOB=wall) and door chars.
+' Render DDA, LOS, projectile hits, BFS and player movement ALL go through
+' Solid% -> render and collision can never disagree (no invisible walls).
+Function WallChar% (ch$)
+    If ch$ = "#" Or ch$ = " " Then
+        WallChar% = 1
+    Else
+        WallChar% = 0
+    End If
+End Function
+
+Function DoorChar% (ch$)
+    If ch$ = "d" Or ch$ = "1" Or ch$ = "2" Or ch$ = "3" Then
+        DoorChar% = 1
+    Else
+        DoorChar% = 0
+    End If
+End Function
+
 ' Solid%: 1 = not walkable (wall, OOB, or CLOSED door)
 Function Solid% (cx, cy)
     c$ = CellAt$(cx, cy)
-    If c$ = "#" Or c$ = " " Then
+    If WallChar%(c$) Then
         Solid% = 1
-    ElseIf c$ = "d" Or c$ = "1" Or c$ = "2" Or c$ = "3" Then
+    ElseIf DoorChar%(c$) Then
         Solid% = 1 - doorOpen%(cx, cy)   ' closed door = wall, open door = walkable
     Else
         Solid% = 0
@@ -2757,6 +2794,15 @@ ParseMap:
     REDIM qx(mapW * mapH - 1)
     REDIM qy(mapW * mapH - 1)
     For py2 = 0 To mapH - 1: mapRow$(py2) = mapTmp$(py2): Next py2
+    ' 5E: count "egov fallen" chars — after normalization only '#','.',' ',doors
+    ' may remain; anything else is a parse bug (HUD debug rad / selftest 5e-a).
+    mapBadN = 0
+    For yy = 0 To mapH - 1
+        For xx = 0 To mapW - 1
+            ch$ = Mid$(mapRow$(yy), xx + 1, 1)
+            If WallChar%(ch$) = 0 And DoorChar%(ch$) = 0 And ch$ <> "." Then mapBadN = mapBadN + 1
+        Next xx
+    Next yy
     For yy = 0 To mapH - 1
         For xx = 0 To mapW - 1
             doorOpen%(xx, yy) = 0
@@ -2885,7 +2931,7 @@ LoadLevel:
     End If
     Gosub ApplyMapSpawns
     px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0
-    hp = 100: ammo = 5
+    hp = 100: ammo = startAmmo
     waveNo = 0
     Gosub SpawnEnemies   ' resets ALL enemy state + projectiles + BFS (no leak from level N)
     hpMsg$ = "": hpMsgTime = 0
@@ -3156,6 +3202,35 @@ STLog:
     Print #stF, stMsg$
     Close #stF
     Print stMsg$
+    Return
+
+' C22Path (5E selftest helper): build the BFS path from the player start (bfsD=0)
+' to target cell (c22tx,c22ty) into c22pathX/c22pathY (waypoint..S order),
+' c22pathN = length. Assumes bfsD computed from S. Returns c22found=1 on success.
+C22Path:
+    c22found = 0: c22pathN = 0
+    If c22tx < 0 Or c22tx > mapW - 1 Or c22ty < 0 Or c22ty > mapH - 1 Then Return
+    If bfsD(c22tx, c22ty) < 0 Then Return
+    c22pathX(0) = c22tx: c22pathY(0) = c22ty: c22pathN = 1
+    c22cx = c22tx: c22cy = c22ty
+    While bfsD(c22cx, c22cy) > 0 And c22pathN < 300
+        c22d = bfsD(c22cx, c22cy): c22found = 0
+        For c22j = 0 To 3
+            If c22j = 0 Then c22nx = c22cx + 1: c22ny = c22cy
+            If c22j = 1 Then c22nx = c22cx - 1: c22ny = c22cy
+            If c22j = 2 Then c22nx = c22cx: c22ny = c22cy + 1
+            If c22j = 3 Then c22nx = c22cx: c22ny = c22cy - 1
+            If c22nx >= 0 And c22nx <= mapW - 1 And c22ny >= 0 And c22ny <= mapH - 1 Then
+                If bfsD(c22nx, c22ny) = c22d - 1 Then
+                    c22pathX(c22pathN) = c22nx: c22pathY(c22pathN) = c22ny: c22pathN = c22pathN + 1
+                    c22cx = c22nx: c22cy = c22ny: c22found = 1
+                    c22j = 99
+                End If
+            End If
+        Next c22j
+        If c22found = 0 Then c22pathN = 0: Return
+    Wend
+    c22found = 1
     Return
 
 ' SelftestDrive: scriptat autoplay-scenario (endast när selftest=1).
@@ -5622,9 +5697,483 @@ SelftestDrive:
                     winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                     runT0 = Timer - 3   ' fas12a needs a real frozen time (wt1 >= 1)
                     state$ = "playing"
-                    testPhase = 12: testT0 = Timer: testFlag = 0
+                    testPhase = 22: testT0 = Timer: testFlag = 0   ' 5E: char semantics + ammo, then fas12
                 ElseIf Timer - c21t0 >= 150 Then
                     stMsg$ = "FAIL 5d-64x64-timeout t=" + Str$(Int(Timer - c21t0)) + " cornerOK=" + Str$(c21cornerOK) + " edgeOK=" + Str$(c21edgeOK) + " mortOK=" + Str$(c21mortOK) + " killed=" + Str$(c21killed) + " state=" + state$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+        Case 22  ' 5E TECKEN-SEMANTIK + AMMO-BALANS:
+                 ' (a) alla levererade kartor (default.map + level01..05): efter
+                 '     ParseMap finns 0 kvarblivna spawn/item-tecken (char-scan +
+                 '     ParseMap:s egen mapBadN==0); (b) per-cell Solid%(x,y) ==
+                 '     WallChar/door-logiken på alla kartor + render-DDA-probe
+                 '     (wallDist>0 i 4 riktningar från S = render==kollision);
+                 ' (c) BFS-nåbar uppsättning == OpenCell-uppsättning på level01+02
+                 '     SAMT walk-bot går med RIKTIG rörelse till waypoints längs
+                 '     BFS-vägar (inga osynliga murar/stopp); (d) ammo-bot klarar
+                 '     bana 1->3 utan att ammo når 0 (startAmmo=15, pickup +10).
+            hp = 100: c22key$ = ""
+            If testFlag = 0 Then
+                ' --- 5e-a: char-scan på alla levererade kartor ---
+                c22m$(1) = "maps/default.map": c22m$(2) = "maps/level01.map": c22m$(3) = "maps/level02.map"
+                c22m$(4) = "maps/level03.map": c22m$(5) = "maps/level04.map": c22m$(6) = "maps/level05.map"
+                c22bad = 0
+                For c22i = 1 To 6
+                    mapFile$ = c22m$(c22i)
+                    Gosub LoadMapAuto
+                    If loadFatal = 1 Or mapValid = 0 Then
+                        c22bad = c22bad + 1000
+                    Else
+                        For c22y = 0 To mapH - 1
+                            For c22x = 0 To mapW - 1
+                                c22c$ = Mid$(mapRow$(c22y), c22x + 1, 1)
+                                If WallChar%(c22c$) = 0 And DoorChar%(c22c$) = 0 And c22c$ <> "." Then c22bad = c22bad + 1
+                            Next c22x
+                        Next c22y
+                        If mapBadN <> 0 Then c22bad = c22bad + 100   ' ParseMap's own counter must agree
+                    End If
+                Next c22i
+                If c22bad = 0 Then
+                    stMsg$ = "PASS 5e-a-char-scan (6 shipped maps incl 64x64 default.map: 0 leftover spawn/item chars after ParseMap normalization, mapBadN=0 everywhere — grid only ever holds #/./space/door)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5e-a badcells=" + Str$(c22bad)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                ' --- 5e-b part 1: per-cell Solid% == WallChar/door logic, all maps ---
+                ok22 = -1
+                For c22i = 1 To 6
+                    mapFile$ = c22m$(c22i)
+                    Gosub LoadMapAuto
+                    If loadFatal = 1 Or mapValid = 0 Then ok22 = 0
+                    For c22y = 0 To mapH - 1
+                        For c22x = 0 To mapW - 1
+                            c22c$ = CellAt$(c22x, c22y)
+                            c22exp = 0
+                            If WallChar%(c22c$) Then c22exp = 1
+                            If DoorChar%(c22c$) And doorOpen%(c22x, c22y) = 0 Then c22exp = 1
+                            If Solid%(c22x, c22y) <> c22exp Then ok22 = 0
+                        Next c22x
+                    Next c22y
+                Next c22i
+                If ok22 = -1 Then
+                    stMsg$ = "PASS 5e-b1-solid-consistency (per-cell Solid%(x,y) == WallChar%(CellAt) / closed-door on ALL 6 shipped maps — Solid% is the single source for render DDA, LOS, projectiles, BFS, movement)"
+                    Gosub STLog
+                    ' render probe setup: level01, player at S
+                    mapFile$ = "maps/level01.map"
+                    Gosub LoadMapAuto
+                    Gosub ApplyMapSpawns
+                    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100
+                    For i = 0 To 10: enActive(i) = 0: Next i
+                    enActive(0) = 1: enX(0) = 1.5: enY(0) = 14.5: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99   ' keep 1 alive so win-trigger never fires
+                    bfsForX = -1: bfsForY = -1
+                    state$ = "playing"
+                    c22dir = 0: c22ok4 = 0: c22t = Timer
+                    testFlag = 2: testT0 = Timer
+                Else
+                    stMsg$ = "FAIL 5e-b1 solid-consistency mismatch"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' --- 5e-b part 2: render-DDA probe — 4 cardinal angles from S on
+                ' level01: wallDist(center) must be > 0 (ray hits a rendered wall)
+                If c22dir <= 3 And Timer - c22t >= 0.3 Then
+                    angle = c22dir * 1.5707963
+                    If Timer - c22t >= 0.5 Then
+                        If wallDist(RW \ 2) > 0.2 Then c22ok4 = c22ok4 + 1
+                        c22dir = c22dir + 1: c22t = Timer
+                    End If
+                End If
+                If c22dir > 3 Then
+                    If c22ok4 = 4 Then
+                        stMsg$ = "PASS 5e-b2-render-wall-probe (level01 from S, 4 cardinal directions: wallDist(center)>0 in 4/4 — render DDA sees exactly the Solid% walls, no invisible/extra)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL 5e-b2 wallDist probe ok=" + Str$(c22ok4) + "/4"
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    testFlag = 3: testT0 = Timer
+                ElseIf Timer - testT0 >= 5 Then
+                    stMsg$ = "FAIL 5e-b2-timeout dir=" + Str$(c22dir)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 3 Then
+                ' --- 5e-c part 1: BFS-reachable == OpenCell on level01 ---
+                mapFile$ = "maps/level01.map"
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: hp = 100
+                For i = 0 To 10: enActive(i) = 0: Next i
+                enActive(0) = 1: enX(0) = 1.5: enY(0) = 14.5: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                bfsTX = plStartX: bfsTY = plStartY: Gosub BFSCompute
+                c22bfs = 0: c22open = 0: c22maxd = 0
+                For c22y = 0 To mapH - 1
+                    For c22x = 0 To mapW - 1
+                        If bfsD(c22x, c22y) >= 0 Then c22bfs = c22bfs + 1: If bfsD(c22x, c22y) > c22maxd Then c22maxd = bfsD(c22x, c22y)
+                        If OpenCell%(c22x, c22y) = 1 Then c22open = c22open + 1
+                    Next c22x
+                Next c22y
+                If c22bfs = c22open And c22open > 0 Then
+                    stMsg$ = "PASS 5e-c1-bfs-equals-opencell-level01 (BFS-reachable from S = " + Str$(c22bfs) + " == OpenCell count = " + Str$(c22open) + ", maxdist=" + Str$(c22maxd) + " — no sealed open cells, no phantom solids)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5e-c1 level01 bfs=" + Str$(c22bfs) + " open=" + Str$(c22open)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' walk-bot waypoints on level01: first cell at bfsD 3, 6, 9, maxd
+                c22wpN = 0
+                For c22d = 3 To c22maxd Step 3
+                    For c22y = 0 To mapH - 1
+                        For c22x = 0 To mapW - 1
+                            If bfsD(c22x, c22y) = c22d And c22wpN < 8 Then
+                                c22wpN = c22wpN + 1: c22wx(c22wpN) = c22x: c22wy(c22wpN) = c22y
+                            End If
+                        Next c22x
+                    Next c22y
+                Next c22d
+                If c22maxd >= 0 And c22wpN < 8 Then
+                    For c22y = 0 To mapH - 1
+                        For c22x = 0 To mapW - 1
+                            If bfsD(c22x, c22y) = c22maxd And c22wpN < 8 Then c22wpN = c22wpN + 1: c22wx(c22wpN) = c22x: c22wy(c22wpN) = c22y
+                        Next c22x
+                    Next c22y
+                End If
+                c22wp = 1
+                c22msave = moveStep: moveStep = 0.08   ' walk-bot speed (collision checks still active)
+                ' waypoint-BFS into our OWN array c22wd (the AI may recompute bfsD)
+                c22tx = c22wx(1): c22ty = c22wy(1)
+                bfsTX = c22tx: bfsTY = c22ty: Gosub BFSCompute
+                For c22y = 0 To mapH - 1
+                    For c22x = 0 To mapW - 1
+                        c22wd(c22x, c22y) = bfsD(c22x, c22y)
+                    Next c22x
+                Next c22y
+                state$ = "playing"
+                stMsg$ = "5e-c: walk-bot level01, " + Str$(c22wpN) + " waypoints (bfsD 3,6,9,...,maxd)"
+                Gosub STLog
+                testFlag = 4: testT0 = Timer
+            End If
+            If testFlag = 4 Then
+                ' --- 5e-c part 2: real walk, BFS-gradient descent toward each waypoint ---
+                If state$ = "playing" Then
+                    hp = 100: winPending = 0
+                    c22cx = Int(px): c22cy = Int(py)
+                    If c22wd(c22cx, c22cy) = 0 Then
+                        c22wp = c22wp + 1   ' waypoint cell reached by real movement
+                        If c22wp <= c22wpN Then
+                            c22tx = c22wx(c22wp): c22ty = c22wy(c22wp)
+                            bfsTX = c22tx: bfsTY = c22ty: Gosub BFSCompute
+                            For c22y = 0 To mapH - 1
+                                For c22x = 0 To mapW - 1
+                                    c22wd(c22x, c22y) = bfsD(c22x, c22y)
+                                Next c22x
+                            Next c22y
+                        End If
+                    Else
+                        c22best = c22wd(c22cx, c22cy): c22bnx = -1: c22bny = -1
+                        For c22j = 0 To 3
+                            If c22j = 0 Then c22nx = c22cx + 1: c22ny = c22cy
+                            If c22j = 1 Then c22nx = c22cx - 1: c22ny = c22cy
+                            If c22j = 2 Then c22nx = c22cx: c22ny = c22cy + 1
+                            If c22j = 3 Then c22nx = c22cx: c22ny = c22cy - 1
+                            If c22nx >= 0 And c22nx <= mapW - 1 And c22ny >= 0 And c22ny <= mapH - 1 Then
+                                If c22wd(c22nx, c22ny) >= 0 And c22wd(c22nx, c22ny) < c22best Then
+                                    c22best = c22wd(c22nx, c22ny): c22bnx = c22nx: c22bny = c22ny
+                                End If
+                            End If
+                        Next c22j
+                        If c22bnx >= 0 Then
+                            angle = _ATan2(c22bny + 0.5 - py, c22bnx + 0.5 - px)
+                            c22key$ = "w"
+                        End If
+                    End If
+                End If
+                If c22wp > c22wpN Then
+                    moveStep = c22msave
+                    stMsg$ = "PASS 5e-c2-walkbot-level01 (real movement walked all " + Str$(c22wpN) + " BFS waypoints incl. farthest (dist " + Str$(c22maxd) + ") — no invisible walls on any walked path, every step OpenCell-checked)"
+                    Gosub STLog
+                    testFlag = 5: testT0 = Timer
+                ElseIf Timer - testT0 >= 40 Then
+                    stMsg$ = "FAIL 5e-c2-walkbot-level01 wp=" + Str$(c22wp) + "/" + Str$(c22wpN) + " px=" + LTrim$(Str$(px)) + " py=" + LTrim$(Str$(py)) + " wd=" + Str$(c22wd(Int(px), Int(py)))
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 5 Then
+                ' --- 5e-c part 3: BFS==OpenCell on level02 ---
+                mapFile$ = "maps/level02.map"
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: hp = 100
+                For i = 0 To 10: enActive(i) = 0: Next i
+                enActive(0) = 1: enX(0) = 1.5: enY(0) = 14.5: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                bfsTX = plStartX: bfsTY = plStartY: Gosub BFSCompute
+                c22bfs = 0: c22open = 0: c22maxd = 0
+                For c22y = 0 To mapH - 1
+                    For c22x = 0 To mapW - 1
+                        If bfsD(c22x, c22y) >= 0 Then c22bfs = c22bfs + 1: If bfsD(c22x, c22y) > c22maxd Then c22maxd = bfsD(c22x, c22y)
+                        If OpenCell%(c22x, c22y) = 1 Then c22open = c22open + 1
+                    Next c22x
+                Next c22y
+                If c22bfs = c22open And c22open > 0 Then
+                    stMsg$ = "PASS 5e-c3-bfs-equals-opencell-level02 (BFS=" + Str$(c22bfs) + " == OpenCell=" + Str$(c22open) + ", maxdist=" + Str$(c22maxd) + ")"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5e-c3 level02 bfs=" + Str$(c22bfs) + " open=" + Str$(c22open)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                c22wpN = 0
+                For c22d = 3 To c22maxd Step 3
+                    For c22y = 0 To mapH - 1
+                        For c22x = 0 To mapW - 1
+                            If bfsD(c22x, c22y) = c22d And c22wpN < 8 Then
+                                c22wpN = c22wpN + 1: c22wx(c22wpN) = c22x: c22wy(c22wpN) = c22y
+                            End If
+                        Next c22x
+                    Next c22y
+                Next c22d
+                If c22maxd >= 0 And c22wpN < 8 Then
+                    For c22y = 0 To mapH - 1
+                        For c22x = 0 To mapW - 1
+                            If bfsD(c22x, c22y) = c22maxd And c22wpN < 8 Then c22wpN = c22wpN + 1: c22wx(c22wpN) = c22x: c22wy(c22wpN) = c22y
+                        Next c22x
+                    Next c22y
+                End If
+                c22wp = 1
+                c22msave = moveStep: moveStep = 0.08
+                c22tx = c22wx(1): c22ty = c22wy(1)
+                bfsTX = c22tx: bfsTY = c22ty: Gosub BFSCompute
+                For c22y = 0 To mapH - 1
+                    For c22x = 0 To mapW - 1
+                        c22wd(c22x, c22y) = bfsD(c22x, c22y)
+                    Next c22x
+                Next c22y
+                state$ = "playing"
+                stMsg$ = "5e-c: walk-bot level02, " + Str$(c22wpN) + " waypoints (bfsD 3,6,9,...,maxd)"
+                Gosub STLog
+                testFlag = 6: testT0 = Timer
+            End If
+            If testFlag = 6 Then
+                ' --- 5e-c part 4: real walk on level02 ---
+                If Timer - testT0 > c22dbgT + 2 Then
+                    c22dbgT = Timer - testT0
+                    stMsg$ = "5e-c6 dbg t=" + Str$(Int(Timer - testT0)) + " state=" + state$ + " wp=" + Str$(c22wp) + "/" + Str$(c22wpN) + " px=" + LTrim$(Str$(Int(px * 100) / 100)) + " py=" + LTrim$(Str$(Int(py * 100) / 100)) + " cell=" + Str$(Int(px)) + "," + Str$(Int(py)) + " wd=" + Str$(c22wd(Int(px), Int(py))) + " mvF=" + Str$(mvF) + " ang=" + Str$(Int(angle * 100) / 100) + " spd=" + Str$(Int(speed)) + " c63=" + CellAt$(6, 3) + " open63=" + Str$(OpenCell%(6, 3)) + " row3=" + mapRow$(3) + " mapW=" + Str$(mapW) + " file=" + mapFile$
+                    Gosub STLog
+                End If
+                If state$ = "playing" Then
+                    hp = 100: winPending = 0
+                    c22cx = Int(px): c22cy = Int(py)
+                    If c22wd(c22cx, c22cy) = 0 Then
+                        c22wp = c22wp + 1
+                        If c22wp <= c22wpN Then
+                            c22tx = c22wx(c22wp): c22ty = c22wy(c22wp)
+                            bfsTX = c22tx: bfsTY = c22ty: Gosub BFSCompute
+                            For c22y = 0 To mapH - 1
+                                For c22x = 0 To mapW - 1
+                                    c22wd(c22x, c22y) = bfsD(c22x, c22y)
+                                Next c22x
+                            Next c22y
+                        End If
+                    Else
+                        c22best = c22wd(c22cx, c22cy): c22bnx = -1: c22bny = -1
+                        For c22j = 0 To 3
+                            If c22j = 0 Then c22nx = c22cx + 1: c22ny = c22cy
+                            If c22j = 1 Then c22nx = c22cx - 1: c22ny = c22cy
+                            If c22j = 2 Then c22nx = c22cx: c22ny = c22cy + 1
+                            If c22j = 3 Then c22nx = c22cx: c22ny = c22cy - 1
+                            If c22nx >= 0 And c22nx <= mapW - 1 And c22ny >= 0 And c22ny <= mapH - 1 Then
+                                If c22wd(c22nx, c22ny) >= 0 And c22wd(c22nx, c22ny) < c22best Then
+                                    c22best = c22wd(c22nx, c22ny): c22bnx = c22nx: c22bny = c22ny
+                                End If
+                            End If
+                        Next c22j
+                        If c22bnx >= 0 Then
+                            angle = _ATan2(c22bny + 0.5 - py, c22bnx + 0.5 - px)
+                            c22key$ = "w"
+                        End If
+                    End If
+                End If
+                If c22wp > c22wpN Then
+                    moveStep = c22msave
+                    stMsg$ = "PASS 5e-c4-walkbot-level02 (real movement walked all " + Str$(c22wpN) + " BFS waypoints incl. farthest (dist " + Str$(c22maxd) + ") — no invisible walls; restart-clean since the map is re-parsed on every LoadLevel)"
+                    Gosub STLog
+                    testFlag = 7: testT0 = Timer
+                ElseIf Timer - testT0 >= 40 Then
+                    stMsg$ = "FAIL 5e-c4-walkbot-level02 wp=" + Str$(c22wp) + "/" + Str$(c22wpN) + " state=" + state$ + " px=" + LTrim$(Str$(px)) + " py=" + LTrim$(Str$(py)) + " wd=" + Str$(c22wd(Int(px), Int(py))) + " bn=" + Str$(c22bnx) + "," + Str$(c22bny) + " ang=" + Str$(Int(angle * 100) / 100) + " mvF=" + Str$(mvF) + " key='" + c22key$ + "'"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 7 Then
+                ' --- 5e-d: ammo-bot clears levels 1->3 without ammo reaching 0 ---
+                gameMode$ = "single"
+                lstFile$ = "maps/levels.lst"
+                Gosub LoadLevelsLst
+                If loadFatal Or lvlN < 3 Then
+                    stMsg$ = "FAIL 5e-d lst loadFatal=" + Str$(loadFatal) + " lvlN=" + Str$(lvlN)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                For c22i = 0 To ET_COUNT - 1: etDodge!(c22i) = 0: Next c22i   ' minimal skill = every ball hits
+                c22lvl = 1: c22min = 999: c22shots = 0
+                c22msave = moveStep: moveStep = 0.08   ' bot speed (collision checks active)
+                lvlIdx = 0
+                Gosub LoadLevel
+                c22ammo0 = ammo
+                stMsg$ = "5e-d: ammo-bot levels 1->3, startAmmo=" + Str$(ammo) + " pickup=+" + Str$(ammoPickup) + " cap=" + Str$(maxAmmo)
+                Gosub STLog
+                testFlag = 8: testT0 = Timer
+            End If
+            If testFlag = 8 Then
+                If state$ = "playing" Then
+                    hp = 100
+                    If ammo < c22min Then c22min = ammo
+                    ' collect A pickups first (walk onto the cell)
+                    c22am = -1
+                    For c22i = 0 To 10
+                        If amActive(c22i) And c22am = -1 Then c22am = c22i
+                    Next c22i
+                    If c22am >= 0 Then
+                        px = amX(c22am): py = amY(c22am): fireBtn = 0
+                    Else
+                        c22alive = 0: c22bd = 999: c22bi = -1
+                        For c22i = 0 To 10
+                            If enActive(c22i) Then
+                                c22alive = c22alive + 1
+                                c22d = Sqr((enX(c22i) - px) ^ 2 + (enY(c22i) - py) ^ 2)
+                                If c22d < c22bd Then c22bd = c22d: c22bi = c22i
+                            End If
+                        Next c22i
+                        If c22alive = 0 Then
+                            c22lvl = c22lvl + 1
+                            If c22lvl > 3 Then
+                                If c22min >= 1 And c22ammo0 = startAmmo Then
+                                    stMsg$ = "PASS 5e-d-ammo-bot-levels-1-3 (cleared levels 1->3, ammo NEVER reached 0: min ammo=" + Str$(c22min) + " (startAmmo=" + Str$(startAmmo) + ", pickup=+" + Str$(ammoPickup) + ", cap=" + Str$(maxAmmo) + "), shots fired=" + Str$(c22shots) + ")"
+                                    Gosub STLog
+                                Else
+                                    stMsg$ = "FAIL 5e-d minAmmo=" + Str$(c22min) + " ammo0=" + Str$(c22ammo0)
+                                    Gosub STLog
+                                    stMsg$ = "SELFTEST FAIL"
+                                    Gosub STLog
+                                    ShutdownSound
+                                    End
+                                End If
+                                ' restore selftest env, continue to fas12
+                                Gosub InitEnemyTypes
+                                moveStep = c22msave
+                                gameMode$ = "selftest": menuPick = 0: autoCamp = 0
+                                mapFile$ = selftestMap$
+                                Gosub LoadMapAuto
+                                Gosub ApplyMapSpawns
+                                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammo = startAmmo
+                                For i = 0 To 10: enActive(i) = 0: Next i
+                                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                                For i = 0 To PR_MAX: prActive(i) = 0: Next i
+                                bfsForX = -1: bfsForY = -1
+                                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                                runT0 = Timer - 3   ' fas12a needs a real frozen time (wt1 >= 1)
+                                state$ = "playing"
+                                testPhase = 12: testT0 = Timer: testFlag = 0
+                            Else
+                                lvlIdx = c22lvl - 1
+                                Gosub LoadLevel
+                                c22ammo0 = ammo
+                                testT0 = Timer
+                            End If
+                        Else
+                            If ammo = 0 Then
+                                stMsg$ = "FAIL 5e-d-ammo-zero (level " + Str$(c22lvl) + ": ammo reached 0 with " + Str$(c22alive) + " enemies alive)"
+                                Gosub STLog
+                                stMsg$ = "SELFTEST FAIL"
+                                Gosub STLog
+                                ShutdownSound
+                                End
+                            End If
+                            If c22bi >= 0 Then
+                                ' hunt-bot: fire only with clear LOS and short range;
+                                ' otherwise walk toward the enemy along the BFS gradient
+                                fx = px: fy = py: tx = enX(c22bi): ty = enY(c22bi): Gosub LOSCheck
+                                If losOK And c22bd <= 3 Then
+                                    angle = _ATan2(enY(c22bi) - py, enX(c22bi) - px)
+                                    dirX = Cos(angle): dirY = Sin(angle)
+                                    fireBtn = 1: c22shots = c22shots + 1
+                                    c22key$ = ""
+                                Else
+                                    fireBtn = 0
+                                    bfsTX = Int(enX(c22bi)): bfsTY = Int(enY(c22bi)): Gosub BFSCompute
+                                    For c22y = 0 To mapH - 1
+                                        For c22x = 0 To mapW - 1
+                                            c22wd(c22x, c22y) = bfsD(c22x, c22y)
+                                        Next c22x
+                                    Next c22y
+                                    c22cx = Int(px): c22cy = Int(py)
+                                    c22best = c22wd(c22cx, c22cy): c22bnx = -1: c22bny = -1
+                                    For c22j = 0 To 3
+                                        If c22j = 0 Then c22nx = c22cx + 1: c22ny = c22cy
+                                        If c22j = 1 Then c22nx = c22cx - 1: c22ny = c22cy
+                                        If c22j = 2 Then c22nx = c22cx: c22ny = c22cy + 1
+                                        If c22j = 3 Then c22nx = c22cx: c22ny = c22cy - 1
+                                        If c22nx >= 0 And c22nx <= mapW - 1 And c22ny >= 0 And c22ny <= mapH - 1 Then
+                                            If c22wd(c22nx, c22ny) >= 0 And c22wd(c22nx, c22ny) < c22best Then
+                                                c22best = c22wd(c22nx, c22ny): c22bnx = c22nx: c22bny = c22ny
+                                            End If
+                                        End If
+                                    Next c22j
+                                    If c22bnx >= 0 Then
+                                        angle = _ATan2(c22bny + 0.5 - py, c22bnx + 0.5 - px)
+                                        c22key$ = "w"
+                                    End If
+                                End If
+                            End If
+                        End If
+                    End If
+                End If
+                If state$ = "playing" And Timer - testT0 >= 40 Then
+                    stMsg$ = "FAIL 5e-d-timeout level=" + Str$(c22lvl) + " state=" + state$ + " ammo=" + Str$(ammo)
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
                     Gosub STLog

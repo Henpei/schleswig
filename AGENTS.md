@@ -84,6 +84,14 @@ weapons rendering).
   ACTUAL map size in ParseMap at commit — no static map-dimension
   constant drives any loop (MAP_MAX=128 remains only as the input
   read cap for mapSrc$/mapTmp$ and the parse guard).
+- MOVEMENT COORDINATE TRAP (5E — THE "invisible walls" bug): the
+  vertical movement check must be
+  `OpenCell%(Int(px), Int(ny + Sgn(ny-py)*0.2))` — it was
+  `OpenCell%(Int(ny + Sgn(ny-py)*0.2), Int(px))` (x/y SWAPPED), so
+  vertical moves were blocked by whatever wall happened to sit at
+  (y-candidate, x-current) — phantom invisible walls at static
+  spots. Fixed in all 4 movement blocks (mvF/mvB/mvL/mvR); guarded
+  permanently by selftest 5e-c (BFS==OpenCell + real walk-bot).
 
 ## PARKED (do not reactivate without André's OK)
 - Virtual cursor + arrow sprite (commit aa26eee):
@@ -112,7 +120,16 @@ enemies, lowercase = keys:
   'd' wood door (E always opens)   '1' bronze  '2' silver  '3' gold door (E + key)
   'b' bronze key   's' silver key   'g' gold key
 Row length = width, row count = height. Historical maps: at least 64x64
-(shipped test map: schleswig/maps/test64.map; MAP_MAX=128 in code).
+(shipped test map: schleswig/maps/test64.map; MAP_MAX=128 is only the input
+read cap — the committed arrays are REDIM'd to the real map size in ParseMap).
+5E CHAR SEMANTICS (single source): ParseMap NORMALIZES every spawn/item char
+(S/F/O/U/K/G/M/A/b/s/g) to '.' at commit, so a parsed grid only ever contains
+'#', '.', ' ' (OOB=wall) and door chars. WallChar%/DoorChar% own the meaning of
+a char; Solid% (built on them) is the ONLY collision/render query — render
+DDA, LOS, projectiles, BFS and movement all go through it, so render and
+collision can never disagree (no invisible walls). ParseMap also counts
+leftover non-normalized cells into mapBadN (must be 0); Const dbgCellScan=1
+shows a HUD debug line "BADCELLS n".
 Malformed map (ragged rows / invalid char / not exactly one 'S') -> LOUD FATAL:
 fullscreen "INVALID MAP: <path> line <r> col <c>: <why>. Press Q to quit."
 (state$ = "fatal", Q/ESC quits) + log line. Missing file -> "MAP FILE NOT
@@ -186,6 +203,13 @@ scale in the map data — level01: 2 enemies (F F, easiest) ... level05: 8
 enemies (F O U K / G F F U, densest). Display names in maps/levels.lst:
 The Outskirts / Village Streets / The Old Mill / Barracks Yard / The Citadel.
 Vibe writes the real campaign maps later (6a+).
+
+## Ammo balance (5E)
+Const startAmmo = 15 (was 5 — ~3x, André ran dry before level 3),
+Const ammoPickup = 10 per 'A' pickup (was +5), Const maxAmmo = 20 (cap,
+also drives the HUD ammo ticks). Placeholder A-cell counts follow "~1 A per
+2 enemies" with the enemy curve 2/3/4/6/8 untouched: level01..05 have
+1/2/2/3/4 A cells (1 M each).
 
 ## Viewmodel design note (5A-hotfix2)
 The viewmodel sits deliberately ~half a gun-width RIGHT of center
