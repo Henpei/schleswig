@@ -55,13 +55,23 @@ data) — see AGENTS.md.
 ## Controls
 
 - SPACE or click START GAME: start the game
-- W / S: forward / back, A / D: strafe (start ammo 15, max 20, ammo pickups +10)
+- W / S: forward / back, A / D: strafe
 - Mouse: look around. NOTE (Wayland): pointer lock engages on the first mouse
   click in game (the protocol requires a user gesture)
-- Left mouse button: shoot
+- Left mouse button: attack / shoot (per weapon)
+- Digit keys 1-5: select owned weapon (unowned = nothing happens); [ and ]: previous/next owned weapon
+- Weapons: start with the AXE (melee, no ammo). Pickups in the maps:
+  `y` axe, `m` musket, `f` blunderbuss (double barrel, 2-shot magazine),
+  `k` machine gun, `c` mini cannon (arcing grenade, splash damage).
+  Ammo pickups per type: `A` musket, `B` blunderbuss, `C` machine gun, `D` mini cannon.
+  Weapons and ammo carry over between campaign levels (only a fresh round resets them;
+  RESTART LEVEL keeps weapons and restores ammo to the level-segment start).
+- E: open door (keys needed for 1/2/3 doors)
 - R (on the death screen): restart (campaign: RESTART LEVEL = same level; arena/single: full restart to menu)
 - G: debug, -5 HP
-- ESC: quit
+- ESC: pause/quit
+- Easter egg: type `qtd` while playing for 60 s of QUANTUM MODE (the Danes'
+  uncertainty principle is YOURS) — see AGENTS.md
 
 ## Status
 
@@ -97,6 +107,8 @@ add a spawn of it to this map.
 One char per cell, rows = map rows (CASE-SENSITIVE: 'S' start vs 's' silver key):
 `#` wall, `.` floor, ` ` out-of-bounds, `S` player start,
 `F`/`O`/`U`/`K`/`G` = foot/officer/musketeer/captain/general spawn,
-`M` medkit, `A` ammo, `d` wood door (E opens), `1`/`2`/`3` = bronze/silver/gold
-door (E needs the key), `b`/`s`/`g` = bronze/silver/gold key pickups.
+`M` medkit, `A` ammo (type 1), `d` wood door (E opens), `1`/`2`/`3` = bronze/silver/gold
+door (E needs the key), `b`/`s`/`g` = bronze/silver/gold key pickups,
+`y`/`m`/`f`/`k`/`c` = weapon pickups (axe/musket/blunderbuss/machine gun/mini cannon),
+`B`/`C`/`D` = ammo pickups types 2/3/4.
 See AGENTS.md for the full table.
