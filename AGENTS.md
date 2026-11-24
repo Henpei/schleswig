@@ -77,9 +77,11 @@ weapons rendering).
   vCurX/vCurY, MoveVirtualCursor, ButtonHit%,
   DrawCursor, cursorBuf&.
 
-## Map format (.map) — Fas 5A
-Load a map: `./schleswig/schleswig path/to/map.map` (no arg = embedded default
-16x16; `selftest` = selftest). Rows = map rows, one char per cell.
+## Map format (.map) — Fas 5A / 5A-hotfix2
+Load a map: `./schleswig/schleswig path/to/map.map`. NO arg = `maps/default.map`
+(the shipped 16x16, functionally identical to the old embedded grid).
+`selftest` = selftest. A MAP FILE IS THE ONLY WAY — there is NO embedded
+fallback map anymore (removed in 5A-hotfix2). Rows = map rows, one char per cell.
 CASE-SENSITIVE parse — TRAP: 'S' = player start, 's' = silver KEY; uppercase =
 enemies, lowercase = keys:
   '#' wall    '.' floor    ' ' out-of-bounds (wall in BFS/render)
@@ -90,16 +92,29 @@ enemies, lowercase = keys:
   'b' bronze key   's' silver key   'g' gold key
 Row length = width, row count = height. Historical maps: at least 64x64
 (shipped test map: schleswig/maps/test64.map; MAP_MAX=128 in code).
-Malformed map (ragged rows / invalid char) -> embedded default grid + log, no crash.
+Malformed map (ragged rows / invalid char / not exactly one 'S') -> LOUD FATAL:
+fullscreen "INVALID MAP: <path> line <r> col <c>: <why>. Press Q to quit."
+(state$ = "fatal", Q/ESC quits) + log line. Missing file -> "MAP FILE NOT
+FOUND: <path>. Press Q to quit." Same fatal path. NO silent/phantom map ever
+reaches render. ParseMap stages into mapTmp$ and only COMMITS to mapRow$ on
+full success (mapValid = 1) — a half-parsed grid can never reach render.
 Map-declared enemies spawn as typed every wave; remaining slots are filled by
 the register mix (etMinWave gating). Opened doors stay open for the round;
 closed doors are walls for BFS/movement/render-hit.
 
-## Map loading paths (5A-hotfix)
-The loader tries the arg as-is, then "schleswig/" + arg, so both work:
+## Map loading paths (5A-hotfix2)
+QB64-PE sets the game process cwd to the EXECUTABLE's own directory
+(schleswig/), no matter where you start it from — so map paths resolve
+relative to schleswig/. The loader tries the arg as-is, then "schleswig/" +
+arg (fallback for other exe locations). Works from any shell cwd:
   ./schleswig/schleswig maps/test64.map     (from QB64pe root)
   schleswig/schleswig maps/test64.map       (from repo root)
+No arg -> maps/default.map (same two path forms). Build/run from the QB64pe
+root (/home/andre/QB64pe).
 mapRow$ is THE single map grid — every read goes via CellAt$/Solid%/OpenCell%.
-The embedded Data block is pure fallback DATA (defMap$ -> mapSrc$ -> ParseMap);
-BuildDefaultMap also writes into mapRow$. LoadMapAuto always runs before the
-first render frame.
+LoadMapAuto always runs before the first render frame.
+
+## Viewmodel design note (5A-hotfix2)
+The viewmodel sits deliberately ~half a gun-width RIGHT of center
+(Const vmOffsetX! = 0.06) — Wolfenstein/Quake design. DO NOT "fix" it to
+center. Sway/bob/recoil apply to the WHOLE sprite via one gunX/gunY offset.

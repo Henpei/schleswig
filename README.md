@@ -14,8 +14,14 @@ different "layers" (directory vs file), so no name collision can occur.
 
 ## Run
 
-    ./schleswig/schleswig            # play
-    ./schleswig/schleswig selftest   # scripted self-test (9 phases), log: /tmp/schleswig_selftest.log
+    ./schleswig/schleswig            # play (loads maps/default.map)
+    ./schleswig/schleswig selftest   # scripted self-test, log: /tmp/schleswig_selftest.log
+
+A map file is the ONLY way to play — there is no embedded fallback map.
+No argument loads maps/default.map. Paths resolve relative to the executable's
+own directory (schleswig/); the loader also tries a "schleswig/" prefix.
+Missing file -> fullscreen "MAP FILE NOT FOUND: <path>. Press Q to quit.";
+invalid map -> "INVALID MAP: <path> line <r> col <c>: <why>. Press Q to quit."
 
 ## Controls
 
@@ -50,6 +56,7 @@ GPLv3 (planned). The license text will be attached as a LICENSE file at the
 ## Maps (.map files, Fas 5A)
 
     ./schleswig/schleswig maps/test64.map    # load a specific map (64x64 test map shipped)
+    ./schleswig/schleswig                    # no arg = maps/default.map (16x16)
 
 One char per cell, rows = map rows (CASE-SENSITIVE: 'S' start vs 's' silver key):
 `#` wall, `.` floor, ` ` out-of-bounds, `S` player start,
