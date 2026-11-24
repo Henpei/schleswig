@@ -171,6 +171,7 @@ DIM mapFile$, loadedMapFile$, lmPath$, lmOK, pmOK, srcN
 DIM mapValid                 ' 1 only after a FULL successful ParseMap commit
 DIM loadFatal, fatalMsg$, errRow, errCol, errWhy$, nStartS, tStartX, tStartY, mapWarn$
 mapValid = 0
+Const selftestMap$ = "/tmp/schleswig_selftest16.map"   ' 5A-hotfix2 addendum: default.map is the 64x64 TEST ARENA; selftest phases 1-16 run on this classic 16x16 temp map
 
 Dim pal&(255)
 For i = 0 To 255
@@ -192,7 +193,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "4463d60"
+Const strBuild$ = "5618122"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -384,6 +385,34 @@ If selftest Then
     Close #stF
     If loadFatal Then
         stMsg$ = "FAIL selftest init: map load fatal: " + fatalMsg$: Gosub STLog
+        stMsg$ = "SELFTEST FAIL": Gosub STLog
+        ShutdownSound
+        End
+    End If
+    ' default.map is the 64x64 TEST ARENA — scripted phases 1-16 are hardcoded
+    ' against the classic 16x16 layout, so write it to a temp file and load that.
+    stF16 = FreeFile
+    Open selftestMap$ For Output As #stF16
+    Print #stF16, "################"
+    Print #stF16, "#M.....M......M#"
+    Print #stF16, "#..##......##..#"
+    Print #stF16, "#..##......##..#"
+    Print #stF16, "#..A...S....A..#"
+    Print #stF16, "#.....####.....#"
+    Print #stF16, "#.....#..#.....#"
+    Print #stF16, "#....M#..#.....#"
+    Print #stF16, "#..#..####..#..#"
+    Print #stF16, "#..#..A....#...#"
+    Print #stF16, "#..#.####.#.#..#"
+    Print #stF16, "#....#..#...#..#"
+    Print #stF16, "#..............#"
+    Print #stF16, "#......##......#"
+    Print #stF16, "#.....M........#"
+    Print #stF16, "################"
+    Close #stF16
+    mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+    If loadFatal Or mapValid = 0 Then
+        stMsg$ = "FAIL selftest init: selftest 16x16 map failed: " + fatalMsg$: Gosub STLog
         stMsg$ = "SELFTEST FAIL": Gosub STLog
         ShutdownSound
         End
@@ -4153,8 +4182,8 @@ SelftestDrive:
                     ShutdownSound
                     End
                 End If
-                ' restore the default map file + spawns, then continue to fas18
-                mapFile$ = ""
+                ' restore the selftest 16x16 map + spawns, then continue to fas18
+                mapFile$ = selftestMap$
                 Gosub LoadMapAuto
                 Gosub ApplyMapSpawns
                 px = plStartX + 0.5: py = plStartY + 0.5: angle = 0
@@ -4162,60 +4191,73 @@ SelftestDrive:
                 enActive(0) = 1: enX(0) = 13.5: enY(0) = 9.5: enSpd(0) = 0
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 If mapW = 16 And mapH = 16 And mapValid = 1 And loadFatal = 0 And Len(loadedMapFile$) > 0 Then
-                    stMsg$ = "PASS fas17-end (maps/default.map restored 16x16, loaded=" + loadedMapFile$ + ")"
+                    stMsg$ = "PASS fas17-end (selftest 16x16 map restored, loaded=" + loadedMapFile$ + ")"
                     Gosub STLog
                 End If
                 testPhase = 18: testT0 = Timer: testFlag = 0   ' continue to fas18 (5A-hotfix2), then fas12
             End If
         Case 18  ' FAS 5A-HOTFIX2: (a) missing map file -> LOUD fatal, grid untouched,
                  ' (b) broken map -> loud fatal with line/col in log, (c) maps/default.map
-                 ' = same grid as the old embedded default (20 spot cells), (d) test64
-                 ' via both path forms -> identical grid, (e) render only ever sees a
-                 ' fully-parsed grid (wallDist from render vs CellAt$), (f) viewmodel
-                 ' barrel-stock junction connected + constant over sway/recoil.
+                 ' = the 64x64 TEST ARENA (64 rows x 64 cols, exactly one S, every
+                 ' register enemy type >=1, sealed border, sane render wallDist),
+                 ' (d) test64 via two path forms -> identical grid, (e) render only
+                 ' ever sees a fully-parsed grid, (f) viewmodel common origin +
+                 ' rigid single-offset sway/recoil cycle.
             hp = 100
             If testFlag = 0 Then
-                ' (c) default.map (no arg) must equal the OLD embedded default grid
-                mapFile$ = ""
+                ' (c) default.map = 64x64 test arena: size, one S, all enemy types
+                mapFile$ = "maps/default.map"
                 Gosub LoadMapAuto
                 Gosub ApplyMapSpawns
-                px18(0) = 15: py18(0) = 4: pch$(0) = "#"    ' east border wall
-                px18(1) = 7:  py18(1) = 4: pch$(1) = "."    ' 'S' -> '.'
-                px18(2) = 6:  py18(2) = 5: pch$(2) = "#"    ' inner wall (row 5 "####")
-                px18(3) = 1:  py18(3) = 1: pch$(3) = "."    ' 'M' -> '.'
-                px18(4) = 3:  py18(4) = 4: pch$(4) = "."    ' 'A' -> '.'
-                px18(5) = 0:  py18(5) = 0: pch$(5) = "#"
-                px18(6) = 15: py18(6) = 15: pch$(6) = "#"
-                px18(7) = 5:  py18(7) = 7: pch$(7) = "."    ' 'M' row 7
-                px18(8) = 6:  py18(8) = 14: pch$(8) = "."   ' 'M' row 14
-                px18(9) = 6:  py18(9) = 9: pch$(9) = "."    ' 'A' row 9
-                px18(10) = 9: py18(10) = 8: pch$(10) = "#"  ' wall row 8
-                px18(11) = 12: py18(11) = 4: pch$(11) = "." ' 'A'
-                px18(12) = 7: py18(12) = 1: pch$(12) = "."  ' 'M'
-                px18(13) = 14: py18(13) = 1: pch$(13) = "." ' 'M'
-                px18(14) = 3: py18(14) = 2: pch$(14) = "#"
-                px18(15) = 6: py18(15) = 6: pch$(15) = "#"
-                px18(16) = 10: py18(16) = 10: pch$(16) = "#"
-                px18(17) = 13: py18(17) = 12: pch$(17) = "."
-                px18(18) = 7: py18(18) = 13: pch$(18) = "#"
-                px18(19) = 8: py18(19) = 0: pch$(19) = "#"
-                p18n = 20
-                pm18 = 0
-                For ej18 = 0 To p18n - 1
-                    If CellAt$(px18(ej18), py18(ej18)) <> pch$(ej18) Then pm18 = pm18 + 1
+                p18t0 = 0: p18t1 = 0: p18t2 = 0: p18t3 = 0: p18t4 = 0
+                For ej18 = 0 To spEnN - 1
+                    If spEnT(ej18) = ET_FOOT Then p18t0 = p18t0 + 1
+                    If spEnT(ej18) = ET_OFFICER Then p18t1 = p18t1 + 1
+                    If spEnT(ej18) = ET_MUSKETEER Then p18t2 = p18t2 + 1
+                    If spEnT(ej18) = ET_CAPTAIN Then p18t3 = p18t3 + 1
+                    If spEnT(ej18) = ET_GENERAL Then p18t4 = p18t4 + 1
                 Next ej18
-                If mapW = 16 And mapH = 16 And mapValid = 1 And loadFatal = 0 And Len(loadedMapFile$) > 0 And pm18 = 0 And plStartX = 7 And plStartY = 4 And spPkN = 5 And spAmN = 3 And mapRow$(0) = "################" And mapRow$(4) = "#..............#" Then
-                    stMsg$ = "PASS fas18c-default-map (no arg -> " + loadedMapFile$ + ": same grid as old embedded default, 20/20 cells, S=(7,4), Mx5, Ax3)"
+                If mapW = 64 And mapH = 64 And mapValid = 1 And loadFatal = 0 And nStartS = 1 And Len(mapRow$(0)) = 64 And Len(mapRow$(63)) = 64 And mapRow$(0) = String$(64, "#") And mapRow$(63) = String$(64, "#") And plStartX = 32 And plStartY = 37 And p18t0 >= 1 And p18t1 >= 1 And p18t2 >= 1 And p18t3 >= 1 And p18t4 >= 1 Then
+                    stMsg$ = "PASS fas18c-default-arena (" + loadedMapFile$ + ": 64x64, one S=(32,37), sealed border, enemies F/O/U/K/G = " + Str$(p18t0) + "/" + Str$(p18t1) + "/" + Str$(p18t2) + "/" + Str$(p18t3) + "/" + Str$(p18t4) + ")"
                     Gosub STLog
                 Else
-                    stMsg$ = "FAIL fas18c mapW=" + Str$(mapW) + " mapH=" + Str$(mapH) + " mapValid=" + Str$(mapValid) + " pm18=" + Str$(pm18) + " loaded=" + loadedMapFile$ + " spPkN=" + Str$(spPkN) + " spAmN=" + Str$(spAmN) + " plStart=" + Str$(plStartX) + "," + Str$(plStartY)
+                    stMsg$ = "FAIL fas18c mapW=" + Str$(mapW) + " mapH=" + Str$(mapH) + " mapValid=" + Str$(mapValid) + " nStartS=" + Str$(nStartS) + " loaded=" + loadedMapFile$ + " plStart=" + Str$(plStartX) + "," + Str$(plStartY) + " types=" + Str$(p18t0) + "/" + Str$(p18t1) + "/" + Str$(p18t2) + "/" + Str$(p18t3) + "/" + Str$(p18t4)
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
                     Gosub STLog
                     ShutdownSound
                     End
                 End If
-                testFlag = 1: testT0 = Timer
+                ' render sanity on the arena: stand at S facing east, the center
+                ' column must hit the arena room wall (~9.5 cells), not the void
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0
+                For ej18 = 0 To 10: enActive(ej18) = 0: Next ej18
+                enActive(0) = 1: enX(0) = 24.5: enY(0) = 24.5: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                testFlag = 7: testT0 = Timer
+            End If
+            If testFlag = 7 Then
+                If Timer - testT0 >= 0.4 Then
+                    If mapValid = 1 And wallDist(RW \ 2) > 3 And wallDist(RW \ 2) < 63 Then
+                        stMsg$ = "PASS fas18c-render (from S=(32.5,37.5) facing east, wallDist(center)=" + LTrim$(Str$(Int(wallDist(RW \ 2) * 10) / 10)) + " = arena room wall — sane, no void)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL fas18c-render mapValid=" + Str$(mapValid) + " wallDistC=" + LTrim$(Str$(Int(wallDist(RW \ 2) * 10) / 10))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    testFlag = 1: testT0 = Timer
+                ElseIf Timer - testT0 >= 3 Then
+                    stMsg$ = "FAIL fas18c-render-timeout"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
             End If
             If testFlag = 1 Then
                 ' (d) test64 via TWO path forms (relative + absolute; game cwd is
@@ -4325,12 +4367,12 @@ SelftestDrive:
                     ShutdownSound
                     End
                 End If
-                ' restore default map file for the rest of the selftest
-                mapFile$ = ""
+                ' restore selftest 16x16 map for the rest of the selftest
+                mapFile$ = selftestMap$
                 Gosub LoadMapAuto
                 Gosub ApplyMapSpawns
                 If mapValid = 1 And loadFatal = 0 And mapW = 16 Then
-                    stMsg$ = "fas18: default map file restored (" + loadedMapFile$ + ")"
+                    stMsg$ = "fas18: selftest 16x16 map restored (" + loadedMapFile$ + ")"
                     Gosub STLog
                 Else
                     stMsg$ = "FAIL fas18-restore mapW=" + Str$(mapW) + " loadFatal=" + Str$(loadFatal)

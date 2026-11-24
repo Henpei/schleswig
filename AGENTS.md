@@ -79,7 +79,15 @@ weapons rendering).
 
 ## Map format (.map) — Fas 5A / 5A-hotfix2
 Load a map: `./schleswig/schleswig path/to/map.map`. NO arg = `maps/default.map`
-(the shipped 16x16, functionally identical to the old embedded grid).
+— the shipped 64x64 TEST ARENA (sealed border, 20x20 center room with a mid
+wall row, an L-corridor block, an 8-cell straight street; S=(32,37); every
+register enemy type F/O/U/K/G placed at least once; no keys/doors). Purpose:
+combat-logic testing (mortar/grenade arcs, projectile flight, dodge in tight
+corridors, musket sightlines) — NOT story. WHEN A NEW ENEMY TYPE IS ADDED TO
+THE REGISTER: UPDATE maps/default.map with at least one spawn of it.
+The selftest does NOT run on default.map: phases 1-16 use the classic 16x16
+layout written to /tmp/schleswig_selftest16.map (Const selftestMap$) —
+fas18c verifies the arena instead.
 `selftest` = selftest. A MAP FILE IS THE ONLY WAY — there is NO embedded
 fallback map anymore (removed in 5A-hotfix2). Rows = map rows, one char per cell.
 CASE-SENSITIVE parse — TRAP: 'S' = player start, 's' = silver KEY; uppercase =

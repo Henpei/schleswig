@@ -56,7 +56,14 @@ GPLv3 (planned). The license text will be attached as a LICENSE file at the
 ## Maps (.map files, Fas 5A)
 
     ./schleswig/schleswig maps/test64.map    # load a specific map (64x64 test map shipped)
-    ./schleswig/schleswig                    # no arg = maps/default.map (16x16)
+    ./schleswig/schleswig                    # no arg = maps/default.map
+
+`maps/default.map` is the shipped 64x64 TEST ARENA: sealed border, a 20x20
+center room with a mid wall row, an L-shaped corridor block, an 8-cell
+straight street, and at least one spawn of every enemy type (F/O/U/K/G).
+It exists for combat-logic testing (mortar arcs, projectile flight, dodge,
+sightlines), not for story. When a new enemy type is added to the register,
+add a spawn of it to this map.
 
 One char per cell, rows = map rows (CASE-SENSITIVE: 'S' start vs 's' silver key):
 `#` wall, `.` floor, ` ` out-of-bounds, `S` player start,
