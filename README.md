@@ -20,7 +20,7 @@ different "layers" (directory vs file), so no name collision can occur.
     ./schleswig/schleswig --level N  # campaign starting at levels.lst position N (dev tool)
     ./schleswig/schleswig selftest   # scripted self-test, log: /tmp/schleswig_selftest.log
 
-## Running from the QB64 IDE (ATT KÖRA VIA IDE)
+## Running from the QB64 IDE
 
 F5 on Schleswig.bas (no command-line argument) opens the START MENU:
 `[1] CAMPAIGN` (maps/levels.lst from level 1, HUD: LVL 1/5 ... — this is the
