@@ -113,3 +113,21 @@ door (E needs the key), `b`/`s`/`g` = bronze/silver/gold key pickups,
 `y`/`m`/`f`/`k`/`c` = weapon pickups (axe/musket/blunderbuss/machine musket/mini cannon),
 `B`/`C`/`D` = ammo pickups types 2/3/4.
 See AGENTS.md for the full table.
+
+### Pickup color legend (6D)
+
+Every pickup type has a UNIQUE floor-box color plus a small shape mark, so you
+can tell them apart at a distance:
+
+- Ammo `A` (musket): **yellow** box, dot mark
+- Ammo `B` (blunderbuss): **orange** box, horizontal bar mark
+- Ammo `C` (machine musket): **cyan** box, vertical bar mark
+- Ammo `D` (mini cannon): **magenta** box, cross mark
+- Medkit `M`: red box with a white cross
+- Keys `b`/`s`/`g`: bronze / silver / gold colored keys
+- Weapon pickups `y`/`m`/`f`/`k`/`c`: keep their own weapon color with a glint
+
+The HUD ammo panel always shows all four pools (`AMMO  A:n  B:n  C:n  D:n`,
+zeros visible), and each owned weapon in the weapon list shows its own pool
+(e.g. `2:MUSKET*12`). The same panel is printed on the result, victory and
+death screens.

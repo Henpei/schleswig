@@ -206,13 +206,26 @@ HUD mode line (HudLevelTag$): campaign "LVL <n>/<total> <name>  MAP <file>
 #<gridhash>  RESTARTS <r>", single "SINGLE <file> #<hash>", arena
 "ARENA <file> #<hash>".
 
-## Campaign maps (6C — REAL, Vibe-designed 64x64)
+## Campaign maps (6C v1.0 / 6D v1.2 — REAL, Vibe-designed 64x64)
 maps/level01..05.map are the REAL campaign maps (Vibe-designed, machine-
 validated; design doc: maps/SCHLESWIG-CAMPAIGN-MAPS-README.md). All 64x64,
 sealed border, exactly one S, ONLY existing chars (# . S F O U K G M A B C D
 y m f k c b s g 1 2 3). levels.lst:
-  level01.map|The Outskirts          F x3, musket 'm', bronze key 'b' + door '1', A x3
-  level02.map|The Smugglers' Cellar  F x3 O x2 U x1, 'f', silver 's' + door '2', A/B
+  level01.map|The Outskirts          v1.2 (6D): LOCKED HALVES — wall row y=33 with a
+                                     2-wide bronze gate '1' at (31,33)+(32,33) (+ bonus
+                                     shed door '1' at (40,44)); S=(32,59), bronze key
+                                     'b'=(32,40) on the south street; musket 'm'=(31,30)
+                                     and F x2 NORTH (18,17),(46,26), F x1 south (19,45);
+                                     A x4, M x1, doors '1' x3. Clearing REQUIRES opening
+                                     the gate (selftest 6d-e: BFS with doors closed
+                                     reaches 0 cells north of y=33 and neither northern
+                                     F; key b reachable south without doors; gate open
+                                     -> >100 north cells reachable).
+  level02.map|The Smugglers' Cellar  v1.2 (6D): LOCKED HALVES — wall row y=33, 2-wide
+                                     silver gate '2' at (31,33)+(32,33) (+ '2' at
+                                     (53,16) north); S=(32,59), silver key 's'=(17,45)
+                                     south; blunderbuss 'f'=(31,30) + F(18,22) + O x2 +
+                                     U x1 NORTH, F x2 south; B x4 A x3 M x2, doors '2' x3.
   level03.map|The Outer Rampart      F x4 O x2 U x2, 'k', A/B/C
   level04.map|The Moat Crossing      F x4 O x3 U x2 K x1, 'c', A/B/C/D
   level05.map|The Citadel            F x5 O x3 U x3 K x2 G x1, gold 'g' + doors '3' x2,
@@ -245,12 +258,15 @@ wpName$/wpDmg/wpCool!/wpRecoil!/wpShake!/wpSpread!/wpPellets/wpAmmoT/wpMag/
 wpReload!/wpMelee/wpArc/wpBallSpd!/wpCol&/wpSplashR!/wpSplashDmg per weapon;
 balance changes WITHOUT code-logic changes). WP_AXE=0, WP_MUSKET=1,
 WP_BLUNDER=2, WP_MG=3, WP_CANNON=4 (WP_COUNT=5).
-  AXE: melee, NO ammo, dmg 3, cooldown 0.7 s (6B-KOMPLETT: was dmg 8 / 0.8 s —
-    a foot soldier HP 4 now SURVIVES one hit with 1 HP margin, no one-shot),
-    swing anim 3 frames, hit = cone in front (~1 cell, ~45°); enemy melee-
-    dodge uses the LOWER etDodgeMelee! per type (FOOT 0.1 ... GENERAL 0).
-    Start weapon.
-  MUSKET: unchanged mechanics (dmg 1/ball, cooldown 0.3 s, ball speed 6,
+  AXE: melee, NO ammo, dmg 3, cooldown 1.2 s (6D FIX E: was 0.7 — at >=2 cells
+    the musket (4 x 0.3 s + travel ~1.07 s) now beats the axe (2 hits = 1.2 s);
+    6B-KOMPLETT: dmg was 8 / cd 0.8 — a foot soldier HP 4 now SURVIVES one hit
+    with 1 HP margin, no one-shot),
+    swing anim 3 frames, hit = cone in front (~1 cell, ~45°) aimed along the
+    aim angle; enemy melee-dodge uses the LOWER etDodgeMelee! per type
+    (FOOT 0.1 ... GENERAL 0). Start weapon.
+  MUSKET: unchanged mechanics (dmg 1/ball, cooldown 0.3 s, ball speed 12
+    (6D FIX D: was 6 — ~2x, still visible projectiles, NOT hitscan),
     ammo type 1). Reference viewmodel sprite (Fas 4C, unchanged).
   BLUNDERBUSS (6B-KOMPLETT, option iii = combination): 6 pellets x dmg 2 in a
     TIGHTER cone (spread 0.18 rad, was 4 x 1 @ 0.32), cooldown 0.9 s, ammo
@@ -261,8 +277,8 @@ WP_BLUNDER=2, WP_MG=3, WP_CANNON=4 (WP_COUNT=5).
   MACHINE MUSKET (maskingevär; 6B-KOMPLETT FIX G renamed from "MACHINE GUN"
     everywhere — HUD weapon list via wpName$, README, this file; sprite,
     mechanics and the 'k' pickup char are UNCHANGED): cooldown 0.08 s
-    (3-4x musket), dmg 1, faster ball (10), spread grows with distance
-    (+0.015 rad/cell), ammo type 3.
+    (3-4x musket), dmg 1, faster ball (16 — 6D FIX D, was 10; musket is 12),
+    spread grows with distance (+0.015 rad/cell), ammo type 3.
   MINI CANNON: reuses the enemy MORTAR (arc + flight 1.2 s + splash), but
     prOwner=0 (player); target = the crosshair DDA hit cell; splash radius
     2.0 (6B-KOMPLETT FIX C: was 1.5 — covers a whole corridor crossing; the
@@ -277,9 +293,11 @@ WP_BLUNDER=2, WP_MG=3, WP_CANNON=4 (WP_COUNT=5).
     telegraph). No duplicate code. Selftest 6b-b proves a fired grenade
     lands within +/-0.5 cell of the computed target.
 
-## Balance reference (6B-KOMPLETT) — time-to-kill FOOT SOLDIER (HP 4) at optimal range
-  AXE            dmg 3 / 0.7 s   -> 2 hits, kill at ~0.7 s
-  MUSKET         dmg 1 / 0.3 s   -> 4 balls, kill at ~0.9 s
+## Balance reference (6B-KOMPLETT + 6D FIX E) — time-to-kill FOOT SOLDIER (HP 4) at optimal range
+  AXE            dmg 3 / 1.2 s   -> 2 hits, kill at ~1.2 s (6D: cd 0.7->1.2 so the
+                                    axe is NOT strictly best at ALL ranges)
+  MUSKET         dmg 1 / 0.3 s   -> 4 balls, kill at ~0.9 s + travel; at >=2 cells
+                                    (~1.07 s total) the MUSKET beats the axe (1.2 s)
   BLUNDERBUSS    full hit <2 cells >= 4 dmg -> 1 shot (~0.9 s, +1.2 s reload / 2 shots)
   MACHINE MUSKET dmg 1 / 0.08 s  -> 4 shots, kill at ~0.24 s
   MINI CANNON    splash 25       -> 1 grenade (1.5 s cooldown)
@@ -325,6 +343,52 @@ EnemyDodge now sets a glide target (enDodgeSX!/SY! -> TX!/TY!, 0.2 s) instead
 of teleporting; pass 2 interpolates in <=0.3-cell sub-steps with OpenCell%
 checks (monotonic, never inside a wall, never a >0.5-cell frame hop).
 Exception: QTD quantum mode teleports (the joke).
+
+## SCHLESWIG 6D — aim, HUD panel, pickup colors, speeds, score model
+FIX A (aim, ONE source): after `angle = angle + mmx * mouseSens * speed` the
+  dirX/dirY pair is recomputed from the SAME angle in the same frame
+  (`dirX = Cos(angle): dirY = Sin(angle)`), so render, crosshair DDA,
+  player projectiles (ball dir = cos/sin aim, blunderbuss cone spreads around
+  aim, axe cone aims along aim), mini-cannon target and melee all use ONE aim
+  angle per frame. Selftest 6d-a: projectile per-frame delta == (cos,sin) of
+  aim within 0.01 and hits an enemy placed 3 cells along the aim ray.
+FIX B (HUD ammo panel): BuildAmmoHud builds `ammoHud$ = "AMMO  A:n  B:n  C:n
+  D:n"` — ALWAYS all four pools, zeros visible; printed in the HUD and on the
+  result/victory/death screens. The weapon list shows each owned weapon's OWN
+  pool (`2:MUSKET*12`, axe `--`, magazine `n/m`). Selftest 6d-b asserts the
+  panel text across fire/pickup.
+FIX C (pickup readability): amCol&(1..4) — A yellow (255,220,0), B orange
+  (255,120,0), C cyan (0,220,255), D magenta (255,0,200) — each ammo box is
+  drawn in its type color plus a shape mark (A dot, B horizontal bar, C
+  vertical bar, D cross); medkit stays red+cross, keys bronze/silver/gold,
+  weapon pickups keep wpCol& + glint. README has the color legend table.
+  Selftest 6d-c: pairwise-unique colors + distinct from medkit/key colors +
+  README legend matches.
+FIX D (projectile speed): plrBallSpd! 6 -> 12 (~2x, still visible
+  projectiles, NOT hitscan); machine musket ball 10 -> 16 (> musket);
+  ENEMY musketeer ball 5 -> 7 (proportionally up but still SLOWER than the
+  player's 12 — fairness, dodgeable). Selftest 6d-d measures a real ball.
+FIX E (axe balance): wpCool!(WP_AXE) 0.7 -> 1.2 s. TTK table updated above:
+  at >=2 cells musket (~1.07 s incl. travel) beats axe (1.2 s); the axe stays
+  best only in melee range. Selftest 6a-a register assertion updated to cd 1.2.
+FIX F (v1.2 campaign maps): level01/02.map replaced — locked halves with
+  gate + weapon + enemies behind the gate (see Campaign maps section above);
+  clearing REQUIRES the gate. Selftest 6d-e: keyless BFS on L1 (doors
+  closed) reaches 0 cells north of y=33 and neither northern F, while key b
+  is reachable south; opening the gate makes >100 north cells reachable.
+  6c hash/door-count expectations updated (L1/L2 doors = 3 each).
+FIX G (score model): lvlScore&(lvlIdx) = CalcSegScore&(segShots, segDmg,
+  segStartT - segT0) computed at the win trigger (SAME weights as CalcScore&:
+  10000 - 5*s - 10*shots - 25*dmg, min 0, on the level SEGMENT delta);
+  doneScore& += lvlScore&(lvlIdx) (running TOTAL of cleared levels);
+  liveScore& = doneScore& + CalcSegScore&(current segment) while playing, so
+  liveScore& IS the running total. Result screen shows the cleared level's
+  score + TOTAL; victory shows L1..L5 lines + TOTAL (= sum); death screen
+  shows the current segment + TOTAL. RESTART LEVEL zeroes ONLY the current
+  level's segment (existing seg*-snapshot restore). StartRun / PLAY AGAIN
+  reset doneScore& = 0 and lvlScore&(0..19) = 0. Selftest 6d-f: scripted
+  3-level temp campaign asserts lvlScore&(n) == CalcSegScore& at each result,
+  score == doneScore&, and victory TOTAL == L1+L2+L3.
 
 ## Menu render gating (6B FIX F — no menu blink between levels)
 The title/pick menu is rendered ONLY when state$ is still "menu" at render
