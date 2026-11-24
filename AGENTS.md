@@ -124,6 +124,13 @@ chars above; lowercase = weapon pickups, uppercase = ammo pickups):
   'y' YXA (axe, melee)   'm' MUSKÖT   'f' BLUNDERBUSS   'k' MASKINGEVÄR   'c' MINI-KANON
   'B' ammo type 2 (blunderbuss)   'C' ammo type 3 (maskingevär)   'D' ammo type 4 (mini-kanon)
   ('A' stays ammo type 1 = musköt.)
+6B CASE-SENSITIVITY (empirically verified — do NOT "fix"): QB64-PE string
+comparisons (=) and Select Case are CASE-SENSITIVE (test program: 'k' matches
+Case "k", not Case "K"; "d" = "D" is FALSE). So the pairs 'k' (weapon) vs 'K'
+(captain) and 'd' (door) vs 'D' (ammo type 4) are distinct by construction;
+selftest 6b-c1/c2 prove both pairs on a temp map AND on level03/default.map.
+Weapon pickups render on the floor as small squares in the weapon's register
+color (wpCol&) — 6A originally had no floor sprite for them (invisible pickup).
 Row length = width, row count = height. Historical maps: at least 64x64
 (shipped test map: schleswig/maps/test64.map; MAP_MAX=128 is only the input
 read cap — the committed arrays are REDIM'd to the real map size in ParseMap).
@@ -158,9 +165,10 @@ mapRow$ is THE single map grid — every read goes via CellAt$/Solid%/OpenCell%.
 LoadMapAuto always runs before the first render frame.
 
 ## Command-line arguments (5C/5D)
-  schleswig                  -> NO-ARG START MENU (5D): title screen with
-                                [1] TEST ARENA (maps/default.map) / [2] CAMPAIGN
-                                (maps/levels.lst, level 1). Select with 1/2, or
+  schleswig                  -> NO-ARG START MENU (5D/6B): title screen with
+                                [1] CAMPAIGN (maps/levels.lst, level 1 — DEFAULT
+                                highlight, selIdx starts at 1) / [2] TEST ARENA
+                                (maps/default.map). Select with 1/2, or
                                 W/S + arrows to highlight + ENTER/E; mouse click
                                 works before the pointer lock; ESC/Q quits.
                                 Same menu when run from the QB64 IDE: F5 -> pick 1 or 2.
@@ -278,6 +286,16 @@ EnemyDodge now sets a glide target (enDodgeSX!/SY! -> TX!/TY!, 0.2 s) instead
 of teleporting; pass 2 interpolates in <=0.3-cell sub-steps with OpenCell%
 checks (monotonic, never inside a wall, never a >0.5-cell frame hop).
 Exception: QTD quantum mode teleports (the joke).
+
+## Menu render gating (6B FIX F — no menu blink between levels)
+The title/pick menu is rendered ONLY when state$ is still "menu" at render
+time (inside the menu/fadeout branch). pendingStart (VIDARE / paus-RESTART),
+pendingNext (campaign CONTINUE) and PickAction are handled BEFORE the render
+in the same frame and switch state to "fadeout" — so result->CONTINUE,
+death->RESTART, victory->PLAY AGAIN and pick never render a single menu frame.
+Instrumentation: menuRenderN counts real menu renders; selftest 6b-d asserts
+menuRenderN is UNCHANGED across all those transitions (and that it DOES increase
+at a real title screen — positive control).
 
 ## Viewmodel design note (5A-hotfix2)
 The viewmodel sits deliberately ~half a gun-width RIGHT of center

@@ -90,6 +90,7 @@ DIM inj20a, inj20c, c20hud$, c20hash&, c20alive   ' Fas 5D start-menu selftest v
 DIM c21t0, c21shots, c21corner, c21edge, c21mortar, c21alive, c21i, c21j, c21x, c21y, c21f, c21r$, c21d, c21en, c21killed, c21edgeOK, c21cornerOK, c21mortOK   ' Fas 5D 64x64 runtime-regression selftest vars
 DIM c22m$(6), c22x, c22y, c22i, c22j, c22n, c22bad, c22open, c22bfs, c22f, c22min, c22lvl, c22alive, c22wp, c22wpN, c22wx(8), c22wy(8), c22wd(127, 127), c22dir, c22ok4, c22t, c22ok, c22exp, c22tx, c22ty, c22cx, c22cy, c22nx, c22ny, c22d, c22best, c22bnx, c22bny, c22shots, c22am, c22ammo0, c22bd, c22bi, c22msave, c22maxd, c22c$, c22key$, c22dbgT, ok22, c22hash&   ' Fas 5E selftest vars
 DIM c23key$, c23map$, c23i, c23j, c23w, c23ok, c23h&, c23gx, c23gy, c23am0, c23pe0, c23hop, c23maxhop, c23px, c23py, c23hp0, c23kills0, c23wpOk, c23amOk, c23swOk, c23swMax, c23perOk, c23meleeOk, c23canOk, c23qtdOk, c23dodOk, c23fireOk, c23arnOk, c23t, c23lvlSave, c23mode$, c23a2, c23w0, c23k   ' Fas 23 (6A vapen) selftest vars
+DIM c24key$, c24map$, c24i, c24j, c24t, c24m, c24ok, c24f, c24wx, c24wy, c24bad   ' Fas 24 (6B char-pairs + menu-blink) selftest vars
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
@@ -185,7 +186,8 @@ DIM SHARED lvlFile$(20), lvlName$(20), lvlN, lvlIdx   ' campaign list; lvlIdx = 
 DIM SHARED lvlT0, lvlTime(20)                          ' per-level start time / cleared time (s)
 DIM SHARED segShots, segDmg, segT0, segStartT          ' per-level-segment score snapshot (RESTART LEVEL restores it)
 DIM SHARED restarts, pendingNext                       ' HUD restart counter / CONTINUE->next-level flag
-DIM SHARED menuPick, autoCamp                          ' 5D: menuPick=1 -> no-arg pick menu (1 ARENA / 2 CAMPAIGN); autoCamp=1 -> campaign arg starts straight in
+DIM SHARED menuPick, autoCamp                          ' 5D/6B: menuPick=1 -> no-arg pick menu (1 CAMPAIGN / 2 TEST ARENA); autoCamp=1 -> campaign arg starts straight in
+DIM SHARED menuRenderN                                  ' 6B FIX F: räknare för RIKTIGA meny-render (state$="menu" vid render) — selftest 6b-d kräver 0 under övergångar
 DIM mapValid                 ' 1 only after a FULL successful ParseMap commit
 DIM mapBadN                  ' 5E: cells with a non-normalized char left in the grid (must be 0; HUD debug rad via Const dbgCellScan)
 DIM loadFatal, fatalMsg$, errRow, errCol, errWhy$, nStartS, tStartX, tStartY, mapWarn$
@@ -212,7 +214,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "95a57da"
+Const strBuild$ = "a105865"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -266,8 +268,8 @@ Const strRestarts$ = "RESTARTS:"                   ' 5C: restart counter (death 
 Const strKills$ = "KILLS:"                         ' 5C: victory screen total-kills line
 Const strNextLvl$ = "NEXT:"                        ' 5C: result screen next-level hint (campaign, non-final level)
 ' 5D start menu (no-arg / IDE F5): mode pick rows
-Const strPickArena$ = "1  TEST ARENA"               ' pick menu row 1 (default.map)
-Const strPickCamp$ = "2  CAMPAIGN"                  ' pick menu row 2 (maps/levels.lst, level 1)
+Const strPickCamp$ = "1  CAMPAIGN"                  ' 6B FIX E: pick menu row 1 = CAMPAIGN (default highlight, maps/levels.lst level 1)
+Const strPickArena$ = "2  TEST ARENA"               ' pick menu row 2 (default.map)
 Const strPickHint$ = "1/2 OR ARROWS+ENTER, ESC/Q QUIT"   ' pick menu hint line
 ' (strLockHint$ borttagen 2026-11-23: Wayland-låset ska bara SKE vid klick — ingen hint-text)
 ' ============================================================================
@@ -426,7 +428,7 @@ gameMode$ = GameModeFromCmd$(cmdArg$)
 menuPick = MenuPickFromCmd%(cmdArg$)
 autoCamp = AutoStartFromCmd%(cmdArg$)
 lstFile$ = "maps/levels.lst"
-lvlN = 0: lvlIdx = 0: restarts = 0: pendingNext = 0: mapHash& = 0: lvlT0 = Timer
+lvlN = 0: lvlIdx = 0: restarts = 0: pendingNext = 0: mapHash& = 0: lvlT0 = Timer: menuRenderN = 0
 If gameMode$ = "campaign" Then
     Gosub LoadLevelsLst
     If loadFatal Then
@@ -563,6 +565,8 @@ Do
     If selftest And testPhase = 22 Then k$ = c22key$
     ' 6A fas23: key injection (vapenval 1-5, qtd-sekvens, r i dead) — same top-of-loop rule
     If selftest And testPhase = 23 And c23key$ <> "" Then k$ = c23key$
+    ' 6B fas24: key injection (r i dead, e i victory)
+    If selftest And testPhase = 24 And c24key$ <> "" Then k$ = c24key$
 
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
     If selftest And (state$ = "menu" Or state$ = "result" Or state$ = "paused" Or state$ = "victory") Then Gosub SelftestDrive   ' fas12/13 kör även utanför playing (5C: även victory)
@@ -663,6 +667,13 @@ Do
         Else
             prevHover = 0
         End If
+        ' 6B FIX F: menyn renderas ENDAST om state$ fortfarande är "menu" här.
+        ' pendingStart/pendingNext/autoCamp/PickAction ovan kan ha bytt state till
+        ' "fadeout" SAMMA frame (result->CONTINUE, VIDARE, paus-RESTART, pick) —
+        ' då renderas bara fade-overlaget nedan, aldrig menyn => ingen blink
+        ' mellan banor. menuRenderN räknar riktiga meny-frames (selftest 6b-d).
+        If state$ = "menu" Then
+            menuRenderN = menuRenderN + 1
         _Dest display&
         Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
         Line (RW \ 2 - 860, RH \ 2 - menuPanelHalf)-(RW \ 2 + 859, RH \ 2 + menuPanelHalf - 1), _RGB32(255, 200, 0), B
@@ -675,11 +686,11 @@ Do
         Color _RGB32(255, 200, 0)
         _PrintString (ttx, tty), strTitle$
         ' två knappar via samma DrawButton-widget (samma bredd); markerad rad är
-        ' amber (selIdx). 5D pick-läge: "1 TEST ARENA" / "2 CAMPAIGN" + hint-rad.
-        ' INGEN pekare ritas i menyn.
+        ' amber (selIdx). 6B pick-läge: rad 1 = "1 CAMPAIGN" (default), rad 2 =
+        ' "2 TEST ARENA" + hint-rad. INGEN pekare ritas i menyn.
         If menuPick Then
-            DrawButton btnX0, btnY0, btnX1, btnY1, strPickArena$, (selIdx = 1)
-            DrawButton quitX0, quitY0, quitX1, quitY1, strPickCamp$, (selIdx = 2)
+            DrawButton btnX0, btnY0, btnX1, btnY1, strPickCamp$, (selIdx = 1)
+            DrawButton quitX0, quitY0, quitX1, quitY1, strPickArena$, (selIdx = 2)
             Color _RGB32(150, 150, 150)
             _PrintString ((RW - Len(strPickHint$) * 8) \ 2, quitY1 + Int(RH * 18 / 1080)), strPickHint$
         Else
@@ -689,8 +700,10 @@ Do
         ' versionshörn nere till höger på titelskärmen (ver + commit-hash)
         Color _RGB32(110, 110, 140)
         _PrintString (RW - Len(ver$ + " " + strBuild$) * 8 - 16, RH - 24), ver$ + " " + strBuild$
+        End If   ' 6B: slut på meny-render (state$="menu" vid render-tid)
         ' fade-through-black: titel fade:ar ut (0.4 s), sedan spelet fade:ar in
         If state$ = "fadeout" Then
+            _Dest display&
             fa = (Timer - fadeT0) / 0.4
             If fa > 1 Then fa = 1
             Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, Int(fa * 255)), BF
@@ -1982,6 +1995,38 @@ Do
         End If
     Next i
 
+    ' 6A: weapon pickups — small floor squares in the WEAPON's register color
+    ' (wpCol&) + white glimt, same projection + wall occlusion as other pickups
+    For i = 0 To 10
+        If wpActive(i) Then
+            wpdx = wpX(i) - px
+            wpdy = wpY(i) - py
+            wpdist = Sqr(wpdx * wpdx + wpdy * wpdy)
+            If wpdist > 0.05 Then
+                wpang = _ATan2(wpdy, wpdx) - angle
+                While wpang > 3.14159265: wpang = wpang - 6.2831853: Wend
+                While wpang < -3.14159265: wpang = wpang + 6.2831853: Wend
+                If Abs(wpang) < fovCut Then
+                    wpdistP = wpdist * Cos(wpang)
+                    wpcx = RW / 2 * (1 + Tan(wpang) / planeDist)
+                    wpw = RW / wpdist * 0.20
+                    wph = RH / wpdist * 0.20
+                    wpbase = midY + RH / (2 * wpdist) + pitch
+                    wpx0 = Int(wpcx - wpw / 2): wpx1 = Int(wpcx + wpw / 2)
+                    If wpx0 < 0 Then wpx0 = 0
+                    If wpx1 > RW - 1 Then wpx1 = RW - 1
+                    For sx = wpx0 To wpx1
+                        If wpdistP < wallDist(sx) Then Line (sx, wpbase - wph)-(sx, wpbase), wpCol&(wpT(i))
+                    Next sx
+                    wpcx2 = Int(wpcx)
+                    If wpcx2 < 0 Then wpcx2 = 0
+                    If wpcx2 > RW - 1 Then wpcx2 = RW - 1
+                    If wpdistP < wallDist(wpcx2) Then Line (wpcx2, wpbase - wph)-(wpcx2, wpbase), _RGB32(255, 255, 255)
+                End If
+            End If
+        End If
+    Next i
+
     ' fiende-sprites (Fas 3): enkelt stående blockmonster, samma projektion +
     ' vägg-ocklusion som pickup-sprites (jämför edist mot wallDist per kolumn)
     For i = 0 To 10
@@ -2890,15 +2935,12 @@ StartRun:
     fadeT0 = Timer
     Return
 
-' PickAction (5D start menu, no-arg): pickAct 1 = TEST ARENA (default.map, already
-' loaded at init), 2 = CAMPAIGN (maps/levels.lst from level 1; broken lst/map ->
-' the same loud fatal screen as everywhere else).
+' PickAction (5D/6B start menu, no-arg): 6B order — pickAct 1 = CAMPAIGN
+' (maps/levels.lst from level 1), pickAct 2 = TEST ARENA (maps/default.map,
+' reloaded here since the campaign pick may have loaded level01); broken
+' lst/map -> the same loud fatal screen as everywhere else).
 PickAction:
     If pickAct = 1 Then
-        menuPick = 0: gameMode$ = "arena"
-        Gosub StartRun
-        SOUND 300, 2: SOUND 150, 3
-    ElseIf pickAct = 2 Then
         menuPick = 0: gameMode$ = "campaign"
         lstFile$ = "maps/levels.lst"
         Gosub LoadLevelsLst
@@ -2916,6 +2958,17 @@ PickAction:
                 Gosub StartRun
                 SOUND 300, 2: SOUND 150, 3
             End If
+        End If
+    ElseIf pickAct = 2 Then
+        menuPick = 0: gameMode$ = "arena"
+        mapFile$ = "maps/default.map"   ' 6B: arena måste ladda default.map igen (kampanjvalet kan ha laddat level01)
+        Gosub LoadMapAuto
+        If loadFatal Then
+            Print fatalMsg$
+            state$ = "fatal"
+        Else
+            Gosub StartRun
+            SOUND 300, 2: SOUND 150, 3
         End If
     End If
     Return
@@ -5928,19 +5981,20 @@ SelftestDrive:
             End If
             If testFlag = 1 And state$ = "playing" Then
                 c20hud$ = HudLevelTag$
-                If gameMode$ = "arena" And menuPick = 0 And mapW = 64 And mapHash& = c20hash& And InStr(c20hud$, "ARENA") > 0 And InStr(c20hud$, "default.map") > 0 Then
-                    stMsg$ = "PASS 5d-b1-pick1-arena (key '1' -> TEST ARENA: state=playing, gameMode=arena, 64x64 default.map same hash " + Str$(mapHash&) + ", HUD='" + c20hud$ + "')"
+                ' 6B FIX E: key '1' = CAMPAIGN (row 1, default highlight)
+                If gameMode$ = "campaign" And menuPick = 0 And lvlIdx = 0 And lvlN = 5 And mapW = 16 And mapFile$ = "maps/level01.map" And InStr(c20hud$, "LVL 1/5") > 0 And InStr(c20hud$, "The Outskirts") > 0 And InStr(c20hud$, "level01.map") > 0 Then
+                    stMsg$ = "PASS 5d-b1-pick1-campaign (key '1' -> CAMPAIGN: levels.lst level 1 loaded, lvlIdx=0 lvlN=5, 16x16, HUD='" + c20hud$ + "')"
                     Gosub STLog
                 Else
-                    stMsg$ = "FAIL 5d-b1 state=" + state$ + " mode=" + gameMode$ + " menuPick=" + Str$(menuPick) + " mapW=" + Str$(mapW) + " hud=" + c20hud$
+                    stMsg$ = "FAIL 5d-b1 state=" + state$ + " mode=" + gameMode$ + " menuPick=" + Str$(menuPick) + " lvlIdx=" + Str$(lvlIdx) + " mapW=" + Str$(mapW) + " mapFile=" + mapFile$ + " hud=" + c20hud$
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
                     Gosub STLog
                     ShutdownSound
                     End
                 End If
-                ' set up the campaign pick again (fresh no-arg menu)
-                menuPick = 1: state$ = "menu": selIdx = 1: gameMode$ = "arena": inj20c = 0
+                ' set up the arena pick again (fresh no-arg menu)
+                menuPick = 1: state$ = "menu": selIdx = 1: gameMode$ = "campaign": inj20c = 0
                 testFlag = 3: testT0 = Timer   ' menu-branch injects k$="2"
             ElseIf testFlag = 1 And Timer - testT0 >= 5 Then
                 stMsg$ = "FAIL 5d-b1-timeout state=" + state$
@@ -5952,19 +6006,28 @@ SelftestDrive:
             End If
             If testFlag = 3 And state$ = "playing" Then
                 c20hud$ = HudLevelTag$
-                If gameMode$ = "campaign" And menuPick = 0 And lvlIdx = 0 And lvlN = 5 And mapW = 16 And mapFile$ = "maps/level01.map" And InStr(c20hud$, "LVL 1/5") > 0 And InStr(c20hud$, "The Outskirts") > 0 And InStr(c20hud$, "level01.map") > 0 Then
-                    c20hash& = mapHash&
-                    stMsg$ = "PASS 5d-b2-pick2-campaign (key '2' -> CAMPAIGN: levels.lst level 1 loaded, lvlIdx=0 lvlN=5, 16x16, HUD='" + c20hud$ + "')"
+                ' 6B FIX E: key '2' = TEST ARENA (row 2)
+                If gameMode$ = "arena" And menuPick = 0 And mapW = 64 And mapHash& = c20hash& And InStr(c20hud$, "ARENA") > 0 And InStr(c20hud$, "default.map") > 0 Then
+                    stMsg$ = "PASS 5d-b2-pick2-arena (key '2' -> TEST ARENA: state=playing, gameMode=arena, 64x64 default.map same hash " + Str$(mapHash&) + ", HUD='" + c20hud$ + "')"
                     Gosub STLog
                 Else
-                    stMsg$ = "FAIL 5d-b2 state=" + state$ + " mode=" + gameMode$ + " lvlIdx=" + Str$(lvlIdx) + " lvlN=" + Str$(lvlN) + " mapW=" + Str$(mapW) + " mapFile=" + mapFile$ + " hud=" + c20hud$
+                    stMsg$ = "FAIL 5d-b2 state=" + state$ + " mode=" + gameMode$ + " menuPick=" + Str$(menuPick) + " mapW=" + Str$(mapW) + " hud=" + c20hud$
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
                     Gosub STLog
                     ShutdownSound
                     End
                 End If
-                ' (c) campaign ARG skips the menu: autoCamp=1 + state=menu -> auto StartRun
+                ' (c) campaign ARG skips the menu: autoCamp=1 + state=menu -> auto StartRun.
+                ' 6B: emulera arg-vägen (som init gör för "campaign"): mode+lst+level först
+                For i = 0 To 10: enActive(i) = 0: Next i   ' rensa 64x64-fiender innan kartan krymper (annars bfsD OOB)
+                bfsForX = -1: bfsForY = -1
+                gameMode$ = "campaign"
+                lstFile$ = "maps/levels.lst"
+                Gosub LoadLevelsLst
+                lvlIdx = 0
+                mapFile$ = lvlFile$(0)
+                Gosub LoadMapAuto
                 autoCamp = 1: state$ = "menu": selIdx = 1
                 c20runs = startRuns
                 testFlag = 5: testT0 = Timer
@@ -7289,10 +7352,315 @@ SelftestDrive:
                         winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                         runT0 = Timer - 3
                         state$ = "playing"
-                        testPhase = 12: testT0 = Timer: testFlag = 0
+                        testPhase = 24: testT0 = Timer: testFlag = 0   ' 6B: char-pairs + menu-blink, sedan fas12
                     End If
                 ElseIf Timer - testT0 >= 40 Then
                     stMsg$ = "FAIL 6a-j-timeout i=" + Str$(c23i)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+        Case 24  ' 6B: (c) skiftläges-par k/K och d/D verifierade på riktiga kartor +
+                 '     tempkarta; (d) meny-blink: menuRenderN får INTE öka under
+                 '     CONTINUE/VIDARE/RESTART/PLAY AGAIN (bara vid riktig titel)
+            If testFlag = 0 Then
+                ' --- 6b-c1: tempkarta med k (vapen) bredvid K (captain) + d (dörr) bredvid D (ammo4) ---
+                c24map$ = "/tmp/schleswig_fas24.map"
+                c24f = FreeFile
+                Open c24map$ For Output As #c24f
+                Print #c24f, "################"
+                Print #c24f, "#..kK......dD..#"
+                Print #c24f, "#..............#"
+                Print #c24f, "#......S.......#"
+                Print #c24f, "#..............#"
+                Print #c24f, "#..............#"
+                Print #c24f, "################"
+                Close #c24f
+                mapFile$ = c24map$
+                Gosub LoadMapAuto
+                c24ok = 0
+                If loadFatal = 0 And mapValid = 1 And spWpN = 1 And spWpT(0) = WP_MG And spEnN = 1 And spEnT(0) = ET_CAPTAIN And spAmN = 1 And spAmT(0) = 4 And CellAt$(11, 1) = "d" And CellAt$(3, 1) = "." And CellAt$(4, 1) = "." Then c24ok = 1
+                If c24ok = 1 Then
+                    stMsg$ = "PASS 6b-c1-case-pairs (QB64 Select Case/= är skiftlägesKÄNSLIGA, empiriskt verifierade: 'k'->WP_MG vapen-spawn, 'K'->ET_CAPTAIN fiende, 'd'->dörr i grid, 'D'->ammo-typ4; båda parseade till '.')"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 6b-c1 spWpN=" + Str$(spWpN) + " wpT=" + Str$(spWpT(0)) + " spEnN=" + Str$(spEnN) + " enT=" + Str$(spEnT(0)) + " spAmN=" + Str$(spAmN) + " amT=" + Str$(spAmT(0)) + " cell11=" + CellAt$(11, 1)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                ' --- 6b-c2: level03 — k-pickup ger vapen 4 (MACHINE GUN, INTE captain) ---
+                mapFile$ = "maps/level03.map"
+                Gosub LoadMapAuto
+                c24ok = 0: c24wx = -1
+                If loadFatal = 0 And mapValid = 1 Then
+                    For c24i = 0 To spWpN - 1
+                        If spWpT(c24i) = WP_MG Then c24wx = c24i: c24ok = 1
+                    Next c24i
+                End If
+                If c24ok = 1 Then
+                    Gosub ApplyMapSpawns
+                    For c24i = 0 To WP_COUNT - 1: wpOwned(c24i) = 0: Next c24i
+                    wpCur = WP_AXE
+                    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: hp = 100
+                    For c24j = 0 To 10: enActive(c24j) = 0: Next c24j
+                    enX(0) = 1.5: enY(0) = 14.5: enActive(0) = 1: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    c24t = Timer
+                    testFlag = 2
+                Else
+                    stMsg$ = "FAIL 6b-c2-level03 no WP_MG spawn (spWpN=" + Str$(spWpN) + ")"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' gå på k-pickupen på level03
+                If Timer - c24t < 0.25 Then
+                    px = wpX(c24wx): py = wpY(c24wx): hp = 100
+                Else
+                    If wpOwned(WP_MG) = 1 And enActive(0) = 1 Then
+                        stMsg$ = "PASS 6b-c2-level03-k-pickup (level03 'k' -> wpOwned(MACHINE GUN)=1, fiende-K skulle ge captain — olika register)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL 6b-c2-level03 wpOwned(MG)=" + Str$(wpOwned(WP_MG))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' samma på ARENA (default.map)
+                    mapFile$ = "maps/default.map"
+                    Gosub LoadMapAuto
+                    c24ok = 0: c24wx = -1: c24bad = 0
+                    If loadFatal = 0 And mapValid = 1 And spWpN = 5 Then
+                        For c24i = 0 To spWpN - 1
+                            If spWpT(c24i) = WP_MG Then c24wx = c24i: c24ok = 1
+                        Next c24i
+                        For c24i = 0 To spEnN - 1
+                            If spEnT(c24i) = ET_CAPTAIN Then c24bad = 1   ' K finns kvar som captain
+                        Next c24i
+                    End If
+                    If c24ok = 1 And c24bad = 1 Then
+                        Gosub ApplyMapSpawns
+                        For c24i = 0 To WP_COUNT - 1: wpOwned(c24i) = 0: Next c24i
+                        wpCur = WP_AXE
+                        px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: hp = 100
+                        For c24j = 0 To 10: enActive(c24j) = 0: Next c24j
+                        enX(0) = 1.5: enY(0) = 1.5: enActive(0) = 1: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                        bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                        state$ = "playing"
+                        c24t = Timer
+                        testFlag = 3
+                    Else
+                        stMsg$ = "FAIL 6b-c2-arena spWpN=" + Str$(spWpN) + " mgSpawn=" + Str$(c24ok) + " captainSpawn=" + Str$(c24bad)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+            End If
+            If testFlag = 3 Then
+                If Timer - c24t < 0.25 Then
+                    px = wpX(c24wx): py = wpY(c24wx): hp = 100
+                Else
+                    If wpOwned(WP_MG) = 1 Then
+                        stMsg$ = "PASS 6b-c2-arena-k-pickup (default.map 'k' -> MACHINE GUN; 'K' kvar som captain-spawn)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL 6b-c2-arena wpOwned(MG)=" + Str$(wpOwned(WP_MG))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' --- 6b-d börjar: positiv kontroll — riktig titel renderar meny ---
+                    c24m = menuRenderN
+                    menuPick = 1: state$ = "menu": selIdx = 1: pendingNext = 0: pendingStart = 0: autoCamp = 0
+                    c24t = Timer
+                    testFlag = 4
+                End If
+            End If
+            If testFlag = 4 Then
+                ' positiv kontroll: menu utan pending-flaggor renderas (menuRenderN ökar)
+                If Timer - c24t >= 0.6 Then
+                    If menuRenderN > c24m Then
+                        stMsg$ = "PASS 6b-d0-menu-renders-at-title (menuRenderN " + Str$(c24m) + "->" + Str$(menuRenderN) + " vid riktig titel)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL 6b-d0 menuRenderN=" + Str$(menuRenderN) + " m=" + Str$(c24m)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' (b) CONTINUE: pendingNext + state=menu -> LoadLevel level 2, 0 meny-frames
+                    gameMode$ = "campaign": menuPick = 0
+                    lstFile$ = "maps/levels.lst"
+                    Gosub LoadLevelsLst
+                    lvlIdx = 0
+                    Gosub LoadLevel
+                    c24t = Timer: testFlag = 5
+                ElseIf Timer - c24t >= 6 Then
+                    stMsg$ = "FAIL 6b-d0-timeout state=" + state$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 5 Then
+                ' vänta playing på bana 1, simulera sedan result-CONTINUE-frame
+                If state$ = "playing" Then
+                    c24m = menuRenderN
+                    pendingNext = 1: state$ = "menu"
+                    c24t = Timer: testFlag = 6
+                ElseIf Timer - c24t >= 6 Then
+                    stMsg$ = "FAIL 6b-d1-timeout state=" + state$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 6 Then
+                ' CONTINUE -> nästa bana; menuRenderN får INTE ha ökat
+                If state$ = "playing" And lvlIdx = 1 Then
+                    If menuRenderN = c24m And mapFile$ = lvlFile$(1) Then
+                        stMsg$ = "PASS 6b-d1-continue-no-blink (result->CONTINUE->bana 2: menuRenderN oförändrad=" + Str$(menuRenderN) + ", lvlIdx=1, map=" + mapFile$ + ")"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL 6b-d1 menuRenderN " + Str$(c24m) + "->" + Str$(menuRenderN) + " lvlIdx=" + Str$(lvlIdx) + " map=" + mapFile$
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' (c) VIDARE: pendingStart + state=menu (arena-läge)
+                    gameMode$ = "arena"
+                    c24m = menuRenderN
+                    pendingStart = 1: state$ = "menu"
+                    c24t = Timer: testFlag = 7
+                ElseIf Timer - c24t >= 6 Then
+                    stMsg$ = "FAIL 6b-d1-timeout2 state=" + state$ + " lvlIdx=" + Str$(lvlIdx)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 7 Then
+                If state$ = "playing" Then
+                    If menuRenderN = c24m Then
+                        stMsg$ = "PASS 6b-d2-vidare-no-blink (result->VIDARE->StartRun: menuRenderN oförändrad=" + Str$(menuRenderN) + ")"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL 6b-d2 menuRenderN " + Str$(c24m) + "->" + Str$(menuRenderN)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' (d) död -> RESTART LEVEL (r) — går via dead-grenen, aldrig menu
+                    gameMode$ = "campaign"
+                    state$ = "dead": deathTime = Timer
+                    c24m = menuRenderN
+                    c24key$ = "r"
+                    c24t = Timer: testFlag = 8
+                ElseIf Timer - c24t >= 6 Then
+                    stMsg$ = "FAIL 6b-d2-timeout state=" + state$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 8 Then
+                If state$ = "playing" Then
+                    c24key$ = ""
+                    If menuRenderN = c24m Then
+                        stMsg$ = "PASS 6b-d3-restart-no-blink (död->RESTART LEVEL: menuRenderN oförändrad=" + Str$(menuRenderN) + ", state=playing)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL 6b-d3 menuRenderN " + Str$(c24m) + "->" + Str$(menuRenderN)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' (e) victory -> PLAY AGAIN (e) — LoadLevel direkt, ingen menu
+                    gameMode$ = "campaign"
+                    state$ = "victory": selIdx = 1
+                    c24m = menuRenderN
+                    c24key$ = "e"
+                    c24t = Timer: testFlag = 9
+                ElseIf Timer - c24t >= 6 Then
+                    stMsg$ = "FAIL 6b-d3-timeout state=" + state$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 9 Then
+                If state$ = "playing" Then
+                    c24key$ = ""
+                    If menuRenderN = c24m And lvlIdx = 0 Then
+                        stMsg$ = "PASS 6b-d4-playagain-no-blink (victory->PLAY AGAIN: menuRenderN oförändrad=" + Str$(menuRenderN) + ", lvlIdx=0)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL 6b-d4 menuRenderN " + Str$(c24m) + "->" + Str$(menuRenderN) + " lvlIdx=" + Str$(lvlIdx)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    ' restore selftest env, gå till fas12
+                    Gosub InitEnemyTypes
+                    gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0
+                    mapFile$ = selftestMap$
+                    Gosub LoadMapAuto
+                    Gosub ApplyMapSpawns
+                    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo
+                    For c24j = 0 To 10: enActive(c24j) = 0: Next c24j
+                    enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                    enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    For c24j = 0 To PR_MAX: prActive(c24j) = 0: Next c24j
+                    For c24j = 0 To WP_COUNT - 1: wpOwned(c24j) = 0: Next c24j
+                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                    bfsForX = -1: bfsForY = -1
+                    winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                    runT0 = Timer - 3
+                    state$ = "playing"
+                    testPhase = 12: testT0 = Timer: testFlag = 0
+                ElseIf Timer - c24t >= 6 Then
+                    stMsg$ = "FAIL 6b-d4-timeout state=" + state$
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
                     Gosub STLog
