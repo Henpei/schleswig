@@ -206,21 +206,25 @@ HUD mode line (HudLevelTag$): campaign "LVL <n>/<total> <name>  MAP <file>
 #<gridhash>  RESTARTS <r>", single "SINGLE <file> #<hash>", arena
 "ARENA <file> #<hash>".
 
-## Placeholder campaign maps (5C/6A, TEMPORARY)
-The .map format has NO comment-line support ('#' is a wall char), so the five
-shipped placeholder maps are documented here instead of in-file:
-maps/level01.map..level05.map are TEMPORARY PLACEHOLDER campaign maps
-("# PLACEHOLDER — REPLACE WITH CAMPAIGN MAP"): valid 16x16, exactly one S,
-only valid chars, small enemy mix with a difficulty scale in the map data —
-level01: 2 enemies (F F, easiest) ... level05: 8 enemies (F O U K / G F F U,
-densest). 6A weapon/ammo placement: level01 'm' (MUSKÖT) next to S + A;
-level02 'f' (BLUNDERBUSS) next to S + B; level03 'k' (MASKINGEVÄR) next to S
-+ C; level04 'c' (MINI-KANON) next to S + D; level05 two 'D' cells near S
-(densest enemies). The 64x64 TEST ARENA (maps/default.map) is the test kitchen:
-row 2 holds all five weapon chars y/m/f/k/c, row 3 holds B/C/D next to A.
-Display names in maps/levels.lst:
-The Outskirts / Village Streets / The Old Mill / Barracks Yard / The Citadel.
-Vibe writes the real campaign maps later.
+## Campaign maps (6C — REAL, Vibe-designed 64x64)
+maps/level01..05.map are the REAL campaign maps (Vibe-designed, machine-
+validated; design doc: maps/SCHLESWIG-CAMPAIGN-MAPS-README.md). All 64x64,
+sealed border, exactly one S, ONLY existing chars (# . S F O U K G M A B C D
+y m f k c b s g 1 2 3). levels.lst:
+  level01.map|The Outskirts          F x3, musket 'm', bronze key 'b' + door '1', A x3
+  level02.map|The Smugglers' Cellar  F x3 O x2 U x1, 'f', silver 's' + door '2', A/B
+  level03.map|The Outer Rampart      F x4 O x2 U x2, 'k', A/B/C
+  level04.map|The Moat Crossing      F x4 O x3 U x2 K x1, 'c', A/B/C/D
+  level05.map|The Citadel            F x5 O x3 U x3 K x2 G x1, gold 'g' + doors '3' x2,
+                                     G+Kx2 inuti guld-sanktuarium, D-ammo rik (x3)
+Ammo principle: every level carries ammo for ALL weapons ownable at that point
+(L1 A / L2 A+B / L3 A+B+C / L4 A+B+C+D / L5 D-rich). Keys are always reachable
+BEFORE their door (flood-fill/BFS proven; selftest 6c-a re-proves per map with
+doors closed). level05's general G is the campaign finale; his death registers
+in killsTotal (selftest 6c-c1). Edge note: a locked door without its key stays
+shut ("NEED ... KEY") — by design the key is always reachable first, so no
+lockout is possible. default.map (64x64 TEST ARENA) is untouched: row 2 all
+five weapon chars, row 3 B/C/D next to A — the test kitchen.
 
 ## Ammo balance (5E + 6A)
 Const startAmmo = 15 (was 5 — ~3x, André ran dry before level 3),
