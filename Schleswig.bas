@@ -74,6 +74,7 @@ DIM gunBW, gunBH, gunBuf&, gunBaseX, gunRendered   ' sprite buffer + rest pos + 
 DIM inj16r, gr16a, gr16b, gunX0, minGunX, mf16n, ej16, c16done   ' Fas 4C selftest working vars
 DIM inj17a, inj17b, inj17c, f17, ej17, k17, c17, el17, per17, d17, row17save$, mapW17save   ' Fas 5A selftest working vars
 DIM ej18, px18(20), py18(20), pch$(20), pm18, pj1&, pj2&, p18n, hash18&, row18save$, mapW18save, p18sway   ' Fas 5A-hotfix2 selftest vars
+DIM c19hash&, c19alive, c19seg, c19lvl, c19i, c19x, c19y, c19cnt(5), c19f, c19prAll, c19died, inj19d, inj19v, ok19, f19, r19$, c19ok, c19hud$, c19bfs   ' Fas 5C (level progression) selftest vars
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
@@ -167,7 +168,17 @@ DIM spKeyT(10), spKeyX(10), spKeyY(10), spKeyN  ' keys: 1=bronze 2=silver 3=gold
 DIM keyX(10), keyY(10), keyType(10), keyActive(10)
 DIM hasBronze, hasSilver, hasGold               ' Fas 5A: owned keys
 DIM plStartX, plStartY                          ' player start cell ('S')
-DIM mapFile$, loadedMapFile$, lmPath$, lmOK, pmOK, srcN
+DIM loadedMapFile$, lmPath$, lmOK, pmOK, srcN
+' Fas 5C: level progression / campaign (maps/levels.lst). DIM SHARED: these are
+' also read inside Functions (HudLevelTag$) — sub-local copies would read 0.
+DIM SHARED mapFile$          ' current map file (arg, default, or current campaign level)
+DIM SHARED mapHash&          ' grid hash of the loaded map (HUD tag + selftest)
+DIM SHARED gameMode$         ' "arena" (no arg) / "single" (map arg) / "campaign" / "selftest"
+DIM SHARED lstFile$          ' levels list path (default "maps/levels.lst")
+DIM SHARED lvlFile$(20), lvlName$(20), lvlN, lvlIdx   ' campaign list; lvlIdx = 0-based current level
+DIM SHARED lvlT0, lvlTime(20)                          ' per-level start time / cleared time (s)
+DIM SHARED segShots, segDmg, segT0, segStartT          ' per-level-segment score snapshot (RESTART LEVEL restores it)
+DIM SHARED restarts, pendingNext                       ' HUD restart counter / CONTINUE->next-level flag
 DIM mapValid                 ' 1 only after a FULL successful ParseMap commit
 DIM loadFatal, fatalMsg$, errRow, errCol, errWhy$, nStartS, tStartX, tStartY, mapWarn$
 mapValid = 0
@@ -193,7 +204,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "5618122"
+Const strBuild$ = "82f4aa4"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -238,6 +249,13 @@ Const strRestartRound$ = "RESTART LEVEL"           ' pause menu: button 2
 Const strQuitPause$ = "QUIT GAME"                  ' pause menu: button 3
 Const strNextMap$ = "CONTINUE"                     ' result menu: button 1 (next round)
 Const strMainMenu$ = "MAIN MENU"                   ' result menu: button 2
+' 5C level progression / campaign:
+Const strVictory$ = "VICTORY"                      ' campaign victory screen title (last level of levels.lst cleared)
+Const strPlayAgain$ = "PLAY AGAIN"                 ' victory screen button 1 (restart campaign at level 1, score zeroed)
+Const strQuit$ = "QUIT"                            ' victory/death screen button 2
+Const strRestarts$ = "RESTARTS:"                   ' 5C: restart counter (death screen + HUD via HudLevelTag$)
+Const strKills$ = "KILLS:"                         ' 5C: victory screen total-kills line
+Const strNextLvl$ = "NEXT:"                        ' 5C: result screen next-level hint (campaign, non-final level)
 ' (strLockHint$ borttagen 2026-11-23: Wayland-låset ska bara SKE vid klick — ingen hint-text)
 ' ============================================================================
 
@@ -352,11 +370,35 @@ DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
 selftest = 0
 cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, bara LTrim$/RTrim$
 If cmdArg$ = "selftest" Then selftest = 1
-' Fas 5A-hotfix2: 'schleswig mapfile.map' loads that map; no arg -> maps/default.map.
+' Fas 5A-hotfix2 + 5C: command line -> game mode (see AGENTS.md argument table):
+'   no arg        -> "arena"    maps/default.map TEST ARENA (HUD: ARENA)
+'   selftest      -> "selftest" scripted self-test (single 16x16 test map)
+'   <file.map>    -> "single"   one map, test mode (HUD: SINGLE)
+'   campaign      -> "campaign" maps/levels.lst from level 1
+'   --level N     -> "campaign" starting at lst position N (dev tool)
 ' LoadMapAuto always runs BEFORE the first render frame (main loop starts below).
-' On failure: loud fatal error screen, NO game start (no phantom map).
-mapFile$ = MapFileFromCmd$(cmdArg$)
-Gosub LoadMapAuto
+' On failure: loud fatal error screen, NO game start (no phantom map). For
+' campaign the levels list failure is equally loud (LEVELS FILE NOT FOUND /
+' INVALID LEVELS LIST line <r>), same fatal state as map errors.
+gameMode$ = GameModeFromCmd$(cmdArg$)
+lstFile$ = "maps/levels.lst"
+lvlN = 0: lvlIdx = 0: restarts = 0: pendingNext = 0: mapHash& = 0: lvlT0 = Timer
+If gameMode$ = "campaign" Then
+    Gosub LoadLevelsLst
+    If loadFatal Then
+        mapFile$ = ""   ' lst fatal already set (LEVELS FILE NOT FOUND / INVALID LEVELS LIST); skip map load
+    Else
+        lvlReq = LevelFromCmd%(cmdArg$)
+        If lvlReq < 1 Then lvlReq = 1
+        If lvlReq > lvlN Then lvlReq = lvlN
+        lvlIdx = lvlReq - 1
+        mapFile$ = lvlFile$(lvlIdx)
+        Gosub LoadMapAuto
+    End If
+Else
+    mapFile$ = MapFileFromCmd$(cmdArg$)
+    Gosub LoadMapAuto
+End If
 If loadFatal Then
     Print fatalMsg$   ' log line to the terminal
     state$ = "fatal"
@@ -368,7 +410,7 @@ If selftest Then Randomize 987654: dodgeSeed& = 987654: aiSeed& = 13579   ' Fas 
 testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFlag = 0
 Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 ' Highscore: nollställ counters, ladda bästa score från lokal fil (.schleswig_scores.txt)
-shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0
+shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0: lvlT0 = Timer
 winPending = 0: winT0 = 0: runTimeFrozen = -1: escCool = -99
 lockEngaged = 0: lockEngages = 0: lockDestroys = 0   ' låset engageras vid FÖRSTA fade-slutet (StartRun-vägen), INTE vid init
 gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: bobPhase = 0: turnDelta = 0: anglePrev = 0: gunSway = 0: gunRendered = 0   ' Fas 4C viewmodel init
@@ -473,7 +515,7 @@ Do
     If selftest And testPhase = 17 And testFlag = 5 And inj17c = 0 Then k$ = "e": inj17c = 1
 
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
-    If selftest And (state$ = "menu" Or state$ = "result" Or state$ = "paused") Then Gosub SelftestDrive   ' fas12/13 kör även utanför playing
+    If selftest And (state$ = "menu" Or state$ = "result" Or state$ = "paused" Or state$ = "victory") Then Gosub SelftestDrive   ' fas12/13 kör även utanför playing (5C: även victory)
     If state$ = "menu" Or state$ = "fadeout" Then
         ' pendingStart (VIDARE från result): gå EXAKT samma START-väg som när
         ' användaren klickar START — före någon render denna frame. Ingen egen
@@ -482,6 +524,14 @@ Do
         If pendingStart And state$ = "menu" Then
             pendingStart = 0
             Gosub StartRun
+            SOUND 300, 2: SOUND 150, 3
+        End If
+        ' 5C: CONTINUE from a cleared campaign level -> load the NEXT level of
+        ' levels.lst (LoadLevel: new ParseMap + enemy/wave register reset).
+        If pendingNext And state$ = "menu" Then
+            pendingNext = 0
+            lvlIdx = lvlIdx + 1
+            Gosub LoadLevel
             SOUND 300, 2: SOUND 150, 3
         End If
         ' FIX 2: ESC i menu avslutar fortfarande, men inte precis efter ESC från
@@ -653,7 +703,27 @@ Do
         End If
         ' selftest fas12c: dödsskärm -> R -> meny (enda vägen till menyn nu)
         If selftest And testPhase = 12 And testFlag = 3 And state$ = "dead" Then k$ = "r"
-        If k$ = "r" Or k$ = "R" Or k$ = " " Or _KeyDown(Asc("R")) Or _KeyDown(32) Then
+        ' selftest 5C fas19: campaign death -> R = RESTART LEVEL (same level)
+        If selftest And testPhase = 19 And testFlag = 10 And inj19d = 0 Then k$ = "r": inj19d = 1: c19died = 1
+        If gameMode$ = "campaign" Then
+            ' 5C: death on level N -> RESTART LEVEL (SAME level, per-level-segment
+            ' score restored, restarts++) or QUIT. Death NEVER advances to the
+            ' next level automatically.
+            If k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 2
+            If k$ = "s" Or k$ = "S" Or k$ = Chr$(0) + "P" Or _KeyDown(20480) Then selIdx = selIdx + 1: If selIdx > 2 Then selIdx = 1
+            deadAct = 0
+            If k$ = "r" Or k$ = "R" Or k$ = " " Or _KeyDown(Asc("R")) Or _KeyDown(32) Or KeyUseHit%(k$) Then deadAct = 1
+            If k$ = "q" Or k$ = "Q" Then deadAct = 2
+            If deadAct = 1 Then
+                restarts = restarts + 1
+                shotsFired = segShots: dmgTaken = segDmg          ' score per level-segment restored
+                runT0 = Timer - (segStartT - segT0): If runT0 > Timer Then runT0 = Timer
+                Gosub LoadLevel                                   ' reloads SAME lvlIdx
+            ElseIf deadAct = 2 Then
+                Gosub QuitGame
+            End If
+        End If
+        If gameMode$ <> "campaign" And (k$ = "r" Or k$ = "R" Or k$ = " " Or _KeyDown(Asc("R")) Or _KeyDown(32)) Then
             ' reset ALLT -> tillbaka till menyn
             hp = 100: ammo = 5
             px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0   ' Fas 5A: start from map 'S'
@@ -682,8 +752,23 @@ Do
             _PrintString (dtx - 2, dty), strDead$
             Color _RGB32(220, 0, 0)
             _PrintString (dtx, dty), strDead$
-            Color _RGB32(200, 200, 200)
-            _PrintString ((RW - Len(strRestart$) * 8) \ 2, RH \ 2 + 40), strRestart$
+            If gameMode$ = "campaign" Then
+                ' 5C death screen options: RESTART LEVEL (same level) / QUIT
+                padXd = Int(btnFontSize * 0.9): If padXd < 12 Then padXd = 12
+                BtnTextW strRestartRound$, w1: BtnTextW strQuit$, w2
+                If w2 > w1 Then w1 = w2
+                deadBtnW = w1 + padXd * 2
+                BtnGeom deadBtnW, RW \ 2, RH \ 2 + 40, dB1X0, dB1Y0, dB1X1, dB1Y1
+                BtnGeom deadBtnW, RW \ 2, dB1Y1 + Int(RH * 14 / 1080), dB2X0, dB2Y0, dB2X1, dB2Y1
+                DrawButton dB1X0, dB1Y0, dB1X1, dB1Y1, strRestartRound$, (selIdx = 1)
+                DrawButton dB2X0, dB2Y0, dB2X1, dB2Y1, strQuit$, (selIdx = 2)
+                rs$ = strRestarts$ + " " + LTrim$(Str$(restarts))
+                Color _RGB32(150, 150, 150)
+                _PrintString ((RW - Len(rs$) * 8) \ 2, dB2Y1 + Int(RH * 16 / 1080)), rs$
+            Else
+                Color _RGB32(200, 200, 200)
+                _PrintString ((RW - Len(strRestart$) * 8) \ 2, RH \ 2 + 40), strRestart$
+            End If
             ' highscore-rader: SCORE / BÄSTA / ev. NY REKORD!
             sc$ = strScore$ + " " + LTrim$(Str$(score))
             bs2$ = strBest$ + " " + LTrim$(Str$(bestScore))
@@ -714,6 +799,8 @@ Do
         If selftest And testPhase = 12 And testFlag = 2 Then mb = 1
         ' selftest fas16: leave result via the normal CONTINUE path -> playing
         If selftest And testPhase = 16 And testFlag = 0 Then mb = 1
+        ' selftest 5C fas19: drive CONTINUE (next campaign level) via injected click
+        If selftest And testPhase = 19 And (testFlag = 4 Or testFlag = 13) Then mb = 1
         If (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then
             ' ESC i result -> PAUS (resumeState=result; FORTSÄTT återgår hit)
             resumeState$ = "result"
@@ -723,11 +810,17 @@ Do
             _KeyClear
             state$ = "paused"
         ElseIf (mb Or KeyUseHit%(k$)) And state$ = "result" Then
-            ' CONTINUE to next round with mouse click OR E (KeyUse); SPACE/ENTER
-            ' do nothing here. BARA pendingStart=1 + state=menu (samma
-            ' frame) — meny-grenen går samma START-väg (StartRun -> fadeout ->
-            ' playing). Ingen egen övergångskod här.
-            pendingStart = 1
+            ' CONTINUE with mouse click OR E (KeyUse); SPACE/ENTER do nothing here.
+            ' 5C campaign: on a NON-FINAL level CONTINUE loads the NEXT level of
+            ' levels.lst (pendingNext -> LoadLevel in the menu branch); final level
+            ' never reaches result (win trigger -> victory screen instead).
+            ' Single/arena: BARA pendingStart=1 + state=menu (samma frame) —
+            ' meny-grenen går samma START-väg (StartRun -> fadeout -> playing).
+            If gameMode$ = "campaign" And lvlIdx < lvlN - 1 Then
+                pendingNext = 1
+            Else
+                pendingStart = 1
+            End If
             state$ = "menu"
         End If
         ' rendera resultat-skärmen: statistik + CLICK TO CONTINUE (ingen knapp)
@@ -754,6 +847,12 @@ Do
             Color _RGB32(255, 80, 80)
             _PrintString ((RW - Len(strNewRec$) * 8) \ 2, RH \ 2 - Int(RH * 20 / 1080)), strNewRec$
         End If
+        ' 5C campaign: which level CONTINUE will load next
+        If gameMode$ = "campaign" And lvlIdx < lvlN - 1 Then
+            nxt$ = strNextLvl$ + " LVL " + LTrim$(Str$(lvlIdx + 2)) + "/" + LTrim$(Str$(lvlN)) + " " + lvlName$(lvlIdx + 1)
+            Color _RGB32(150, 150, 230)
+            _PrintString ((RW - Len(nxt$) * 8) \ 2, RH \ 2 + Int(RH * 52 / 1080)), nxt$
+        End If
         ' CLICK TO CONTINUE — gul, SNABB blink (valt: Int(Timer*4) Mod 2, 2 Hz)
         If Int(Timer * 4) Mod 2 = 0 Then
             Color _RGB32(255, 200, 0)
@@ -765,6 +864,68 @@ Do
         _PrintString (RW - Len(ver$ + " " + strBuild$) * 8 - 16, RH - 24), ver$ + " " + strBuild$
         _Display
         If selftest Then Gosub SelftestDrive   ' fas12: observera state=result här
+    ElseIf state$ = "victory" Then
+        ' 5C SEGER-SKÄRM: campaign finished (last level of levels.lst cleared).
+        ' Stats table: score, total kills, per-level times, best. Buttons:
+        ' PLAY AGAIN (restart campaign at level 1, score zeroed) / QUIT.
+        ' W/S or arrows move the selection, E/ENTER/click activates, ESC quits.
+        While _MouseInput: WEND   ' töm muskön
+        mb = _MouseButton(1)
+        ' selftest 5C fas19: PLAY AGAIN via injected E (selIdx=1)
+        If selftest And testPhase = 19 And (testFlag = 7 Or testFlag = 14) And inj19v = 0 Then k$ = "e": inj19v = 1
+        If k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 2
+        If k$ = "s" Or k$ = "S" Or k$ = Chr$(0) + "P" Or _KeyDown(20480) Then selIdx = selIdx + 1: If selIdx > 2 Then selIdx = 1
+        If (KeyUseHit%(k$) Or k$ = Chr$(13) Or mb) And state$ = "victory" Then
+            If selIdx = 1 Then
+                ' PLAY AGAIN: restart the campaign at level 1, score zeroed
+                lvlIdx = 0
+                shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: liveScore& = CalcScore&
+                killsTotal = 0: restarts = 0: newRecord = 0
+                For i = 0 To 19: lvlTime(i) = 0: Next i
+                Gosub LoadLevel
+                SOUND 300, 2: SOUND 150, 3
+            Else
+                Gosub QuitGame
+            End If
+        End If
+        If (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then Gosub QuitGame
+        ' rendera seger-skärmen: statistik + 2 knappar
+        _Dest display&
+        vicPanelHalf = Int(RH * 220 / 1080)
+        Line (0, 0)-(RW - 1, RH - 1), _RGB32(8, 8, 24), BF
+        Line (RW \ 2 - 860, RH \ 2 - vicPanelHalf)-(RW \ 2 + 859, RH \ 2 + vicPanelHalf - 1), _RGB32(255, 200, 0), B
+        Color _RGB32(255, 200, 0)
+        _PrintString ((RW - Len(strVictory$) * 8) \ 2, RH \ 2 - Int(RH * 165 / 1080)), strVictory$
+        sc$ = strScore$ + " " + LTrim$(Str$(score))
+        kl$ = strKills$ + " " + LTrim$(Str$(killsTotal))
+        bs2$ = strBest$ + " " + LTrim$(Str$(bestScore))
+        lvls$ = ""
+        For i = 0 To lvlN - 1
+            t% = lvlTime(i): mm% = t% \ 60: ss% = t% - mm% * 60
+            lvls$ = lvls$ + "L" + LTrim$(Str$(i + 1)) + " " + LTrim$(Str$(mm%)) + ":" + Right$("0" + LTrim$(Str$(ss%)), 2) + "  "
+        Next i
+        Color _RGB32(255, 255, 255)
+        _PrintString ((RW - Len(sc$) * 8) \ 2, RH \ 2 - Int(RH * 125 / 1080)), sc$
+        _PrintString ((RW - Len(kl$) * 8) \ 2, RH \ 2 - Int(RH * 100 / 1080)), kl$
+        Color _RGB32(150, 150, 230)
+        _PrintString ((RW - Len(lvls$) * 8) \ 2, RH \ 2 - Int(RH * 75 / 1080)), lvls$
+        Color _RGB32(150, 150, 150)
+        _PrintString ((RW - Len(bs2$) * 8) \ 2, RH \ 2 - Int(RH * 50 / 1080)), bs2$
+        If newRecord Then
+            Color _RGB32(255, 80, 80)
+            _PrintString ((RW - Len(strNewRec$) * 8) \ 2, RH \ 2 - Int(RH * 25 / 1080)), strNewRec$
+        End If
+        padX = Int(btnFontSize * 0.9): If padX < 12 Then padX = 12
+        BtnTextW strPlayAgain$, w1: BtnTextW strQuit$, w2
+        If w2 > w1 Then w1 = w2
+        vicBtnW = w1 + padX * 2
+        BtnGeom vicBtnW, RW \ 2, RH \ 2 + Int(RH * 60 / 1080), vB1X0, vB1Y0, vB1X1, vB1Y1
+        BtnGeom vicBtnW, RW \ 2, vB1Y1 + Int(RH * 14 / 1080), vB2X0, vB2Y0, vB2X1, vB2Y1
+        DrawButton vB1X0, vB1Y0, vB1X1, vB1Y1, strPlayAgain$, (selIdx = 1)
+        DrawButton vB2X0, vB2Y0, vB2X1, vB2Y1, strQuit$, (selIdx = 2)
+        Color _RGB32(110, 110, 140)
+        _PrintString (RW - Len(ver$ + " " + strBuild$) * 8 - 16, RH - 24), ver$ + " " + strBuild$
+        _Display
     ElseIf state$ = "paused" Then
         ' ================= PAUSMENY (ESC i playing/result) =================
         ' Tiden stannar här (runT0 justeras vid FORTSÄTT så pausen inte äter
@@ -1316,8 +1477,16 @@ Do
             winPending = 1: winT0 = Timer
         ElseIf Timer - winT0 >= 1 Then
             If selftest Then stMsg$ = "WIN-TRIG phase=" + Str$(testPhase) + " t=" + LTrim$(Str$(Int((Timer - winT0) * 10) / 10)): Gosub STLog
-            state$ = "result"
-            LogMouse "LIVSTIDSLAS win->result (ingen unlock, virtuell pekare)"
+            lvlTime(lvlIdx) = Int(Timer - lvlT0)   ' 5C: per-level cleared time (victory screen)
+            If gameMode$ = "campaign" And lvlIdx >= lvlN - 1 Then
+                ' 5C: last level of the campaign cleared -> VICTORY screen (not result/CONTINUE)
+                state$ = "victory"
+                selIdx = 1
+                LogMouse "LIVSTIDSLAS win->victory (ingen unlock)"
+            Else
+                state$ = "result"
+                LogMouse "LIVSTIDSLAS win->result (ingen unlock, virtuell pekare)"
+            End If
             score = liveScore&   ' samma räknare som HUD — fryst värde vid sista kill
             newRecord = 0
             If selftest = 0 And score > bestScore Then
@@ -1342,6 +1511,7 @@ Do
         hp = 0
         state$ = "dead"
         deathTime = Timer
+        If gameMode$ = "campaign" Then selIdx = 1   ' 5C: death options start on RESTART LEVEL
         LogMouse "LIVSTIDSLAS death (ingen unlock)"
         ' Highscore: räkna score vid död; spara nytt rekord (ej i selftest = anti-cheese)
         score = liveScore&
@@ -1789,6 +1959,12 @@ Do
     scHud$ = strScore$ + " " + LTrim$(Str$(liveScore&))   ' live-räknare — tickar ner med tiden
     Color _RGB32(255, 255, 0)
     _PrintString (RW - Len(scHud$) * 8 - 8, 4), scHud$
+    ' 5C HUD mode/level rad (FIX F): "LVL n/total <namn> MAP <fil> #<hash> RESTARTS r"
+    ' i kampanjläge, "SINGLE <fil> #<hash>" i arg-testläge, "ARENA <fil> #<hash>" utan arg.
+    lvlHud$ = HudLevelTag$
+    If Len(lvlHud$) > RW \ 8 - 1 Then lvlHud$ = Left$(lvlHud$, RW \ 8 - 1)
+    Color _RGB32(150, 150, 230)
+    _PrintString (0, 18), lvlHud$
     ' (muslås-hint borttagen — Wayland låser vid första klicket, ingen text behövs)
 
     ' HP-ruta nertill vänster: bar-längd + siffra (tydligt även utan färgseende)
@@ -2195,6 +2371,7 @@ StartRun:
     startRuns = startRuns + 1
     hp = 100: ammo = 5
     px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0   ' Fas 5A: start from map 'S'
+    If gameMode$ = "campaign" Then killsTotal = 0: restarts = 0: waveNo = 0   ' 5C: fresh campaign counters, wave register starts at wave 1
     Gosub ApplyMapSpawns   ' Fas 5A: pickups/keys/doors from map, doors closed each round
     Gosub SpawnEnemies
     hpMsg$ = "": hpMsgTime = 0
@@ -2202,6 +2379,7 @@ StartRun:
     gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: bobPhase = 0: turnDelta = 0: gunSway = 0: anglePrev = angle   ' Fas 4C viewmodel reset
     deathTime = 0: hover = 0: prevHover = 0: winPending = 0: runTimeFrozen = -1   ' VIDARE: reset tid 0 (ej fryst)
     runT0 = Timer: shotsFired = 0: dmgTaken = 0
+    segShots = shotsFired: segDmg = dmgTaken: segT0 = runT0: segStartT = Timer: lvlT0 = Timer: lvlTime(lvlIdx) = 0   ' 5C: per-level-segment score snapshot
     ' SKYDD mot fastnad rörelse efter övergång (t.ex. VIDARE): nollställ ALLE
     ' rörelse-flaggor INNAN state=fadeout och töm tangentbords-buffertarna
     ' (INKEY$/_KEYHIT) så inga key-repeats från föregående skärm överlever.
@@ -2294,6 +2472,49 @@ Function MapFileFromCmd$ (c$)
         MapFileFromCmd$ = ""
     Else
         MapFileFromCmd$ = t$
+    End If
+End Function
+
+' GameModeFromCmd$ (5C): command-line arg -> game mode:
+'   "" -> "arena" | "selftest" -> "selftest" | "campaign"/"--level N" -> "campaign"
+'   anything else -> "single" (that arg is a .map file)
+Function GameModeFromCmd$ (c$)
+    t$ = LCase$(LTrim$(RTrim$(c$)))
+    If t$ = "selftest" Then
+        GameModeFromCmd$ = "selftest"
+    ElseIf t$ = "" Then
+        GameModeFromCmd$ = "arena"
+    ElseIf t$ = "campaign" Then
+        GameModeFromCmd$ = "campaign"
+    ElseIf Left$(t$, 7) = "--level" Then
+        GameModeFromCmd$ = "campaign"
+    Else
+        GameModeFromCmd$ = "single"
+    End If
+End Function
+
+' LevelFromCmd% (5C): "--level N" (or "--level=N") -> 1-based start level; 0 = not given.
+Function LevelFromCmd% (c$)
+    t$ = LCase$(LTrim$(RTrim$(c$)))
+    LevelFromCmd% = 0
+    If Left$(t$, 7) = "--level" Then
+        r$ = LTrim$(RTrim$(Mid$(t$, 8)))
+        If Left$(r$, 1) = "=" Then r$ = LTrim$(Mid$(r$, 2))
+        n19 = Val(r$)
+        If n19 >= 1 Then LevelFromCmd% = Int(n19)
+    End If
+End Function
+
+' HudLevelTag$ (5C, FIX F): the HUD mode/level line.
+'   campaign -> "LVL <n>/<total> <name>  MAP <file> #<hash>  RESTARTS <r>"
+'   single/selftest -> "SINGLE <file> #<hash>"   arena -> "ARENA <file> #<hash>"
+Function HudLevelTag$
+    If gameMode$ = "campaign" Then
+        HudLevelTag$ = "LVL " + LTrim$(Str$(lvlIdx + 1)) + "/" + LTrim$(Str$(lvlN)) + " " + lvlName$(lvlIdx) + "  MAP " + mapFile$ + " #" + LTrim$(Str$(mapHash&)) + "  RESTARTS " + LTrim$(Str$(restarts))
+    ElseIf gameMode$ = "single" Or gameMode$ = "selftest" Then
+        HudLevelTag$ = "SINGLE " + mapFile$ + " #" + LTrim$(Str$(mapHash&))
+    Else
+        HudLevelTag$ = "ARENA " + mapFile$ + " #" + LTrim$(Str$(mapHash&))
     End If
 End Function
 
@@ -2465,6 +2686,98 @@ LoadMapAuto:
         Return
     End If
     loadedMapFile$ = lmPath$
+    ' 5C: grid hash of the committed map (HUD tag + selftest hash checks)
+    mapHash& = 0
+    For yy = 0 To mapH - 1
+        For xx = 0 To mapW - 1
+            mapHash& = (mapHash& * 31 + Asc(Mid$(mapRow$(yy), xx + 1, 1))) And &H7FFFFFFF
+        Next xx
+    Next yy
+    Return
+
+' LoadLevelsLst (5C): reads lstFile$ (default "maps/levels.lst", same
+' "schleswig/" path fallback as maps) into lvlFile$/lvlName$, lvlN entries.
+' Format: ONE level per line "<file.map>|<display name>"; blank lines skipped;
+' file order = play order; the LAST line = end of the campaign (documented in
+' AGENTS.md). Failure -> loadFatal=1 + fatalMsg$ ("LEVELS FILE NOT FOUND" /
+' "INVALID LEVELS LIST line <r>: <why>") -> same loud fatal screen as maps.
+LoadLevelsLst:
+    lvlN = 0: loadFatal = 0: fatalMsg$ = ""
+    lp$ = lstFile$
+    If Not _FileExists(lp$) Then
+        If _FileExists("schleswig/" + lp$) Then lp$ = "schleswig/" + lp$
+    End If
+    If Not _FileExists(lp$) Then
+        loadFatal = 1
+        fatalMsg$ = "LEVELS FILE NOT FOUND: " + lstFile$ + ". Press Q to quit."
+        Return
+    End If
+    lf = FreeFile
+    Open lp$ For Input As #lf
+    lstLn = 0
+    While Not Eof(lf)
+        Line Input #lf, lstLn$
+        If Right$(lstLn$, 1) = Chr$(13) Then lstLn$ = Left$(lstLn$, Len(lstLn$) - 1)
+        lstLn = lstLn + 1
+        t$ = LTrim$(RTrim$(lstLn$))
+        If Len(t$) > 0 Then
+            If lvlN >= 20 Then
+                loadFatal = 1
+                fatalMsg$ = "INVALID LEVELS LIST line " + LTrim$(Str$(lstLn)) + ": too many levels (max 20). Press Q to quit."
+                Close #lf
+                Return
+            End If
+            p = InStr(t$, "|")
+            If p > 0 Then
+                fn$ = LTrim$(RTrim$(Left$(t$, p - 1))): nm$ = LTrim$(RTrim$(Mid$(t$, p + 1)))
+            Else
+                fn$ = "": nm$ = ""
+            End If
+            If p < 2 Or Len(fn$) = 0 Or Len(nm$) = 0 Then
+                loadFatal = 1
+                fatalMsg$ = "INVALID LEVELS LIST line " + LTrim$(Str$(lstLn)) + ": want <file.map>|<name>. Press Q to quit."
+                Close #lf
+                Return
+            End If
+            lvlFile$(lvlN) = fn$: lvlName$(lvlN) = nm$: lvlN = lvlN + 1
+        End If
+    Wend
+    Close #lf
+    If lvlN < 1 Then
+        loadFatal = 1
+        fatalMsg$ = "INVALID LEVELS LIST line 1: empty list (need <file.map>|<name> per line). Press Q to quit."
+    End If
+    Return
+
+' LoadLevel (5C campaign): loads level lvlIdx (0-based) from the levels list —
+' new ParseMap via LoadMapAuto (map failure -> same loud fatal screen), then
+' enemy/wave registers reset via the EXISTING SpawnEnemies (waveNo forced to 0
+' first, so level N's enemies/waves can NEVER leak into N+1; SpawnEnemies also
+' clears the projectile pool + BFS target). Score counters (shotsFired/
+' dmgTaken/runT0) are KEPT across levels (score carries over); the per-level
+' segment snapshot (segShots/segDmg/segT0/segStartT) is taken for RESTART LEVEL.
+LoadLevel:
+    mapFile$ = lvlFile$(lvlIdx)
+    Gosub LoadMapAuto
+    If loadFatal Then
+        Print fatalMsg$   ' log line to the terminal
+        state$ = "fatal"
+        Return
+    End If
+    Gosub ApplyMapSpawns
+    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0
+    hp = 100: ammo = 5
+    waveNo = 0
+    Gosub SpawnEnemies   ' resets ALL enemy state + projectiles + BFS (no leak from level N)
+    hpMsg$ = "": hpMsgTime = 0
+    lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
+    gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: bobPhase = 0: turnDelta = 0: gunSway = 0: anglePrev = angle   ' Fas 4C viewmodel reset
+    winPending = 0: runTimeFrozen = -1: deathTime = 0
+    mvF = 0: mvB = 0: mvL = 0: mvR = 0: turnL = 0: turnR = 0: fireBtn = 0: _KeyClear
+    segShots = shotsFired: segDmg = dmgTaken: segT0 = runT0: segStartT = Timer   ' per-level-segment score snapshot
+    lvlT0 = Timer: lvlTime(lvlIdx) = 0
+    state$ = "fadeout"
+    fadeT0 = Timer
     Return
 
 ' ApplyMapSpawns: push map spawn lists into the live arrays; reset keys + doors
@@ -4425,7 +4738,7 @@ SelftestDrive:
                         End
                     End If
                     recoil = 0: muzzleT = 0: shakeT = 0
-                    testPhase = 12: testT0 = Timer: testFlag = 0   ' continue to fas12 (win trigger -> menu -> SELFTEST OK)
+                    testPhase = 19: testT0 = Timer: testFlag = 0   ' 5C: continue to fas19 (level progression), then fas12 (win trigger -> menu -> SELFTEST OK)
                 ElseIf Timer - testT0 >= 3 Then
                     stMsg$ = "FAIL fas18f-timeout"
                     Gosub STLog
@@ -4434,6 +4747,477 @@ SelftestDrive:
                     ShutdownSound
                     End
                 End If
+            End If
+        Case 19  ' 5C LEVEL-PROGRESSION: (a) levels.lst parse (missing/bad/good/shipped),
+                 ' (b) CONTINUE loads level N+1 with enemy/wave registers reset and a
+                 ' different grid hash, score kept; (c) last level -> victory screen +
+                 ' PLAY AGAIN; (d) --level 3 -> lst position 3 + HUD name; (e) death ->
+                 ' RESTART LEVEL same level (never next), segment score restored,
+                 ' restarts++; (f) full campaign 1->5 automated -> victory, kills total.
+            If testFlag = 0 Then
+                ' --- 5c-a1: missing levels.lst -> loud fatal ---
+                lstFile$ = "/tmp/schleswig_no_such_levels.lst"
+                Gosub LoadLevelsLst
+                If loadFatal = 1 And lvlN = 0 And InStr(fatalMsg$, "LEVELS FILE NOT FOUND") > 0 Then
+                    stMsg$ = "PASS 5c-a1-levels-missing-fatal (" + fatalMsg$ + ")"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-a1 loadFatal=" + Str$(loadFatal) + " lvlN=" + Str$(lvlN) + " msg=" + fatalMsg$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' --- 5c-a2: broken line -> INVALID LEVELS LIST with line number ---
+                f19 = FreeFile
+                Open "/tmp/schleswig_levels_bad.lst" For Output As #f19
+                Print #f19, "/tmp/schleswig_lvl01.map|Test One"
+                Print #f19, "this line has no pipe"
+                Print #f19, "/tmp/schleswig_lvl03.map|Test Three"
+                Close #f19
+                lstFile$ = "/tmp/schleswig_levels_bad.lst"
+                Gosub LoadLevelsLst
+                If loadFatal = 1 And InStr(fatalMsg$, "INVALID LEVELS LIST line 2") > 0 Then
+                    stMsg$ = "PASS 5c-a2-levels-badline-fatal (" + fatalMsg$ + ")"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-a2 loadFatal=" + Str$(loadFatal) + " msg=" + fatalMsg$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' --- 5c-a3: good lst -> 5 levels in play order (write 5 test maps first) ---
+                c19cnt(1) = 2: c19cnt(2) = 3: c19cnt(3) = 4: c19cnt(4) = 6: c19cnt(5) = 8
+                For c19lvl = 1 To 5
+                    f19 = FreeFile
+                    Open "/tmp/schleswig_lvl0" + LTrim$(Str$(c19lvl)) + ".map" For Output As #f19
+                    For c19y = 0 To 15
+                        r19$ = ""
+                        For c19x = 0 To 15
+                            ch$ = "."
+                            If c19x = 0 Or c19y = 0 Or c19x = 15 Or c19y = 15 Then ch$ = "#"
+                            If c19x = 1 And c19y = 1 Then ch$ = "S"
+                            If c19y = 4 And (c19x = 5 Or c19x = 10) Then ch$ = "#"
+                            If c19y = 12 And (c19x = 5 Or c19x = 10) Then ch$ = "#"
+                            If c19x = 7 And c19y = 2 + c19lvl Then ch$ = "#"   ' per-level wall -> distinct grid hash
+                            If c19y = 8 Then
+                                For c19i = 1 To c19cnt(c19lvl)
+                                    If c19x = 2 + c19i Then ch$ = Mid$("FOUUKGFO", c19i, 1)
+                                Next c19i
+                            End If
+                            r19$ = r19$ + ch$
+                        Next c19x
+                        Print #f19, r19$
+                    Next c19y
+                    Close #f19
+                Next c19lvl
+                f19 = FreeFile
+                Open "/tmp/schleswig_levels5.lst" For Output As #f19
+                Print #f19, "/tmp/schleswig_lvl01.map|Test One"
+                Print #f19, "/tmp/schleswig_lvl02.map|Test Two"
+                Print #f19, "/tmp/schleswig_lvl03.map|Test Three"
+                Print #f19, "/tmp/schleswig_lvl04.map|Test Four"
+                Print #f19, "/tmp/schleswig_lvl05.map|Test Five"
+                Close #f19
+                lstFile$ = "/tmp/schleswig_levels5.lst"
+                Gosub LoadLevelsLst
+                If loadFatal = 0 And lvlN = 5 And lvlFile$(0) = "/tmp/schleswig_lvl01.map" And lvlName$(0) = "Test One" And lvlFile$(2) = "/tmp/schleswig_lvl03.map" And lvlName$(2) = "Test Three" And lvlFile$(4) = "/tmp/schleswig_lvl05.map" And lvlName$(4) = "Test Five" Then
+                    stMsg$ = "PASS 5c-a3-levels-parse-order (5 levels in play order: " + lvlFile$(0) + "|" + lvlName$(0) + " ... " + lvlFile$(4) + "|" + lvlName$(4) + ")"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-a3 loadFatal=" + Str$(loadFatal) + " lvlN=" + Str$(lvlN) + " f0=" + lvlFile$(0) + " n4=" + lvlName$(4)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' --- 5c-a4: shipped campaign files: maps/levels.lst -> 5 levels, every map loads valid ---
+                lstFile$ = "maps/levels.lst"
+                Gosub LoadLevelsLst
+                c19ok = (loadFatal = 0 And lvlN = 5)
+                If c19ok Then
+                    For c19i = 0 To lvlN - 1
+                        mapFile$ = lvlFile$(c19i)
+                        Gosub LoadMapAuto
+                        If loadFatal = 1 Or mapValid = 0 Then c19ok = 0
+                    Next c19i
+                End If
+                If c19ok Then
+                    stMsg$ = "PASS 5c-a4-shipped-levels-lst (maps/levels.lst: 5 levels, every .map loads valid: " + lvlFile$(0) + " ... " + lvlFile$(4) + ")"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-a4 loadFatal=" + Str$(loadFatal) + " lvlN=" + Str$(lvlN)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' restore the /tmp test list, then arg parsing (5c-d parse half)
+                lstFile$ = "/tmp/schleswig_levels5.lst"
+                Gosub LoadLevelsLst
+                ok19 = (GameModeFromCmd$("") = "arena" And GameModeFromCmd$("selftest") = "selftest" And GameModeFromCmd$("campaign") = "campaign" And GameModeFromCmd$("--level 3") = "campaign" And GameModeFromCmd$("--level=4") = "campaign" And GameModeFromCmd$("maps/test64.map") = "single" And LevelFromCmd%("--level 3") = 3 And LevelFromCmd%("--level=4") = 4 And LevelFromCmd%("campaign") = 0 And LevelFromCmd%("") = 0)
+                If ok19 And loadFatal = 0 And lvlN = 5 Then
+                    stMsg$ = "PASS 5c-d0-args (mode: ''->arena selftest->selftest campaign/--level->campaign mapfile->single; LevelFromCmd%: '--level 3'->3 '--level=4'->4 campaign->0 ''->0)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-d0-args mode(empty)=" + GameModeFromCmd$("") + " mode(selftest)=" + GameModeFromCmd$("selftest") + " lvl(--level 3)=" + Str$(LevelFromCmd%("--level 3"))
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                ' campaign setup on level 1 with leak probes (projectile/enemy/wave)
+                gameMode$ = "campaign"
+                shotsFired = 7: dmgTaken = 10: runT0 = Timer - 5
+                killsTotal = 0: restarts = 0: lvlIdx = 0
+                For c19i = 0 To PR_MAX: prActive(c19i) = 0: Next c19i
+                prActive(2) = 1                          ' projectile leak probe
+                For c19i = 0 To 10: enActive(c19i) = 0: Next c19i
+                enActive(0) = 1: enState(0) = 2: enHP(0) = 99   ' enemy-state leak probes
+                waveNo = 9                                ' wave-register leak probe
+                bfsForX = 77: bfsForY = 77               ' BFS-target leak probe
+                Gosub LoadLevel
+                c19bfs = bfsForX   ' captured BEFORE the first playing frame can recompute BFS
+                testFlag = 2: testT0 = Timer
+            End If
+            If testFlag = 2 And state$ = "playing" Then
+                c19hash& = mapHash&
+                c19alive = 0
+                For c19i = 0 To 10
+                    If enActive(c19i) Then c19alive = c19alive + 1
+                Next c19i
+                c19prAll = 1
+                For c19i = 0 To PR_MAX
+                    If prActive(c19i) Then c19prAll = 0
+                Next c19i
+                c19hud$ = HudLevelTag$
+                If lvlIdx = 0 And mapW = 16 And mapValid = 1 And loadFatal = 0 And c19alive = 2 And waveNo = 1 And c19prAll = 1 And enState(0) = 0 And enHP(0) = etHP(ET_FOOT) And c19bfs = -1 And shotsFired = 7 And dmgTaken = 10 And InStr(c19hud$, "LVL 1/5") > 0 And InStr(c19hud$, "Test One") > 0 Then
+                    stMsg$ = "PASS 5c-b0-level-load-reset (level 1 loaded: 2 map enemies, waveNo probe 9->1, projectile probe cleared, enState/enHP reset, BFS cleared, score kept shotsFired=7 dmg=10, HUD='" + c19hud$ + "')"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-b0 lvlIdx=" + Str$(lvlIdx) + " mapW=" + Str$(mapW) + " alive=" + Str$(c19alive) + " waveNo=" + Str$(waveNo) + " prAll=" + Str$(c19prAll) + " enState0=" + Str$(enState(0)) + " enHP0=" + Str$(enHP(0)) + " c19bfs=" + Str$(c19bfs) + " shots=" + Str$(shotsFired) + " hud=" + c19hud$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' kill all via the REAL kill path -> win -> result (level 1 of 5: NOT victory)
+                For c19i = 0 To 10
+                    If enActive(c19i) Then hitE = c19i: hitDmg = 999: Gosub EnemyTakeHit
+                Next c19i
+                winPending = 0
+                testFlag = 3: testT0 = Timer
+            ElseIf testFlag = 2 And Timer - testT0 >= 4 Then
+                stMsg$ = "FAIL 5c-b0-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 3 And state$ = "result" Then
+                If gameMode$ = "campaign" And lvlIdx = 0 And lvlN = 5 Then
+                    stMsg$ = "PASS 5c-b1-clear-mid-campaign-result (level 1 cleared -> state=result (lvlIdx 0 < lvlN-1 4), CONTINUE offered — NOT victory)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-b1 state=result but gameMode=" + gameMode$ + " lvlIdx=" + Str$(lvlIdx) + " lvlN=" + Str$(lvlN)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                testFlag = 4: testT0 = Timer   ' result-branch injects mb -> pendingNext path
+            ElseIf testFlag = 3 And Timer - testT0 >= 4 Then
+                stMsg$ = "FAIL 5c-b1-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 4 And state$ = "playing" Then
+                c19alive = 0
+                For c19i = 0 To 10
+                    If enActive(c19i) Then c19alive = c19alive + 1
+                Next c19i
+                c19prAll = 1
+                For c19i = 0 To PR_MAX
+                    If prActive(c19i) Then c19prAll = 0
+                Next c19i
+                c19hud$ = HudLevelTag$
+                If lvlIdx = 1 And mapHash& <> c19hash& And c19alive = 3 And waveNo = 1 And c19prAll = 1 And shotsFired = 7 And dmgTaken = 10 And InStr(c19hud$, "LVL 2/5") > 0 And InStr(c19hud$, "Test Two") > 0 Then
+                    stMsg$ = "PASS 5c-b2-continue-next-level (CONTINUE -> level 2: grid hash " + Str$(c19hash&) + "->" + Str$(mapHash&) + " CHANGED, alive 2->3 from new map, waveNo=1 (reset), projectiles cleared, NO enemy/wave leak, score kept shotsFired=7, HUD='" + c19hud$ + "')"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-b2 lvlIdx=" + Str$(lvlIdx) + " hash " + Str$(c19hash&) + "->" + Str$(mapHash&) + " alive=" + Str$(c19alive) + " waveNo=" + Str$(waveNo) + " prAll=" + Str$(c19prAll) + " shots=" + Str$(shotsFired) + " hud=" + c19hud$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' --- 5c-c: jump to LAST level, clear it -> victory (NOT result) ---
+                lvlIdx = lvlN - 1
+                Gosub LoadLevel
+                testFlag = 5: testT0 = Timer
+            ElseIf testFlag = 4 And Timer - testT0 >= 5 Then
+                stMsg$ = "FAIL 5c-b2-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 5 And state$ = "playing" Then
+                For c19i = 0 To 10
+                    If enActive(c19i) Then hitE = c19i: hitDmg = 999: Gosub EnemyTakeHit
+                Next c19i
+                winPending = 0
+                testFlag = 6: testT0 = Timer
+            ElseIf testFlag = 5 And Timer - testT0 >= 4 Then
+                stMsg$ = "FAIL 5c-c0-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 6 And state$ = "victory" Then
+                If lvlIdx = lvlN - 1 Then
+                    stMsg$ = "PASS 5c-c1-last-level-victory (last level " + Str$(lvlN) + "/" + Str$(lvlN) + " cleared -> state=victory, NOT result/CONTINUE)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-c1 state=victory but lvlIdx=" + Str$(lvlIdx)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                inj19v = 0
+                testFlag = 7: testT0 = Timer   ' victory-branch injects E -> PLAY AGAIN
+            ElseIf testFlag = 6 And Timer - testT0 >= 4 Then
+                stMsg$ = "FAIL 5c-c1-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 7 And state$ = "playing" Then
+                c19hud$ = HudLevelTag$
+                If lvlIdx = 0 And shotsFired = 0 And dmgTaken = 0 And killsTotal = 0 And mapHash& = c19hash& And InStr(c19hud$, "LVL 1/5") > 0 Then
+                    stMsg$ = "PASS 5c-c2-play-again (PLAY AGAIN -> level 1 reloaded (hash back to " + Str$(mapHash&) + "), score zeroed shotsFired=0 dmg=0 kills=0, HUD='" + c19hud$ + "')"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-c2 lvlIdx=" + Str$(lvlIdx) + " shots=" + Str$(shotsFired) + " dmg=" + Str$(dmgTaken) + " kills=" + Str$(killsTotal) + " hash=" + Str$(mapHash&) + " vs " + Str$(c19hash&) + " hud=" + c19hud$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                testFlag = 8: testT0 = Timer
+            ElseIf testFlag = 7 And Timer - testT0 >= 5 Then
+                stMsg$ = "FAIL 5c-c2-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 8 Then
+                ' --- 5c-d: --level 3 -> lst position 3, right name in HUD ---
+                c19lvl = LevelFromCmd%("--level 3")
+                lvlIdx = c19lvl - 1
+                Gosub LoadLevel
+                testFlag = 9: testT0 = Timer
+            End If
+            If testFlag = 9 And state$ = "playing" Then
+                c19hud$ = HudLevelTag$
+                If lvlIdx = 2 And mapFile$ = lvlFile$(2) And lvlName$(2) = "Test Three" And InStr(c19hud$, "LVL 3/5") > 0 And InStr(c19hud$, "Test Three") > 0 Then
+                    stMsg$ = "PASS 5c-d-level3 ('--level 3' -> lst position 3 (lvlIdx=2), map=" + mapFile$ + ", HUD='" + c19hud$ + "')"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-d lvlIdx=" + Str$(lvlIdx) + " mapFile=" + mapFile$ + " want=" + lvlFile$(2) + " name=" + lvlName$(2) + " hud=" + c19hud$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' --- 5c-e setup: death on level 3 -> RESTART same level ---
+                c19hash& = mapHash&
+                c19seg = segShots
+                shotsFired = segShots + 5   ' extra shots in this segment (must be rolled back)
+                hp = 0                      ' death next playing frame -> state=dead
+                c19died = 0: inj19d = 0
+                testFlag = 10: testT0 = Timer
+            ElseIf testFlag = 9 And Timer - testT0 >= 4 Then
+                stMsg$ = "FAIL 5c-d-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 10 And state$ = "playing" And c19died = 1 Then
+                c19hud$ = HudLevelTag$
+                If lvlIdx = 2 And mapHash& = c19hash& And restarts = 1 And shotsFired = c19seg And InStr(c19hud$, "LVL 3/5") > 0 Then
+                    stMsg$ = "PASS 5c-e-death-restart-same-level (death on level 3 -> RESTART LEVEL: lvlIdx still 2 (NOT next), same map hash " + Str$(mapHash&) + ", restarts=1, segment score restored shotsFired " + Str$(c19seg + 5) + "->" + Str$(shotsFired) + ", HUD LVL 3/5)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-e lvlIdx=" + Str$(lvlIdx) + " hash=" + Str$(mapHash&) + "/" + Str$(c19hash&) + " restarts=" + Str$(restarts) + " shots=" + Str$(shotsFired) + " want " + Str$(c19seg) + " hud=" + c19hud$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' --- 5c-f: full campaign 1->5 automated ---
+                lvlIdx = 0: c19lvl = 0: killsTotal = 0: shotsFired = 0: dmgTaken = 0: runT0 = Timer: restarts = 0
+                Gosub LoadLevel
+                testFlag = 11: testT0 = Timer
+            ElseIf testFlag = 10 And Timer - testT0 >= 6 Then
+                stMsg$ = "FAIL 5c-e-timeout state=" + state$ + " c19died=" + Str$(c19died)
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 11 Then
+                If state$ = "playing" And lvlIdx = c19lvl Then
+                    c19alive = 0
+                    For c19i = 0 To 10
+                        If enActive(c19i) Then c19alive = c19alive + 1
+                    Next c19i
+                    If c19alive > 0 Then
+                        ' kill all via the REAL kill path (killsTotal++ per enemy)
+                        For c19i = 0 To 10
+                            If enActive(c19i) Then hitE = c19i: hitDmg = 999: Gosub EnemyTakeHit
+                        Next c19i
+                        hp = 100
+                    End If
+                    ' do NOT touch winPending here — the win trigger needs 1s with alive==0
+                    testFlag = 12: testT0 = Timer
+                ElseIf state$ = "playing" Then
+                    stMsg$ = "FAIL 5c-f-lvl mismatch state=playing lvlIdx=" + Str$(lvlIdx) + " c19lvl=" + Str$(c19lvl)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                ElseIf Timer - testT0 >= 5 Then
+                    stMsg$ = "FAIL 5c-f-timeout11 state=" + state$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 12 Then
+                If state$ = "result" Then
+                    If lvlIdx = c19lvl And c19lvl < lvlN - 1 Then
+                        testFlag = 13: testT0 = Timer   ' result-branch injects mb -> CONTINUE
+                    Else
+                        stMsg$ = "FAIL 5c-f12-result lvlIdx=" + Str$(lvlIdx) + " c19lvl=" + Str$(c19lvl)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf state$ = "victory" Then
+                    If lvlIdx = lvlN - 1 And c19lvl = lvlN - 1 And killsTotal = 23 Then
+                        stMsg$ = "PASS 5c-f-full-campaign (levels 1->5 cleared in order via CONTINUE, each level hash distinct, final -> victory screen; killsTotal=23 = 2+3+4+6+8 spawned)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL 5c-f-victory lvlIdx=" + Str$(lvlIdx) + " c19lvl=" + Str$(c19lvl) + " killsTotal=" + Str$(killsTotal) + " (want 23)"
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    inj19v = 0
+                    testFlag = 14: testT0 = Timer   ' victory-branch injects E -> PLAY AGAIN
+                ElseIf Timer - testT0 >= 5 Then
+                    stMsg$ = "FAIL 5c-f12-timeout state=" + state$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 13 And state$ = "playing" Then
+                If lvlIdx = c19lvl + 1 Then
+                    c19lvl = lvlIdx
+                    testFlag = 11: testT0 = Timer
+                Else
+                    stMsg$ = "FAIL 5c-f13-continue lvlIdx=" + Str$(lvlIdx) + " c19lvl=" + Str$(c19lvl)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            ElseIf testFlag = 13 And Timer - testT0 >= 5 Then
+                stMsg$ = "FAIL 5c-f13-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 14 And state$ = "playing" Then
+                c19hud$ = HudLevelTag$
+                If lvlIdx = 0 And shotsFired = 0 And killsTotal = 0 Then
+                    stMsg$ = "PASS 5c-f2-play-again-after-campaign (victory PLAY AGAIN -> level 1, score zeroed, killsTotal=0, HUD='" + c19hud$ + "')"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5c-f2 lvlIdx=" + Str$(lvlIdx) + " shots=" + Str$(shotsFired) + " kills=" + Str$(killsTotal)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' restore the selftest environment, then continue to fas12 (win trigger -> menu -> SELFTEST OK)
+                gameMode$ = "selftest"
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammo = 5
+                For i = 0 To 10: enActive(i) = 0: Next i
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For i = 0 To PR_MAX: prActive(i) = 0: Next i
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3   ' fas12a needs a real frozen time (wt1 >= 1): pretend 3s elapsed
+                state$ = "playing"
+                testPhase = 12: testT0 = Timer: testFlag = 0
+            ElseIf testFlag = 14 And Timer - testT0 >= 5 Then
+                stMsg$ = "FAIL 5c-f2-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
             End If
     End Select
     Return

@@ -122,6 +122,50 @@ root (/home/andre/QB64pe).
 mapRow$ is THE single map grid — every read goes via CellAt$/Solid%/OpenCell%.
 LoadMapAuto always runs before the first render frame.
 
+## Command-line arguments (5C)
+  schleswig                  -> mode "arena": maps/default.map (TEST ARENA), HUD "ARENA"
+  schleswig selftest         -> scripted selftest (mode "selftest", HUD "SINGLE")
+  schleswig <file.map>       -> mode "single": that one map, test mode, HUD "SINGLE"
+  schleswig campaign         -> mode "campaign": maps/levels.lst from level 1
+  schleswig --level N        -> mode "campaign" starting at lst position N (1-based,
+                                clamped to the list; dev tool, also "--level=N")
+"campaign"/"--level" parse via GameModeFromCmd$/LevelFromCmd%; a missing or
+broken levels.lst is the SAME loud fatal as maps: "LEVELS FILE NOT FOUND: ..."
+/ "INVALID LEVELS LIST line <r>: <why>" + state$ = "fatal" (Q/ESC quits).
+
+## Campaign / levels.lst (Fas 5C)
+File: maps/levels.lst — ONE level per line, format `<file.map>|<display name
+(English)>`, blank lines skipped, file order = play order. DECISION: the
+LAST line of the list = the end of the campaign — clearing it shows the
+victory screen (never a CONTINUE). Map paths resolve like map args (as-is,
+then "schleswig/" prefix). Max 20 levels.
+Flow: MAP CLEARED on a non-final level -> result screen shows
+"NEXT: LVL <n+1>/<total> <name>" + CONTINUE (click/E) -> pendingNext ->
+LoadLevel: new ParseMap via LoadMapAuto + enemy/wave register reset via the
+EXISTING SpawnEnemies with waveNo forced to 0 first (SpawnEnemies also clears
+the projectile pool + BFS target) — level N's enemies/waves can never leak
+into N+1. Score (shotsFired/dmgTaken/runT0 -> liveScore&) is KEPT across
+levels; each level start snapshots segShots/segDmg/segT0/segStartT.
+Death on level N -> RESTART LEVEL (same level reloaded, segment score
+restored from the snapshot, restarts++ HUD counter) or QUIT — death NEVER
+advances to the next level. Last level cleared -> state "victory": stats
+table (score, killsTotal, per-level times lvlTime(), best) + PLAY AGAIN
+(restart campaign at level 1, score/kills/restarts zeroed) / QUIT.
+HUD mode line (HudLevelTag$): campaign "LVL <n>/<total> <name>  MAP <file>
+#<gridhash>  RESTARTS <r>", single "SINGLE <file> #<hash>", arena
+"ARENA <file> #<hash>".
+
+## Placeholder campaign maps (5C, TEMPORARY)
+The .map format has NO comment-line support ('#' is a wall char), so the five
+shipped placeholder maps are documented here instead of in-file:
+maps/level01.map..level05.map are TEMPORARY PLACEHOLDER campaign maps
+("# PLACEHOLDER — REPLACE WITH CAMPAIGN MAP"): valid 16x16, exactly one S,
+only valid chars, no keys/doors/weapons, small enemy mix with a difficulty
+scale in the map data — level01: 2 enemies (F F, easiest) ... level05: 8
+enemies (F O U K / G F F U, densest). Display names in maps/levels.lst:
+The Outskirts / Village Streets / The Old Mill / Barracks Yard / The Citadel.
+Vibe writes the real campaign maps later (6a+).
+
 ## Viewmodel design note (5A-hotfix2)
 The viewmodel sits deliberately ~half a gun-width RIGHT of center
 (Const vmOffsetX! = 0.06) — Wolfenstein/Quake design. DO NOT "fix" it to

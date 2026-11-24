@@ -14,7 +14,10 @@ different "layers" (directory vs file), so no name collision can occur.
 
 ## Run
 
-    ./schleswig/schleswig            # play (loads maps/default.map)
+    ./schleswig/schleswig            # play (loads maps/default.map, HUD: ARENA)
+    ./schleswig/schleswig map.map    # single-map test mode (HUD: SINGLE)
+    ./schleswig/schleswig campaign   # campaign from maps/levels.lst, level 1 (HUD: LVL 1/5 ...)
+    ./schleswig/schleswig --level N  # campaign starting at levels.lst position N (dev tool)
     ./schleswig/schleswig selftest   # scripted self-test, log: /tmp/schleswig_selftest.log
 
 A map file is the ONLY way to play — there is no embedded fallback map.
@@ -23,6 +26,22 @@ own directory (schleswig/); the loader also tries a "schleswig/" prefix.
 Missing file -> fullscreen "MAP FILE NOT FOUND: <path>. Press Q to quit.";
 invalid map -> "INVALID MAP: <path> line <r> col <c>: <why>. Press Q to quit."
 
+## Campaign (maps/levels.lst)
+
+`schleswig campaign` plays the campaign list maps/levels.lst: one level per
+line, `<file.map>|<display name>`; file order = play order and the LAST line
+is the end of the campaign. Clearing a non-final level offers CONTINUE, which
+loads the next level (score carries over, enemy/wave state is fully reset).
+Clearing the last level shows the victory screen (score, total kills,
+per-level times) with PLAY AGAIN / QUIT. Death offers RESTART LEVEL (same
+level, per-segment score restored, restart counter in the HUD) / QUIT —
+death never advances to the next level. `schleswig --level N` starts the
+campaign at list position N (developer tool). A missing/broken levels.lst is
+a loud fatal like map errors: "LEVELS FILE NOT FOUND" /
+"INVALID LEVELS LIST line <r>: <why>". The shipped maps/level01..05.map are
+temporary 16x16 placeholders (2..8 enemies, difficulty scale in the map
+data) — see AGENTS.md.
+
 ## Controls
 
 - SPACE or click START GAME: start the game
@@ -30,7 +49,7 @@ invalid map -> "INVALID MAP: <path> line <r> col <c>: <why>. Press Q to quit."
 - Mouse: look around. NOTE (Wayland): pointer lock engages on the first mouse
   click in game (the protocol requires a user gesture)
 - Left mouse button: shoot
-- R (on the death screen): full restart
+- R (on the death screen): restart (campaign: RESTART LEVEL = same level; arena/single: full restart to menu)
 - G: debug, -5 HP
 - ESC: quit
 
