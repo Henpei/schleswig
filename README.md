@@ -63,8 +63,8 @@ data) — see AGENTS.md.
 - Digit keys 1-5: select owned weapon (unowned = nothing happens); [ and ]: previous/next owned weapon
 - Weapons: start with the AXE (melee, no ammo). Pickups in the maps:
   `y` axe, `m` musket, `f` blunderbuss (double barrel, 2-shot magazine),
-  `k` machine gun, `c` mini cannon (arcing grenade, splash damage).
-  Ammo pickups per type: `A` musket, `B` blunderbuss, `C` machine gun, `D` mini cannon.
+  `k` machine musket, `c` mini cannon (arcing grenade, splash damage).
+  Ammo pickups per type: `A` musket, `B` blunderbuss, `C` machine musket, `D` mini cannon.
   Weapons and ammo carry over between campaign levels (only a fresh round resets them;
   RESTART LEVEL keeps weapons and restores ammo to the level-segment start).
 - E: open door (keys needed for 1/2/3 doors)
@@ -110,6 +110,6 @@ One char per cell, rows = map rows (CASE-SENSITIVE: 'S' start vs 's' silver key)
 `F`/`O`/`U`/`K`/`G` = foot/officer/musketeer/captain/general spawn,
 `M` medkit, `A` ammo (type 1), `d` wood door (E opens), `1`/`2`/`3` = bronze/silver/gold
 door (E needs the key), `b`/`s`/`g` = bronze/silver/gold key pickups,
-`y`/`m`/`f`/`k`/`c` = weapon pickups (axe/musket/blunderbuss/machine gun/mini cannon),
+`y`/`m`/`f`/`k`/`c` = weapon pickups (axe/musket/blunderbuss/machine musket/mini cannon),
 `B`/`C`/`D` = ammo pickups types 2/3/4.
 See AGENTS.md for the full table.

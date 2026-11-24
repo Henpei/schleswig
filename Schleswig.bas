@@ -34,6 +34,7 @@ Screen display&
 _FullScreen
 ' RW/RH = fönstrets faktiska dimension (variabler nu, inte Const)
 DIM SHARED RW, RH            ' används även inuti SUBs (MoveVirtualCursor/DrawCursor) — måste deklareras först
+DIM SHARED selftest          ' 6B-KOMPLETT: SHARED så KeyUseHit% kan göra selftest hermetiskt (ingen riktig _KeyDown då)
 RW = _Width(display&)
 RH = _Height(display&)
 ' aspektjusterad projektion: vertikal FOV konstant (0.66 vid 16:9), horisonten
@@ -90,8 +91,9 @@ DIM inj20a, inj20c, c20hud$, c20hash&, c20alive   ' Fas 5D start-menu selftest v
 DIM c21t0, c21shots, c21corner, c21edge, c21mortar, c21alive, c21i, c21j, c21x, c21y, c21f, c21r$, c21d, c21en, c21killed, c21edgeOK, c21cornerOK, c21mortOK   ' Fas 5D 64x64 runtime-regression selftest vars
 DIM c22m$(6), c22x, c22y, c22i, c22j, c22n, c22bad, c22open, c22bfs, c22f, c22min, c22lvl, c22alive, c22wp, c22wpN, c22wx(8), c22wy(8), c22wd(127, 127), c22dir, c22ok4, c22t, c22ok, c22exp, c22tx, c22ty, c22cx, c22cy, c22nx, c22ny, c22d, c22best, c22bnx, c22bny, c22shots, c22am, c22ammo0, c22bd, c22bi, c22msave, c22maxd, c22c$, c22key$, c22dbgT, ok22, c22hash&   ' Fas 5E selftest vars
 DIM c23key$, c23map$, c23i, c23j, c23w, c23ok, c23h&, c23gx, c23gy, c23am0, c23pe0, c23hop, c23maxhop, c23px, c23py, c23hp0, c23kills0, c23wpOk, c23amOk, c23swOk, c23swMax, c23perOk, c23meleeOk, c23canOk, c23qtdOk, c23dodOk, c23fireOk, c23arnOk, c23t, c23lvlSave, c23mode$, c23a2, c23w0, c23k   ' Fas 23 (6A vapen) selftest vars
+DIM c23f$, c23ln$, c23ch$, c23msg$, c23a, c23b, c23c, c23d, c23m, c23mx, c23my, c23dd, c23ok2   ' 6B-KOMPLETT fas23: 6b-b kanonmål, 6b-f ammo-distribution (fil-räkning)
 DIM c24key$, c24map$, c24i, c24j, c24t, c24m, c24ok, c24f, c24wx, c24wy, c24bad, c24x, c24y, dfx, dfy, dfx2, dfy2   ' Fas 24 (6B char-pairs + menu-blink) selftest vars
-DIM c25lvl, c25j, c25k, c25t, c25ok, c25bad, c25n, c25f, c25m, c25jw, c25nd, c25c$, c25hud$, c25alive, c25bi, c25bd, c25d, c25what, c25door, c25dx, c25dy, c25cx, c25cy, c25best, c25bnx, c25bny, c25nx2, c25ny2, c25y, c25kills0, c25assist, c25bot, c25hash&, c25doorX, c25doorY, c25gx, c25gy, c25msave, c25sh0, c25enF(5), c25enO(5), c25enU(5), c25enK(5), c25enG(5), c25wpExp(5), c25keyExp(5), c25doorN(5)   ' Fas 25 (6C äkta kampanjbanor) selftest vars
+DIM c25lvl, c25j, c25k, c25t, c25ok, c25bad, c25n, c25f, c25m, c25jw, c25nd, c25c$, c25hud$, c25alive, c25bi, c25bd, c25d, c25what, c25door, c25dx, c25dy, c25cx, c25cy, c25best, c25bnx, c25bny, c25nx2, c25ny2, c25y, c25kills0, c25assist, c25bot, c25hash&, c25doorX, c25doorY, c25gx, c25gy, c25msave, c25sh0, c25canFire, c25enF(5), c25enO(5), c25enU(5), c25enK(5), c25enG(5), c25wpExp(5), c25keyExp(5), c25doorN(5)   ' Fas 25 (6C äkta kampanjbanor) selftest vars
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
@@ -215,7 +217,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "3224337"
+Const strBuild$ = "fb69ca8"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -308,6 +310,8 @@ DIM SHARED wpMelee(WP_COUNT), wpArc(WP_COUNT), wpBallSpd!(WP_COUNT), wpCol&(WP_C
 DIM SHARED wpSplashR!(WP_COUNT), wpSplashDmg(WP_COUNT)
 DIM SHARED wpOwned(WP_COUNT), wpCur, wpMagNow(WP_COUNT), wpRlT!(WP_COUNT)   ' ägda vapen, valt, magasin, reload-timer
 DIM SHARED wpSwitchT!, wpSwingT, qtdOn                              ' byte-animation / yx-sväng-timer / QTD
+DIM SHARED chd!, chx, chy, chmx, chmy, chddx, chddy, chsx, chsy, chstepx, chstepy   ' 6B-KOMPLETT CrosshairDDA hjälpvariabler
+DIM SHARED catdx, catdy, catdist, caang, catdistP, catcx, catgy, catrp             ' 6B-KOMPLETT live kanon-markör (render)
 DIM wpX(10), wpY(10), wpT(10), wpActive(10)                     ' live vapen-pickups
 DIM spWpT(10), spWpX(10), spWpY(10), spWpN                      ' vapen-spawns från kartan (y/m/f/k/c)
 DIM spAmT(10)                                                   ' ammoN(1)-typ per spawn (A/B/C/D)
@@ -655,7 +659,7 @@ Do
                 If hover > 0 Then SOUND 1500, 1   ' hover-tick
             End If
             If hover > 0 Then selIdx = hover   ' håll tangent-markering synkad
-            If _MouseButton(1) And hover > 0 And state$ = "menu" Then
+            If (selftest = 0 And _MouseButton(1)) And hover > 0 And state$ = "menu" Then   ' 6B-KOMPLETT: ingen riktig mus under selftest
                 If menuPick Then
                     pickAct = hover: Gosub PickAction   ' 5D pick menu: click row 1/2
                 ElseIf hover = 1 Then
@@ -897,7 +901,11 @@ Do
         resEscY = RH \ 2 + Int(RH * 70 / 1080)
         mb = 0
         While _MouseInput: WEND   ' töm muskön
-        If _MouseButton(1) Then mb = 1
+        ' 6B-KOMPLETT: under selftest är riktig mus AVSTÄNGD (hermetiskt test) —
+        ' ett fantom-klick från sessionen fick annars result->CONTINUE att trigga
+        If selftest = 0 Then
+            If _MouseButton(1) Then mb = 1
+        End If
         ' selftest fas12: simulera klick (testFlag=2 -> fortsätt till nästa runda)
         If selftest And testPhase = 12 And testFlag = 2 Then mb = 1
         ' selftest fas16: leave result via the normal CONTINUE path -> playing
@@ -973,7 +981,8 @@ Do
         ' PLAY AGAIN (restart campaign at level 1, score zeroed) / QUIT.
         ' W/S or arrows move the selection, E/ENTER/click activates, ESC quits.
         While _MouseInput: WEND   ' töm muskön
-        mb = _MouseButton(1)
+        mb = 0
+        If selftest = 0 Then mb = _MouseButton(1)   ' 6B-KOMPLETT: hermetiskt selftest (ingen riktig mus)
         ' selftest 5C fas19: PLAY AGAIN via injected E (selIdx=1)
         If selftest And testPhase = 19 And (testFlag = 7 Or testFlag = 14) And inj19v = 0 Then k$ = "e": inj19v = 1
         If k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 2
@@ -1676,30 +1685,15 @@ Do
                 pitch = pitch + 6   ' liten rekyl-puff
                 PlaySound SND_SHOT
                 ' träff-koll: samma DDA som vägg-loopen men rakt fram (cameraX=0)
-                rdx = dirX: rdy = dirY
-                mapX = Int(px): mapY = Int(py)
-                If rdx = 0 Then ddx = 1E+30 Else ddx = Abs(1 / rdx)
-                If rdy = 0 Then ddy = 1E+30 Else ddy = Abs(1 / rdy)
-                If rdx < 0 Then stepX = -1: sdx = (px - mapX) * ddx Else stepX = 1: sdx = (mapX + 1 - px) * ddx
-                If rdy < 0 Then stepY = -1: sdy = (py - mapY) * ddy Else stepY = 1: sdy = (mapY + 1 - py) * ddy
-                Do
-                    If sdx < sdy Then
-                        sdx = sdx + ddx: mapX = mapX + stepX
-                    Else
-                        sdy = sdy + ddy: mapY = mapY + stepY
-                    End If
-                Loop Until Solid%(mapX, mapY)
-                If sdx < sdy Then hitDist = sdx - ddx Else hitDist = sdy - ddy
-                If hitDist < 0.2 Then hitDist = 0.2
+                ' 6B-KOMPLETT FIX C: EN delad beräkning (CrosshairDDA -> chd!) —
+                ' avfyrning OCH live-markören använder samma källa
+                Gosub CrosshairDDA
+                hitDist = chd!
                 flashDist = hitDist   ' muzzle flash: wall distance only (visual)
                 If wpArc(wpn) Then
-                    ' 6A MINI-KANON: mörserbåge — mål = träffpunkten där crosshair pekar
-                    ' (samma DDA hitDist), prOwner=0 (spelaren), splash vid nedslag
-                    mtx2 = Int(px + dirX * hitDist): mty2 = Int(py + dirY * hitDist)
-                    If mtx2 < 0 Then mtx2 = 0
-                    If mtx2 > mapW - 1 Then mtx2 = mapW - 1
-                    If mty2 < 0 Then mty2 = 0
-                    If mty2 > mapH - 1 Then mty2 = mapH - 1
+                    ' 6A/6B MINI-KANON: mörserbåge — mål = träffpunkten där crosshair pekar
+                    ' (CannonAim = samma målcell som live-markören), prOwner=0, splash vid nedslag
+                    Gosub CannonAim
                     spX = px: spY = py: spDX = dirX: spDY = dirY
                     spSpd! = 0: spOwner = 0: spDmg = wpSplashDmg(wpn): spType = PR_MORTAR
                     spSrcType = -1: spTX = mtx2: spTY = mty2: spLandT = Timer + 1.2
@@ -2225,6 +2219,38 @@ Do
         End If
     Next i
 
+    ' 6B-KOMPLETT FIX C: LIVE landningsmarkering för mini-kanonen — följer
+    ' crosshair i realtid (ej blinkande, till skillnad från mörser-telegrafen).
+    ' SAMMA målberäkning som avfyrning: CrosshairDDA + CannonAim (ingen duplikatkod).
+    If state$ = "playing" And wpCur = WP_CANNON Then
+        Gosub CrosshairDDA
+        Gosub CannonAim
+        catdx = mtx2 + 0.5 - px: catdy = mty2 + 0.5 - py
+        catdist = Sqr(catdx * catdx + catdy * catdy)
+        If catdist > 0.05 Then
+            caang = _ATan2(catdy, catdx) - angle
+            While caang > 3.14159265: caang = caang - 6.2831853: Wend
+            While caang < -3.14159265: caang = caang + 6.2831853: Wend
+            If Abs(caang) < fovCut Then
+                catdistP = catdist * Cos(caang)
+                catcx = Int(RW / 2 * (1 + Tan(caang) / planeDist))
+                If catcx >= 0 And catcx <= RW - 1 Then
+                    If catdistP < wallDist(catcx) Then
+                        catgy = midY + RH / (2 * catdistP) + pitch
+                        catrp = RW / catdistP * wpSplashR!(WP_CANNON) * 0.5
+                        If catrp < 8 Then catrp = 8
+                        If catrp > RW / 2 Then catrp = RW / 2
+                        If catgy > 0 And catgy < RH Then
+                            CIRCLE (catcx, catgy), catrp, _RGB32(0, 255, 180)
+                            Line (catcx - 3, catgy)-(catcx + 3, catgy), _RGB32(0, 255, 180)
+                            Line (catcx, catgy - 3)-(catcx, catgy + 3), _RGB32(0, 255, 180)
+                        End If
+                    End If
+                End If
+            End If
+        End If
+    End If
+
     ' 6A: splash-ring vid mörser-nedslag — expanderande ring 0.6 s (senaste nedslaget)
     If Timer - splT0 < 0.6 And splT0 > 0 Then
         sdx = splX - px: sdy = splY - py
@@ -2493,7 +2519,7 @@ LOOP
 ' body color (distance-shaded at render); etSpr sprite id, etScale sprite
 ' scale, etMinWave spawn gating wave (general additionally: wave Mod 5 = 0).
 InitEnemyTypes:
-    etName$(ET_FOOT) = "FOOT SOLDIER":  etHP(ET_FOOT) = 3:  etDmg(ET_FOOT) = 10: etSpd!(ET_FOOT) = 0.45: etZigAmp(ET_FOOT) = 1: etDodge!(ET_FOOT) = 0.3: etDodgeMelee!(ET_FOOT) = 0.1: etShoot(ET_FOOT) = 0: etHold!(ET_FOOT) = 0:   etCol&(ET_FOOT) = _RGB32(170, 35, 35):   etSpr(ET_FOOT) = 0: etScale!(ET_FOOT) = 1:   etMinWave(ET_FOOT) = 1: etFireT!(ET_FOOT) = 0: etProjSpd!(ET_FOOT) = 0: etProjDmg(ET_FOOT) = 0: etMortarT!(ET_FOOT) = 0: etSplashR!(ET_FOOT) = 0: etSplashDmg(ET_FOOT) = 0
+    etName$(ET_FOOT) = "FOOT SOLDIER":  etHP(ET_FOOT) = 4:  etDmg(ET_FOOT) = 10: etSpd!(ET_FOOT) = 0.45: etZigAmp(ET_FOOT) = 1: etDodge!(ET_FOOT) = 0.3: etDodgeMelee!(ET_FOOT) = 0.1: etShoot(ET_FOOT) = 0: etHold!(ET_FOOT) = 0:   etCol&(ET_FOOT) = _RGB32(170, 35, 35):   etSpr(ET_FOOT) = 0: etScale!(ET_FOOT) = 1:   etMinWave(ET_FOOT) = 1: etFireT!(ET_FOOT) = 0: etProjSpd!(ET_FOOT) = 0: etProjDmg(ET_FOOT) = 0: etMortarT!(ET_FOOT) = 0: etSplashR!(ET_FOOT) = 0: etSplashDmg(ET_FOOT) = 0   ' 6B-KOMPLETT: HP 3->4 så yxan (dmg 3) INTE one-shottar en foot (1 HP marginal kvar)
     etName$(ET_OFFICER) = "OFFICER":    etHP(ET_OFFICER) = 6:  etDmg(ET_OFFICER) = 10: etSpd!(ET_OFFICER) = 0.6:  etZigAmp(ET_OFFICER) = 2: etDodge!(ET_OFFICER) = 0.4: etDodgeMelee!(ET_OFFICER) = 0.15: etShoot(ET_OFFICER) = 0: etHold!(ET_OFFICER) = 0:  etCol&(ET_OFFICER) = _RGB32(200, 30, 80):  etSpr(ET_OFFICER) = 0: etScale!(ET_OFFICER) = 1.1: etMinWave(ET_OFFICER) = 3: etFireT!(ET_OFFICER) = 0: etProjSpd!(ET_OFFICER) = 0: etProjDmg(ET_OFFICER) = 0: etMortarT!(ET_OFFICER) = 0: etSplashR!(ET_OFFICER) = 0: etSplashDmg(ET_OFFICER) = 0
     etName$(ET_MUSKETEER) = "MUSKETEER": etHP(ET_MUSKETEER) = 5: etDmg(ET_MUSKETEER) = 10: etSpd!(ET_MUSKETEER) = 0.45: etZigAmp(ET_MUSKETEER) = 1: etDodge!(ET_MUSKETEER) = 0.4: etDodgeMelee!(ET_MUSKETEER) = 0.15: etShoot(ET_MUSKETEER) = 1: etHold!(ET_MUSKETEER) = 4: etCol&(ET_MUSKETEER) = _RGB32(150, 90, 40):  etSpr(ET_MUSKETEER) = 0: etScale!(ET_MUSKETEER) = 1: etMinWave(ET_MUSKETEER) = 4: etFireT!(ET_MUSKETEER) = 1.2: etProjSpd!(ET_MUSKETEER) = 5: etProjDmg(ET_MUSKETEER) = 10: etMortarT!(ET_MUSKETEER) = 0: etSplashR!(ET_MUSKETEER) = 0: etSplashDmg(ET_MUSKETEER) = 0
     etName$(ET_CAPTAIN) = "CAPTAIN":    etHP(ET_CAPTAIN) = 12: etDmg(ET_CAPTAIN) = 10: etSpd!(ET_CAPTAIN) = 0.3:  etZigAmp(ET_CAPTAIN) = 0: etDodge!(ET_CAPTAIN) = 0.5: etDodgeMelee!(ET_CAPTAIN) = 0.2:  etShoot(ET_CAPTAIN) = 0: etHold!(ET_CAPTAIN) = 0:   etCol&(ET_CAPTAIN) = _RGB32(230, 180, 40): etSpr(ET_CAPTAIN) = 0: etScale!(ET_CAPTAIN) = 1.25: etMinWave(ET_CAPTAIN) = 3: etFireT!(ET_CAPTAIN) = 0: etProjSpd!(ET_CAPTAIN) = 0: etProjDmg(ET_CAPTAIN) = 0: etMortarT!(ET_CAPTAIN) = 0: etSplashR!(ET_CAPTAIN) = 0: etSplashDmg(ET_CAPTAIN) = 0
@@ -2509,11 +2535,11 @@ InitEnemyTypes:
 ' omöjligt (<1); blunderbussen kompenserar med 4 kulor + bred kon (brutal nära,
 ' svagare per kula på håll via spridning). Dokumenterat i AGENTS.md.
 InitWeapons:
-    wpName$(WP_AXE) = "AXE":          wpDmg(WP_AXE) = 8:  wpCool!(WP_AXE) = 0.8:  wpRecoil!(WP_AXE) = 10: wpShake!(WP_AXE) = 1: wpSpread!(WP_AXE) = 0:    wpPellets(WP_AXE) = 1: wpAmmoT(WP_AXE) = 0: wpMag(WP_AXE) = 0: wpReload!(WP_AXE) = 0:    wpMelee(WP_AXE) = 1: wpArc(WP_AXE) = 0: wpBallSpd!(WP_AXE) = 0:  wpCol&(WP_AXE) = _RGB32(150, 110, 60):  wpSplashR!(WP_AXE) = 0:    wpSplashDmg(WP_AXE) = 0
+    wpName$(WP_AXE) = "AXE":          wpDmg(WP_AXE) = 3:  wpCool!(WP_AXE) = 0.7: wpRecoil!(WP_AXE) = 10: wpShake!(WP_AXE) = 1: wpSpread!(WP_AXE) = 0:    wpPellets(WP_AXE) = 1: wpAmmoT(WP_AXE) = 0: wpMag(WP_AXE) = 0: wpReload!(WP_AXE) = 0:    wpMelee(WP_AXE) = 1: wpArc(WP_AXE) = 0: wpBallSpd!(WP_AXE) = 0:  wpCol&(WP_AXE) = _RGB32(150, 110, 60):  wpSplashR!(WP_AXE) = 0:    wpSplashDmg(WP_AXE) = 0   ' 6B-KOMPLETT: dmg 8->3 (foot HP4 överlever ett hugg med 1 HP marginal), cd 0.8->0.7
     wpName$(WP_MUSKET) = "MUSKET":     wpDmg(WP_MUSKET) = plrBallDmg: wpCool!(WP_MUSKET) = 0.3: wpRecoil!(WP_MUSKET) = gunRecoil: wpShake!(WP_MUSKET) = gunShakeFrames: wpSpread!(WP_MUSKET) = 0: wpPellets(WP_MUSKET) = 1: wpAmmoT(WP_MUSKET) = 1: wpMag(WP_MUSKET) = 0: wpReload!(WP_MUSKET) = 0: wpMelee(WP_MUSKET) = 0: wpArc(WP_MUSKET) = 0: wpBallSpd!(WP_MUSKET) = plrBallSpd!: wpCol&(WP_MUSKET) = _RGB32(45, 45, 52): wpSplashR!(WP_MUSKET) = 0: wpSplashDmg(WP_MUSKET) = 0
-    wpName$(WP_BLUNDER) = "BLUNDERBUSS": wpDmg(WP_BLUNDER) = 1: wpCool!(WP_BLUNDER) = 0.9: wpRecoil!(WP_BLUNDER) = 30: wpShake!(WP_BLUNDER) = 5: wpSpread!(WP_BLUNDER) = 0.32: wpPellets(WP_BLUNDER) = 4: wpAmmoT(WP_BLUNDER) = 2: wpMag(WP_BLUNDER) = 2: wpReload!(WP_BLUNDER) = 1.2: wpMelee(WP_BLUNDER) = 0: wpArc(WP_BLUNDER) = 0: wpBallSpd!(WP_BLUNDER) = plrBallSpd!: wpCol&(WP_BLUNDER) = _RGB32(40, 36, 34): wpSplashR!(WP_BLUNDER) = 0: wpSplashDmg(WP_BLUNDER) = 0
-    wpName$(WP_MG) = "MACHINE GUN":   wpDmg(WP_MG) = 1:  wpCool!(WP_MG) = 0.08: wpRecoil!(WP_MG) = 7:  wpShake!(WP_MG) = 2: wpSpread!(WP_MG) = 0.05: wpPellets(WP_MG) = 1: wpAmmoT(WP_MG) = 3: wpMag(WP_MG) = 0: wpReload!(WP_MG) = 0:    wpMelee(WP_MG) = 0: wpArc(WP_MG) = 0: wpBallSpd!(WP_MG) = 10:  wpCol&(WP_MG) = _RGB32(60, 60, 66):  wpSplashR!(WP_MG) = 0:    wpSplashDmg(WP_MG) = 0
-    wpName$(WP_CANNON) = "MINI CANNON": wpDmg(WP_CANNON) = 0: wpCool!(WP_CANNON) = 1.5: wpRecoil!(WP_CANNON) = 40: wpShake!(WP_CANNON) = 8: wpSpread!(WP_CANNON) = 0: wpPellets(WP_CANNON) = 1: wpAmmoT(WP_CANNON) = 4: wpMag(WP_CANNON) = 0: wpReload!(WP_CANNON) = 0: wpMelee(WP_CANNON) = 0: wpArc(WP_CANNON) = 1: wpBallSpd!(WP_CANNON) = 0: wpCol&(WP_CANNON) = _RGB32(110, 80, 40): wpSplashR!(WP_CANNON) = 1.5: wpSplashDmg(WP_CANNON) = 25
+    wpName$(WP_BLUNDER) = "BLUNDERBUSS": wpDmg(WP_BLUNDER) = 2: wpCool!(WP_BLUNDER) = 0.9: wpRecoil!(WP_BLUNDER) = 30: wpShake!(WP_BLUNDER) = 5: wpSpread!(WP_BLUNDER) = 0.18: wpPellets(WP_BLUNDER) = 6: wpAmmoT(WP_BLUNDER) = 2: wpMag(WP_BLUNDER) = 2: wpReload!(WP_BLUNDER) = 1.2: wpMelee(WP_BLUNDER) = 0: wpArc(WP_BLUNDER) = 0: wpBallSpd!(WP_BLUNDER) = plrBallSpd!: wpCol&(WP_BLUNDER) = _RGB32(40, 36, 34): wpSplashR!(WP_BLUNDER) = 0: wpSplashDmg(WP_BLUNDER) = 0   ' 6B-KOMPLETT (iii) kombo: 6 kulor x dmg 2 i tätare kon (0.18 rad) — full träff <2 celler = >=4 dmg dödar foot (HP4); spridningen ger naturlig falloff på avstånd
+    wpName$(WP_MG) = "MACHINE MUSKET": wpDmg(WP_MG) = 1:  wpCool!(WP_MG) = 0.08: wpRecoil!(WP_MG) = 7:  wpShake!(WP_MG) = 2: wpSpread!(WP_MG) = 0.05: wpPellets(WP_MG) = 1: wpAmmoT(WP_MG) = 3: wpMag(WP_MG) = 0: wpReload!(WP_MG) = 0:    wpMelee(WP_MG) = 0: wpArc(WP_MG) = 0: wpBallSpd!(WP_MG) = 10:  wpCol&(WP_MG) = _RGB32(60, 60, 66):  wpSplashR!(WP_MG) = 0:    wpSplashDmg(WP_MG) = 0   ' 6B-KOMPLETT FIX G: omdöpt överallt (HUD/README/AGENTS); sprite/mekanik/k-pickup orörda
+    wpName$(WP_CANNON) = "MINI CANNON": wpDmg(WP_CANNON) = 0: wpCool!(WP_CANNON) = 1.5: wpRecoil!(WP_CANNON) = 40: wpShake!(WP_CANNON) = 8: wpSpread!(WP_CANNON) = 0: wpPellets(WP_CANNON) = 1: wpAmmoT(WP_CANNON) = 4: wpMag(WP_CANNON) = 0: wpReload!(WP_CANNON) = 0: wpMelee(WP_CANNON) = 0: wpArc(WP_CANNON) = 1: wpBallSpd!(WP_CANNON) = 0: wpCol&(WP_CANNON) = _RGB32(110, 80, 40): wpSplashR!(WP_CANNON) = 2.0: wpSplashDmg(WP_CANNON) = 25   ' 6B-KOMPLETT FIX C: splash 1.5->2.0 ( täcker en hel korridorkorsning; fiende-mörsern behåller etSplashR 1.5)
     ' ammo-caps per typ (typ 1 = maxAmmo ärvt från 5E)
     capAmmo(1) = maxAmmo: capAmmo(2) = 6: capAmmo(3) = 24: capAmmo(4) = 4
     Return
@@ -2882,7 +2908,12 @@ End Sub
 ' KeyUseHit%: central check for the universal interaction key E (Const KeyUse).
 ' Menus select/confirm with it now; doors etc. phase 5+ — reuse this exact check.
 Function KeyUseHit% (k$)
-    If k$ = Chr$(KeyUse) Or k$ = UCase$(Chr$(KeyUse)) Or _KeyDown(KeyUse) Then
+    ' 6B-KOMPLETT: under selftest är riktig tangentbord (_KeyDown) AVSTÄNGT —
+    ' selftestet är hermetiskt och injicerar bara k$; en riktig E nere skulle
+    ' annars kunna trigga t.ex. result-skärmens CONTINUE mitt i ett test
+    If k$ = Chr$(KeyUse) Or k$ = UCase$(Chr$(KeyUse)) Then
+        KeyUseHit% = -1
+    ElseIf selftest = 0 And _KeyDown(KeyUse) Then
         KeyUseHit% = -1
     Else
         KeyUseHit% = 0
@@ -3631,6 +3662,40 @@ SpawnProjectile:
     If spOwner = 1 And spType = PR_BALL Then projEnemySpawned = projEnemySpawned + 1   ' 6A selftest 6a-i
     Return
 
+' CrosshairDDA (6B-KOMPLETT FIX C): DDA rakt fram längs (dirX,dirY) från
+' spelaren -> chd! = perpendikulärt avstånd till första Solid-cell (samma
+' formel som vägg-loopens cameraX=0). EGEN målberäkning EN gång — avfyrning
+' och mini-kanonens live-markör delar denna (ingen duplikatkod).
+' Egna hjälpvariabler (ch*) så anrop mitt i render-loopen inte krockar.
+CrosshairDDA:
+    chx = dirX: chy = dirY
+    chmx = Int(px): chmy = Int(py)
+    If chx = 0 Then chddx = 1E+30 Else chddx = Abs(1 / chx)
+    If chy = 0 Then chddy = 1E+30 Else chddy = Abs(1 / chy)
+    If chx < 0 Then chstepx = -1: chsx = (px - chmx) * chddx Else chstepx = 1: chsx = (chmx + 1 - px) * chddx
+    If chy < 0 Then chstepy = -1: chsy = (py - chmy) * chddy Else chstepy = 1: chsy = (chmy + 1 - py) * chddy
+    Do
+        If chsx < chsy Then
+            chsx = chsx + chddx: chmx = chmx + chstepx
+        Else
+            chsy = chsy + chddy: chmy = chmy + chstepy
+        End If
+    Loop Until Solid%(chmx, chmy)
+    If chsx < chsy Then chd! = chsx - chddx Else chd! = chsy - chddy
+    If chd! < 0.2 Then chd! = 0.2
+    Return
+
+' CannonAim (6B-KOMPLETT FIX C): målcell för mini-kanonen från chd! ->
+' mtx2/mty2 (klampad till kartan). EN källa för både avfyrning (spTX/spTY)
+' och den live landningsmarkören i render.
+CannonAim:
+    mtx2 = Int(px + dirX * chd!): mty2 = Int(py + dirY * chd!)
+    If mtx2 < 0 Then mtx2 = 0
+    If mtx2 > mapW - 1 Then mtx2 = mapW - 1
+    If mty2 < 0 Then mty2 = 0
+    If mty2 > mapH - 1 Then mty2 = mapH - 1
+    Return
+
 ' UpdateProjectiles (Fas 4B): per-frame projectile physics. BALL: short sub-
 ' steps (<=0.1 cell) with wall check, then hit test vs enemies (player-owned)
 ' or vs player (enemy-owned). MORTAR: flies over obstacles (NO wall check)
@@ -4037,6 +4102,7 @@ SelftestDrive:
             If testFlag = 0 Then
                 testFlag = 1: testT0 = Timer: wt1 = -1
                 For i = 0 To 10: enActive(i) = 0: Next i   ' kill-all simulerat
+                shotsFired = 0: dmgTaken = 0   ' 6B-KOMPLETT: nollställ rund-räknarna — fas12 mäter DENNA runda (6c-d-botten har annars skjutit 150+ skott och gör score-formeln negativ)
                 Gosub FreezeAtLastKill   ' samma freeze-punkt som riktig sista-kill
                 winPending = 0
                 stMsg$ = "fas12: alla fiender döda, väntar på result"
@@ -4234,7 +4300,7 @@ SelftestDrive:
                  ' on a seeded shot vs officer, (d) spawn-mix wave 1: no captain
             If testFlag = 0 Then
                 ' (a) register data
-                okA = (etHP(ET_FOOT) = 3 And etHP(ET_OFFICER) = 6 And etHP(ET_MUSKETEER) = 5 And etHP(ET_CAPTAIN) = 12 And etHP(ET_GENERAL) = 25)
+                okA = (etHP(ET_FOOT) = 4 And etHP(ET_OFFICER) = 6 And etHP(ET_MUSKETEER) = 5 And etHP(ET_CAPTAIN) = 12 And etHP(ET_GENERAL) = 25)   ' 6B-KOMPLETT: foot HP 3->4 (yxan dmg 3 one-shottar inte längre)
                 okA = okA And (etSpd!(ET_OFFICER) > etSpd!(ET_FOOT) And etSpd!(ET_FOOT) = etSpd!(ET_MUSKETEER) And etSpd!(ET_CAPTAIN) < etSpd!(ET_FOOT) And etSpd!(ET_GENERAL) < etSpd!(ET_CAPTAIN))
                 okA = okA And (etZigAmp(ET_FOOT) = 1 And etZigAmp(ET_OFFICER) = 2 And etZigAmp(ET_MUSKETEER) = 1 And etZigAmp(ET_CAPTAIN) = 0 And etZigAmp(ET_GENERAL) = 0)
                 okA = okA And (etDodge!(ET_FOOT) = 0.3 And etDodge!(ET_OFFICER) = 0.4 And etDodge!(ET_MUSKETEER) = 0.4 And etDodge!(ET_CAPTAIN) = 0.5 And etDodge!(ET_GENERAL) = 0)
@@ -6856,13 +6922,13 @@ SelftestDrive:
             If testFlag = 0 Then
                 ' --- 6a-a: vapenregister, maskinläst ---
                 c23ok = 0
-                If wpName$(WP_AXE) = "AXE" And wpMelee(WP_AXE) = 1 And wpDmg(WP_AXE) = 8 And wpAmmoT(WP_AXE) = 0 And wpCool!(WP_AXE) = 0.8 Then c23ok = c23ok + 1
+                If wpName$(WP_AXE) = "AXE" And wpMelee(WP_AXE) = 1 And wpDmg(WP_AXE) = 3 And wpAmmoT(WP_AXE) = 0 And wpCool!(WP_AXE) = 0.7 Then c23ok = c23ok + 1   ' 6B-KOMPLETT: dmg 8->3, cd 0.8->0.7
                 If wpName$(WP_MUSKET) = "MUSKET" And wpMelee(WP_MUSKET) = 0 And wpDmg(WP_MUSKET) = plrBallDmg And wpAmmoT(WP_MUSKET) = 1 And wpCool!(WP_MUSKET) = 0.3 And wpBallSpd!(WP_MUSKET) = plrBallSpd! Then c23ok = c23ok + 1
-                If wpName$(WP_BLUNDER) = "BLUNDERBUSS" And wpPellets(WP_BLUNDER) = 4 And wpAmmoT(WP_BLUNDER) = 2 And wpMag(WP_BLUNDER) = 2 And wpReload!(WP_BLUNDER) = 1.2 And wpSpread!(WP_BLUNDER) > 0 Then c23ok = c23ok + 1
-                If wpName$(WP_MG) = "MACHINE GUN" And wpCool!(WP_MG) <= 0.1 And wpAmmoT(WP_MG) = 3 And wpBallSpd!(WP_MG) > plrBallSpd! Then c23ok = c23ok + 1
-                If wpName$(WP_CANNON) = "MINI CANNON" And wpArc(WP_CANNON) = 1 And wpAmmoT(WP_CANNON) = 4 And wpSplashR!(WP_CANNON) = 1.5 And wpSplashDmg(WP_CANNON) = 25 And wpShake!(WP_CANNON) >= 8 Then c23ok = c23ok + 1
+                If wpName$(WP_BLUNDER) = "BLUNDERBUSS" And wpPellets(WP_BLUNDER) = 6 And wpDmg(WP_BLUNDER) = 2 And wpSpread!(WP_BLUNDER) = 0.18 And wpAmmoT(WP_BLUNDER) = 2 And wpMag(WP_BLUNDER) = 2 And wpReload!(WP_BLUNDER) = 1.2 Then c23ok = c23ok + 1   ' 6B-KOMPLETT: 6x2 i tätare kon
+                If wpName$(WP_MG) = "MACHINE MUSKET" And wpCool!(WP_MG) <= 0.1 And wpAmmoT(WP_MG) = 3 And wpBallSpd!(WP_MG) > plrBallSpd! Then c23ok = c23ok + 1   ' 6B-KOMPLETT FIX G: omdöpt
+                If wpName$(WP_CANNON) = "MINI CANNON" And wpArc(WP_CANNON) = 1 And wpAmmoT(WP_CANNON) = 4 And wpSplashR!(WP_CANNON) = 2 And wpSplashDmg(WP_CANNON) = 25 And wpShake!(WP_CANNON) >= 8 Then c23ok = c23ok + 1   ' 6B-KOMPLETT FIX C: splash 1.5->2.0
                 If c23ok = 5 Then
-                    stMsg$ = "PASS 6a-a-weapon-register (5 vapen: AXE melee dmg8 cd0.8 / MUSKET dmg1 cd0.3 typ1 / BLUNDERBUSS 4 kulor mag2 rl1.2s typ2 / MG cd0.08 typ3 snabb kula / CANNON arc splash1.5x25 typ4 shake8 — alla parametrar maskinlästa ur registret)"
+                    stMsg$ = "PASS 6a-a-weapon-register (5 vapen: AXE melee dmg3 cd0.7 / MUSKET dmg1 cd0.3 typ1 / BLUNDERBUSS 6 kulor x dmg2 spread0.18 mag2 rl1.2s typ2 / MACHINE MUSKET cd0.08 typ3 snabb kula / CANNON arc splash2.0x25 typ4 shake8 — alla parametrar maskinlästa ur registret)"
                     Gosub STLog
                 Else
                     stMsg$ = "FAIL 6a-a register ok=" + Str$(c23ok) + "/5"
@@ -7152,7 +7218,7 @@ SelftestDrive:
                     If Timer - c23t >= 0.4 Then
                         fireBtn = 0
                         If enHP(1) = 100 Then
-                            stMsg$ = "PASS 6a-e-melee-cone (yxa: fiende framför (dist 1, 0 rad) träffad -8 HP; fiende bakom (180 gr) EJ träffad)"
+                            stMsg$ = "PASS 6a-e-melee-cone (yxa: fiende framför (dist 1, 0 rad) träffad -" + Str$(wpDmg(WP_AXE)) + " HP; fiende bakom (180 gr) EJ träffad)"
                             Gosub STLog
                         Else
                             stMsg$ = "FAIL 6a-e-melee-back enHP=" + Str$(enHP(1))
@@ -7458,7 +7524,7 @@ SelftestDrive:
                         winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                         runT0 = Timer - 3
                         state$ = "playing"
-                        testPhase = 24: testT0 = Timer: testFlag = 0   ' 6B: char-pairs + menu-blink, sedan fas12
+                        testFlag = 11: testT0 = Timer: c23i = 0: c23t = Timer   ' 6B-KOMPLETT: 6b-b kanonmål, 6b-e ammo-isolation, 6b-f ammo-distribution, sedan fas24
                     End If
                 ElseIf Timer - testT0 >= 40 Then
                     stMsg$ = "FAIL 6a-j-timeout i=" + Str$(c23i)
@@ -7467,6 +7533,216 @@ SelftestDrive:
                     Gosub STLog
                     ShutdownSound
                     End
+                End If
+            End If
+            If testFlag = 11 Then
+                ' --- 6b-b: mini-kanon — avfyrad granat landar inom +/-0.5 cell fran
+                ' beraknat mal (samma CrosshairDDA+CannonAim som live-markoren) ---
+                If c23i = 0 Then
+                    mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100
+                    For c23j = 0 To 10: enActive(c23j) = 0: Next c23j
+                    enActive(0) = 1: Gosub DummyFar: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    For c23j = 0 To PR_MAX: prActive(c23j) = 0: Next c23j
+                    For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 1: Next c23j
+                    wpCur = WP_CANNON: ammoN(4) = 5
+                    lastShotTime = -1
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    Gosub CrosshairDDA
+                    Gosub CannonAim
+                    c23mx = mtx2: c23my = mty2
+                    c23ok = 0: c23i = 1: c23t = Timer
+                    fireBtn = 1
+                ElseIf c23i = 1 Then
+                    fireBtn = 0
+                    If Timer - c23t < 0.12 Then
+                        If c23ok = 0 Then
+                            For c23j = 0 To PR_MAX
+                                If prActive(c23j) And prType(c23j) = PR_MORTAR And prOwner(c23j) = 0 Then
+                                    c23ok = 1: c23px = prTX(c23j): c23py = prTY(c23j)
+                                End If
+                            Next c23j
+                        End If
+                    Else
+                        If c23ok = 1 And c23px = c23mx And c23py = c23my Then
+                            c23i = 2: c23t = Timer
+                        Else
+                            stMsg$ = "FAIL 6b-b-fire-target tx=" + Str$(c23px) + "," + Str$(c23py) + " mal=" + Str$(c23mx) + "," + Str$(c23my) + " ok=" + Str$(c23ok)
+                            Gosub STLog
+                            stMsg$ = "SELFTEST FAIL"
+                            Gosub STLog
+                            ShutdownSound
+                            End
+                        End If
+                    End If
+                ElseIf c23i = 2 Then
+                    hp = 100
+                    If Timer - c23t >= 1.8 Then
+                        c23dd = Sqr((splX - (c23mx + 0.5)) ^ 2 + (splY - (c23my + 0.5)) ^ 2)
+                        If c23dd <= 0.5 And splT0 > 0 Then
+                            stMsg$ = "PASS 6b-b-cannon-land (malcell (" + Str$(c23mx) + "," + Str$(c23my) + ") fran CrosshairDDA+CannonAim; avfyrad granat tog malcell exakt och landade " + LTrim$(Str$(Int(c23dd * 100) / 100)) + " cell fran mal — inom +/-0.5)"
+                            Gosub STLog
+                            testFlag = 12: testT0 = Timer: c23i = 0: c23t = Timer: c23ok = 0
+                        Else
+                            stMsg$ = "FAIL 6b-b-land dd=" + LTrim$(Str$(Int(c23dd * 100) / 100)) + " splT0=" + Str$(Int(splT0))
+                            Gosub STLog
+                            stMsg$ = "SELFTEST FAIL"
+                            Gosub STLog
+                            ShutdownSound
+                            End
+                        End If
+                    ElseIf Timer - c23t >= 6 Then
+                        stMsg$ = "FAIL 6b-b-timeout (ingen landning)"
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+            End If
+            If testFlag = 12 Then
+                ' --- 6b-e: ammo-isolation — skjut ENBART egen pool; pickup laddar ENBART egen typ ---
+                If c23i = 0 Then
+                    mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100
+                    For c23j = 0 To 10: enActive(c23j) = 0: Next c23j
+                    enActive(0) = 1: Gosub DummyFar: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    For c23j = 0 To PR_MAX: prActive(c23j) = 0: Next c23j
+                    For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 1: Next c23j
+                    ammoN(1) = 10: ammoN(2) = 2: ammoN(3) = 10: ammoN(4) = 1
+                    wpCur = WP_MUSKET: lastShotTime = -1
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    c23ok = 0: c23i = 1: c23t = Timer
+                    fireBtn = 1
+                ElseIf c23i = 1 Then
+                    fireBtn = 0
+                    If Timer - c23t >= 0.12 Then
+                        If ammoN(1) = 9 And ammoN(2) = 2 And ammoN(3) = 10 And ammoN(4) = 1 Then c23ok = c23ok + 1
+                        wpCur = WP_MG: lastShotTime = -1
+                        c23i = 2: c23t = Timer
+                        fireBtn = 1
+                    End If
+                ElseIf c23i = 2 Then
+                    fireBtn = 0
+                    If Timer - c23t >= 0.12 Then
+                        If ammoN(3) = 9 And ammoN(1) = 9 And ammoN(2) = 2 And ammoN(4) = 1 Then c23ok = c23ok + 1
+                        For c23j = 0 To 10: amActive(c23j) = 0: Next c23j
+                        amActive(0) = 1: amX(0) = px: amY(0) = py: amT(0) = 1
+                        amActive(1) = 1: amX(1) = px: amY(1) = py: amT(1) = 3
+                        c23i = 3: c23t = Timer
+                    End If
+                ElseIf c23i = 3 Then
+                    If Timer - c23t >= 0.5 Then
+                        If ammoN(1) = 19 And ammoN(3) = 19 And ammoN(2) = 2 And ammoN(4) = 1 Then c23ok = c23ok + 1
+                        amActive(0) = 1: amX(0) = px: amY(0) = py: amT(0) = 2
+                        amActive(1) = 1: amX(1) = px: amY(1) = py: amT(1) = 4
+                        c23i = 4: c23t = Timer
+                    ElseIf Timer - c23t >= 5 Then
+                        stMsg$ = "FAIL 6b-e-timeout-ac ammo=" + Str$(ammoN(1)) + "/" + Str$(ammoN(2)) + "/" + Str$(ammoN(3)) + "/" + Str$(ammoN(4))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c23i = 4 Then
+                    If Timer - c23t >= 0.5 Then
+                        If ammoN(2) = capAmmo(2) And ammoN(4) = capAmmo(4) And ammoN(1) = 19 And ammoN(3) = 19 Then c23ok = c23ok + 1
+                        If c23ok = 4 Then
+                            stMsg$ = "PASS 6b-e-ammo-isolation (musköt: A 10->9, B/C/D kvar; MACHINE MUSKET: C 10->9, A kvar 9; pickup A laddar ENBART pool1 9->19, C ENBART pool3 9->19; B/D-paritet: B 2->cap " + Str$(capAmmo(2)) + ", D 1->cap " + Str$(capAmmo(4)) + ")"
+                            Gosub STLog
+                            testFlag = 13: testT0 = Timer: c23i = 0: c23t = Timer: c23ok = 0: c23msg$ = ""
+                        Else
+                            stMsg$ = "FAIL 6b-e ok=" + Str$(c23ok) + "/4 ammo=" + Str$(ammoN(1)) + "/" + Str$(ammoN(2)) + "/" + Str$(ammoN(3)) + "/" + Str$(ammoN(4))
+                            Gosub STLog
+                            stMsg$ = "SELFTEST FAIL"
+                            Gosub STLog
+                            ShutdownSound
+                            End
+                        End If
+                    ElseIf Timer - c23t >= 5 Then
+                        stMsg$ = "FAIL 6b-e-timeout-bd ammo=" + Str$(ammoN(1)) + "/" + Str$(ammoN(2)) + "/" + Str$(ammoN(3)) + "/" + Str$(ammoN(4))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+            End If
+            If testFlag = 13 Then
+                ' --- 6b-f: ammo-distribution per kampanjbana — L1 A / L2 A+B / L3 A+B+C / L4 A+B+C+D / L5 D-rik+A+B+C+M ---
+                If c23i = 0 Then
+                    c23ok = 0: c23msg$ = "": c23i = 1
+                ElseIf c23i >= 1 And c23i <= 5 Then
+                    c23f$ = "maps/level0" + LTrim$(Str$(c23i)) + ".map"
+                    If Not _FileExists(c23f$) Then
+                        If _FileExists("schleswig/" + c23f$) Then c23f$ = "schleswig/" + c23f$
+                    End If
+                    If Not _FileExists(c23f$) Then
+                        stMsg$ = "FAIL 6b-f-missing " + c23f$
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    c23a = 0: c23b = 0: c23c = 0: c23d = 0: c23m = 0
+                    c23h& = FreeFile
+                    Open c23f$ For Input As #c23h&
+                    While Not Eof(c23h&)
+                        Line Input #c23h&, c23ln$
+                        For c23k = 1 To Len(c23ln$)
+                            c23ch$ = Mid$(c23ln$, c23k, 1)
+                            If c23ch$ = "A" Then c23a = c23a + 1
+                            If c23ch$ = "B" Then c23b = c23b + 1
+                            If c23ch$ = "C" Then c23c = c23c + 1
+                            If c23ch$ = "D" Then c23d = c23d + 1
+                            If c23ch$ = "M" Then c23m = c23m + 1
+                        Next c23k
+                    Wend
+                    Close #c23h&
+                    c23ok2 = 1
+                    If c23i = 1 And c23a < 1 Then c23ok2 = 0
+                    If c23i = 2 And (c23a < 1 Or c23b < 1) Then c23ok2 = 0
+                    If c23i = 3 And (c23a < 1 Or c23b < 1 Or c23c < 1) Then c23ok2 = 0
+                    If c23i = 4 And (c23a < 1 Or c23b < 1 Or c23c < 1 Or c23d < 1) Then c23ok2 = 0
+                    If c23i = 5 And (c23a < 1 Or c23b < 1 Or c23c < 1 Or c23d < 2 Or c23m < 1) Then c23ok2 = 0
+                    If c23ok2 = 1 Then c23ok = c23ok + 1
+                    c23msg$ = c23msg$ + " L" + Str$(c23i) + "=A" + Str$(c23a) + "/B" + Str$(c23b) + "/C" + Str$(c23c) + "/D" + Str$(c23d) + "/M" + Str$(c23m)
+                    c23i = c23i + 1
+                ElseIf c23i = 6 Then
+                    If c23ok = 5 Then
+                        stMsg$ = "PASS 6b-f-ammo-distribution (per bana ammo-tecken >= princip L1 A / L2 A+B / L3 A+B+C / L4 A+B+C+D / L5 D-rik+A+B+C+M —" + c23msg$ + ")"
+                        Gosub STLog
+                        Gosub InitEnemyTypes
+                        gameMode$ = "selftest": menuPick = 0: autoCamp = 0
+                        mapFile$ = selftestMap$
+                        Gosub LoadMapAuto
+                        Gosub ApplyMapSpawns
+                        px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo
+                        For c23j = 0 To 10: enActive(c23j) = 0: Next c23j
+                        enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                        enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                        For c23j = 0 To PR_MAX: prActive(c23j) = 0: Next c23j
+                        For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 0: Next c23j
+                        wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                        bfsForX = -1: bfsForY = -1
+                        winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                        runT0 = Timer - 3
+                        state$ = "playing"
+                        testPhase = 24: testT0 = Timer: testFlag = 0   ' 6B: char-pairs + menu-blink, sedan fas12
+                    Else
+                        stMsg$ = "FAIL 6b-f ok=" + Str$(c23ok) + "/5" + c23msg$
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
                 End If
             End If
         Case 24  ' 6B: (c) skiftläges-par k/K och d/D verifierade på riktiga kartor +
@@ -7503,7 +7779,7 @@ SelftestDrive:
                 testFlag = 1: testT0 = Timer
             End If
             If testFlag = 1 Then
-                ' --- 6b-c2: level03 — k-pickup ger vapen 4 (MACHINE GUN, INTE captain) ---
+                ' --- 6b-c2: level03 — k-pickup ger vapen 4 (MACHINE MUSKET, INTE captain) ---
                 mapFile$ = "maps/level03.map"
                 Gosub LoadMapAuto
                 c24ok = 0: c24wx = -1
@@ -7538,7 +7814,7 @@ SelftestDrive:
                     px = wpX(c24wx): py = wpY(c24wx): hp = 100
                 Else
                     If wpOwned(WP_MG) = 1 And enActive(0) = 1 Then
-                        stMsg$ = "PASS 6b-c2-level03-k-pickup (level03 'k' -> wpOwned(MACHINE GUN)=1, fiende-K skulle ge captain — olika register)"
+                        stMsg$ = "PASS 6b-c2-level03-k-pickup (level03 'k' -> wpOwned(MACHINE MUSKET)=1, fiende-K skulle ge captain — olika register)"
                         Gosub STLog
                     Else
                         stMsg$ = "FAIL 6b-c2-level03 wpOwned(MG)=" + Str$(wpOwned(WP_MG))
@@ -7586,7 +7862,7 @@ SelftestDrive:
                     px = wpX(c24wx): py = wpY(c24wx): hp = 100
                 Else
                     If wpOwned(WP_MG) = 1 Then
-                        stMsg$ = "PASS 6b-c2-arena-k-pickup (default.map 'k' -> MACHINE GUN; 'K' kvar som captain-spawn)"
+                        stMsg$ = "PASS 6b-c2-arena-k-pickup (default.map 'k' -> MACHINE MUSKET; 'K' kvar som captain-spawn)"
                         Gosub STLog
                     Else
                         stMsg$ = "FAIL 6b-c2-arena wpOwned(MG)=" + Str$(wpOwned(WP_MG))
@@ -8034,7 +8310,10 @@ SelftestDrive:
                     c25lvl = 1: c25min = 999: c25assist = 0: c25bot = 0: c25sh0 = shotsFired
                     Gosub LoadLevel
                     c25t = Timer
-                ElseIf state$ = "playing" Then
+                ElseIf state$ = "playing" And c25j = 1 Then
+                    ' 6B-KOMPLETT: jakt bara när vi INTE väntar på CONTINUE (c25j=2) —
+                    ' annars blir "playing And c25j=2"-återställningen nedan död kod
+                    ' och kampanjen stannar på andra result-skärmen (c25j fastnar på 2)
                     hp = 100   ' (winPending rörs INTE — spelets win-trigger måste få brinna)
                     If ammoN(1) < c25min Then c25min = ammoN(1)
                     c24key$ = ""
@@ -8068,9 +8347,33 @@ SelftestDrive:
                         Else
                             fx = px: fy = py: tx = enX(c25bi): ty = enY(c25bi)
                             Gosub LOSCheck
-                            If losOK And c25bd < 8 Then
+                            ' 6B-KOMPLETT: skjut bara när vi HAR ammo (eller står i
+                            ' närstrid för yxan) — annars gå BFS mot fienden och huggs
+                            c25canFire = 0
+                            If c25bd < 1.6 Then c25canFire = 1
+                            If wpOwned(WP_CANNON) And ammoN(4) > 0 And c25bd >= 3 Then c25canFire = 1
+                            If wpOwned(WP_BLUNDER) And (wpMagNow(WP_BLUNDER) > 0 Or ammoN(2) > 0) Then c25canFire = 1
+                            If wpOwned(WP_MG) And ammoN(3) > 0 Then c25canFire = 1
+                            If ammoN(1) > 3 Then c25canFire = 1   ' 6B-KOMPLETT: bottens reserv — musköt används bara ner till 3 (yxa/andra vapen tar resten)
+                            If losOK And c25bd < 8 And c25canFire Then
                                 angle = _ATan2(enY(c25bi) - py, enX(c25bi) - px)
                                 dirX = Cos(angle): dirY = Sin(angle)
+                                ' 6B-KOMPLETT: botten väljer bästa ägda vapen — yxa i
+                                ' närstrid (gratis), annars kanon/blunder/MG före musköt
+                                ' så pool 1 (musköt) aldrig bottnar (foot HP 4 = ammo-dyrare)
+                                If c25bd < 1.6 Then
+                                    wpCur = WP_AXE
+                                ElseIf wpOwned(WP_CANNON) And ammoN(4) > 0 And c25bd >= 3 Then
+                                    wpCur = WP_CANNON
+                                ElseIf wpOwned(WP_BLUNDER) And (wpMagNow(WP_BLUNDER) > 0 Or ammoN(2) > 0) Then
+                                    wpCur = WP_BLUNDER
+                                ElseIf wpOwned(WP_MG) And ammoN(3) > 0 Then
+                                    wpCur = WP_MG
+                                ElseIf ammoN(1) > 3 Then
+                                    wpCur = WP_MUSKET
+                                Else
+                                    wpCur = WP_AXE   ' reserv: gå in i närstrid istället för att tömma sista muskötkulorna
+                                End If
                                 fireBtn = 1: c24key$ = ""
                             Else
                                 fireBtn = 0

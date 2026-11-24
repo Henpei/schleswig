@@ -232,10 +232,12 @@ Const ammoPickup = 10 per ammo pickup (was +5). 6A: ammo is PER TYPE —
 ammoN(1..4) with per-type caps capAmmo: typ1 (musköt) = maxAmmo = 20,
 typ2 (blunderbuss) = 6, typ3 (maskingevär) = 24, typ4 (mini-kanon) = 4.
 Pickup chars: A=+10 typ1, B=+10 typ2, C=+10 typ3, D=+10 typ4 (capped).
-Placeholder A-cell counts follow "~1 A per 2 enemies" with the enemy curve
-2/3/4/6/8 untouched: level01..05 have 1/2/2/3/4 type-1 A cells (1 M each),
-plus one typed-ammo cell of the level's weapon (level02 B, level03 C,
-level04 D, level05 D x2 near S).
+6C real maps (measured char counts, selftest 6b-f re-proves >= principle):
+level01 A x3 M x1; level02 A x3 B x3 M x2; level03 A/B/C x2 M x2;
+level04 A/B/C/D x2 M x2; level05 A/B/C x1 D x3 M x2 — every level carries
+ammo for ALL weapons ownable at that point (L1 A / L2 A+B / L3 A+B+C /
+L4 A+B+C+D / L5 D-rich + A+B+C+M). (The old 5E placeholder counts 1/2/2/3/4
+A-cells are superseded by the real maps.)
 
 ## Weapon system (6A) — data-driven register
 Same pattern as the enemy register (InitEnemyTypes -> InitWeapons fills
@@ -243,23 +245,56 @@ wpName$/wpDmg/wpCool!/wpRecoil!/wpShake!/wpSpread!/wpPellets/wpAmmoT/wpMag/
 wpReload!/wpMelee/wpArc/wpBallSpd!/wpCol&/wpSplashR!/wpSplashDmg per weapon;
 balance changes WITHOUT code-logic changes). WP_AXE=0, WP_MUSKET=1,
 WP_BLUNDER=2, WP_MG=3, WP_CANNON=4 (WP_COUNT=5).
-  AXE: melee, NO ammo, dmg 8, cooldown 0.8 s, swing anim 3 frames, hit =
-    cone in front (~1 cell, ~45°); enemy melee-dodge uses the LOWER
-    etDodgeMelee! per type (FOOT 0.1 ... GENERAL 0). Start weapon.
+  AXE: melee, NO ammo, dmg 3, cooldown 0.7 s (6B-KOMPLETT: was dmg 8 / 0.8 s —
+    a foot soldier HP 4 now SURVIVES one hit with 1 HP margin, no one-shot),
+    swing anim 3 frames, hit = cone in front (~1 cell, ~45°); enemy melee-
+    dodge uses the LOWER etDodgeMelee! per type (FOOT 0.1 ... GENERAL 0).
+    Start weapon.
   MUSKET: unchanged mechanics (dmg 1/ball, cooldown 0.3 s, ball speed 6,
     ammo type 1). Reference viewmodel sprite (Fas 4C, unchanged).
-  BLUNDERBUSS: 4 pellets in a cone (spread 0.32 rad), dmg 1/pellet, cooldown
-    0.9 s, ammo type 2, MAGAZINE 2 (dubbelpipa) + reload 1.2 s from the pool.
-    NOTE: integer damage makes "40-50% of musket per pellet" impossible
-    (musket=1 -> 0.5); we use 1 dmg/pellet and realize the intent via pellet
-    count + spread (brutal up close, weaker per pellet at range).
-  MACHINE GUN (maskingevär): cooldown 0.08 s (3-4x musket), dmg 1, faster
-    ball (10), spread grows with distance (+0.015 rad/cell), ammo type 3.
+  BLUNDERBUSS (6B-KOMPLETT, option iii = combination): 6 pellets x dmg 2 in a
+    TIGHTER cone (spread 0.18 rad, was 4 x 1 @ 0.32), cooldown 0.9 s, ammo
+    type 2, MAGAZINE 2 (dubbelpipa) + reload 1.2 s. Ball hit radius is 0.35
+    cell, so at <2 cells >=2 pellets connect = >=4 dmg = kills a foot (HP 4)
+    on a full hit; the spread IS the range falloff (fewer pellets connect far
+    away). Brutal up close, weak per pellet at range.
+  MACHINE MUSKET (maskingevär; 6B-KOMPLETT FIX G renamed from "MACHINE GUN"
+    everywhere — HUD weapon list via wpName$, README, this file; sprite,
+    mechanics and the 'k' pickup char are UNCHANGED): cooldown 0.08 s
+    (3-4x musket), dmg 1, faster ball (10), spread grows with distance
+    (+0.015 rad/cell), ammo type 3.
   MINI CANNON: reuses the enemy MORTAR (arc + flight 1.2 s + splash), but
-    prOwner=0 (player); target = the crosshair DDA hit cell (telegraphed);
-    splash radius 1.5, dmg 25 with linear falloff; cooldown 1.5 s, heavy
-    recoil+shake; ammo type 4. Splash CAN hurt the player up close (radial
-    risk documented) but not at safe distance.
+    prOwner=0 (player); target = the crosshair DDA hit cell; splash radius
+    2.0 (6B-KOMPLETT FIX C: was 1.5 — covers a whole corridor crossing; the
+    ENEMY general's mortar keeps etSplashR 1.5), dmg 25 with linear falloff;
+    cooldown 1.5 s, heavy recoil+shake; ammo type 4. Splash CAN hurt the
+    player up close (radial risk documented) but not at safe distance.
+    6B-KOMPLETT FIX C: ONE shared aim computation — CrosshairDDA (center-ray
+    DDA -> chd!) + CannonAim (chd! -> clamped target cell mtx2/mty2) — used
+    by BOTH firing (spTX/spTY) and the LIVE landing marker rendered every
+    frame while the cannon is selected (steady cyan ring + crosshair dot at
+    the floor-projected target cell, unlike the blinking in-flight mortar
+    telegraph). No duplicate code. Selftest 6b-b proves a fired grenade
+    lands within +/-0.5 cell of the computed target.
+
+## Balance reference (6B-KOMPLETT) — time-to-kill FOOT SOLDIER (HP 4) at optimal range
+  AXE            dmg 3 / 0.7 s   -> 2 hits, kill at ~0.7 s
+  MUSKET         dmg 1 / 0.3 s   -> 4 balls, kill at ~0.9 s
+  BLUNDERBUSS    full hit <2 cells >= 4 dmg -> 1 shot (~0.9 s, +1.2 s reload / 2 shots)
+  MACHINE MUSKET dmg 1 / 0.08 s  -> 4 shots, kill at ~0.24 s
+  MINI CANNON    splash 25       -> 1 grenade (1.5 s cooldown)
+  (Enemy register 6B-KOMPLETT: etHP(ET_FOOT) 3 -> 4 — required so the axe
+  dmg 3 does NOT one-shot a foot; fas14a asserts the new value.)
+
+## Ammo isolation (6B-KOMPLETT FIX G — verified, line evidence)
+  Fire decrements ONLY the current weapon's pool: `ammoN(wat) = ammoN(wat) - 1`
+  with wat = wpAmmoT(wpn) (Schleswig.bas fire block; magazine weapons decrement
+  wpMagNow instead). MUSKET = pool 1 (A), MACHINE MUSKET = pool 3 (C) —
+  separate pools, no cross-drain. Pickup adds ONLY the pickup's own type:
+  `ammoN(at2) = ammoN(at2) + ammoPickup` with at2 = amT(i) (A/B/C/D -> 1/2/3/4),
+  capped at capAmmo(at2). Selftest 6b-e proves: musket fire A-1 & C unchanged;
+  MG fire C-1 & A unchanged; A pickup loads only pool 1; C only pool 3; B/D
+  parity incl. caps.
 Ammo model: ammoN(AMMO_N) per type (ammoN(1) = the old 'ammo' musket pool).
 HUD: ammo box shows the CURRENT weapon's ammo (magazine "n/m" for the
 blunderbuss, pool count otherwise, "--" for the axe); weapon list row above
@@ -300,6 +335,20 @@ death->RESTART, victory->PLAY AGAIN and pick never render a single menu frame.
 Instrumentation: menuRenderN counts real menu renders; selftest 6b-d asserts
 menuRenderN is UNCHANGED across all those transitions (and that it DOES increase
 at a real title screen — positive control).
+
+## Selftest hermeticity (6B-KOMPLETT)
+The selftest must be hermetic: real mouse buttons and real _KeyDown are IGNORED
+while selftest=1 (KeyUseHit% checks k$ only; result/victory/menu branches skip
+_MouseButton when selftest). A phantom click/key from the live Wayland session
+otherwise fires CONTINUE mid-test (observed: fas12a flake). All selftest input
+is injected via k$ (c22key$/c23key$/c24key$) or explicit mb=1 lines.
+6c-d bot note: the campaign bot picks the best OWNED weapon per range (axe in
+melee — free; cannon/blunderbuss/MG before the musket) and keeps a musket
+reserve (fires musket only while ammoN(1) > 3), because FOOT HP 3->4 made a
+musket-only bot run pool 1 dry. Also: case-25's state machine hunts only when
+c25j=1 (otherwise the c25j=2 reset branch is dead code and the bot stalls on
+the 2nd result screen), and fas12 zeroes shotsFired/dmgTaken at entry (the
+score assertion measures the current round only).
 
 ## Viewmodel design note (5A-hotfix2)
 The viewmodel sits deliberately ~half a gun-width RIGHT of center

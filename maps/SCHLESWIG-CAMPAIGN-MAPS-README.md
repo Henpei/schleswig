@@ -15,7 +15,7 @@ keys always reachable BEFORE their door, no isolated pockets (flood-fill proven)
 |---|---|---|---|---|
 | 01 | Village outskirts, houses, bronze-locked musket shed | musket (m) | b + door 1 | F x3 |
 | 02 | Pillar cellar, key vault + locked smuggler store | blunderbuss (f) | s + door 2 | F x3, O x2, U x1 |
-| 03 | Rampart rows with staggered firing gaps, MG redoubt | machine gun (k) | - | F x4, O x2, U x2 |
+| 03 | Rampart rows with staggered firing gaps, MG redoubt | machine musket (k) | - | F x4, O x2, U x2 |
 | 04 | Double moat with narrow bridges, cannon yard NE | mini-cannon (c) | - | F x4, O x3, U x2, K x1 |
 | 05 | Concentric citadel: bailey -> middle wall -> gold-doored sanctum, GENERAL + twin captains | (2x D ammo) | g + doors 3 | F x5, O x3, U x3, K x2, G x1 |
 
