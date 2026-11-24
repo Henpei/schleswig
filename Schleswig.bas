@@ -75,6 +75,8 @@ DIM inj16r, gr16a, gr16b, gunX0, minGunX, mf16n, ej16, c16done   ' Fas 4C selfte
 DIM inj17a, inj17b, inj17c, f17, ej17, k17, c17, el17, per17, d17, row17save$, mapW17save   ' Fas 5A selftest working vars
 DIM ej18, px18(20), py18(20), pch$(20), pm18, pj1&, pj2&, p18n, hash18&, row18save$, mapW18save, p18sway   ' Fas 5A-hotfix2 selftest vars
 DIM c19hash&, c19alive, c19seg, c19lvl, c19i, c19x, c19y, c19cnt(5), c19f, c19prAll, c19died, inj19d, inj19v, ok19, f19, r19$, c19ok, c19hud$, c19bfs   ' Fas 5C (level progression) selftest vars
+DIM inj20a, inj20c, c20hud$, c20hash&, c20alive   ' Fas 5D start-menu selftest vars
+DIM c21t0, c21shots, c21corner, c21edge, c21mortar, c21alive, c21i, c21j, c21x, c21y, c21f, c21r$, c21d, c21en, c21killed, c21edgeOK, c21cornerOK, c21mortOK   ' Fas 5D 64x64 runtime-regression selftest vars
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
@@ -179,6 +181,7 @@ DIM SHARED lvlFile$(20), lvlName$(20), lvlN, lvlIdx   ' campaign list; lvlIdx = 
 DIM SHARED lvlT0, lvlTime(20)                          ' per-level start time / cleared time (s)
 DIM SHARED segShots, segDmg, segT0, segStartT          ' per-level-segment score snapshot (RESTART LEVEL restores it)
 DIM SHARED restarts, pendingNext                       ' HUD restart counter / CONTINUE->next-level flag
+DIM SHARED menuPick, autoCamp                          ' 5D: menuPick=1 -> no-arg pick menu (1 ARENA / 2 CAMPAIGN); autoCamp=1 -> campaign arg starts straight in
 DIM mapValid                 ' 1 only after a FULL successful ParseMap commit
 DIM loadFatal, fatalMsg$, errRow, errCol, errWhy$, nStartS, tStartX, tStartY, mapWarn$
 mapValid = 0
@@ -204,7 +207,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "82f4aa4"
+Const strBuild$ = "0c11a5a"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -256,6 +259,10 @@ Const strQuit$ = "QUIT"                            ' victory/death screen button
 Const strRestarts$ = "RESTARTS:"                   ' 5C: restart counter (death screen + HUD via HudLevelTag$)
 Const strKills$ = "KILLS:"                         ' 5C: victory screen total-kills line
 Const strNextLvl$ = "NEXT:"                        ' 5C: result screen next-level hint (campaign, non-final level)
+' 5D start menu (no-arg / IDE F5): mode pick rows
+Const strPickArena$ = "1  TEST ARENA"               ' pick menu row 1 (default.map)
+Const strPickCamp$ = "2  CAMPAIGN"                  ' pick menu row 2 (maps/levels.lst, level 1)
+Const strPickHint$ = "1/2 OR ARROWS+ENTER, ESC/Q QUIT"   ' pick menu hint line
 ' (strLockHint$ borttagen 2026-11-23: Wayland-låset ska bara SKE vid klick — ingen hint-text)
 ' ============================================================================
 
@@ -381,6 +388,9 @@ If cmdArg$ = "selftest" Then selftest = 1
 ' campaign the levels list failure is equally loud (LEVELS FILE NOT FOUND /
 ' INVALID LEVELS LIST line <r>), same fatal state as map errors.
 gameMode$ = GameModeFromCmd$(cmdArg$)
+' 5D: no-arg (IDE F5) -> pick menu; campaign args -> straight in (no menu)
+menuPick = MenuPickFromCmd%(cmdArg$)
+autoCamp = AutoStartFromCmd%(cmdArg$)
 lstFile$ = "maps/levels.lst"
 lvlN = 0: lvlIdx = 0: restarts = 0: pendingNext = 0: mapHash& = 0: lvlT0 = Timer
 If gameMode$ = "campaign" Then
@@ -534,16 +544,37 @@ Do
             Gosub LoadLevel
             SOUND 300, 2: SOUND 150, 3
         End If
+        ' 5D: campaign argument ("campaign" / "--level N") skips the menu entirely
+        If state$ = "menu" And autoCamp Then
+            autoCamp = 0
+            Gosub StartRun
+            SOUND 300, 2: SOUND 150, 3
+        End If
         ' FIX 2: ESC i menu avslutar fortfarande, men inte precis efter ESC från
-        ' result-skärmen (held ESC skulle annars bledda in i meny-grenen)
-        If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27)) And Timer - escCool > 0.3 Then Gosub QuitGame
+        ' result-skärmen (held ESC skulle annars bledda in i meny-grenen).
+        ' 5D: Q in menu quits too.
+        If state$ = "menu" And (k$ = Chr$(27) Or _KeyDown(27) Or k$ = "q" Or k$ = "Q") And Timer - escCool > 0.3 Then Gosub QuitGame
         While _MouseInput: WEND   ' töm muskön så inget läcker till playing
         mx = _MouseX: my = _MouseY
+        ' 5D pick menu (no-arg / IDE F5): number keys 1/2 select directly,
+        ' W/S or arrows move the highlight, ENTER/E confirms the highlight.
+        If state$ = "menu" And menuPick Then
+            ' selftest 5D fas20: inject the pick keys
+            If selftest And testPhase = 20 And testFlag = 1 And inj20a = 0 Then k$ = "1": inj20a = 1
+            If selftest And testPhase = 20 And testFlag = 3 And inj20c = 0 Then k$ = "2": inj20c = 1
+            If k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 2
+            If k$ = "s" Or k$ = "S" Or k$ = Chr$(0) + "P" Or _KeyDown(20480) Then selIdx = selIdx + 1: If selIdx > 2 Then selIdx = 1
+            pickAct = 0
+            If k$ = "1" Then pickAct = 1
+            If k$ = "2" Then pickAct = 2
+            If k$ = Chr$(13) Or KeyUseHit%(k$) Then pickAct = selIdx
+            If pickAct > 0 And state$ = "menu" Then Gosub PickAction
+        End If
         ' KEY-nav (always active, even after the lock): W/S or up/down arrows
         ' move the selection; E (KeyUse) selects. SPACE is NOT a menu selector.
-        If state$ = "menu" And (k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432)) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 2
-        If state$ = "menu" And (k$ = "s" Or k$ = "S" Or k$ = Chr$(0) + "P" Or _KeyDown(20480)) Then selIdx = selIdx + 1: If selIdx > 2 Then selIdx = 1
-        If state$ = "menu" And KeyUseHit%(k$) Then   ' E (KeyUse) selects the highlighted row
+        If state$ = "menu" And menuPick = 0 And (k$ = "w" Or k$ = "W" Or k$ = Chr$(0) + "H" Or _KeyDown(18432)) Then selIdx = selIdx - 1: If selIdx < 1 Then selIdx = 2
+        If state$ = "menu" And menuPick = 0 And (k$ = "s" Or k$ = "S" Or k$ = Chr$(0) + "P" Or _KeyDown(20480)) Then selIdx = selIdx + 1: If selIdx > 2 Then selIdx = 1
+        If state$ = "menu" And menuPick = 0 And KeyUseHit%(k$) Then   ' E (KeyUse) selects the highlighted row
             If selIdx = 1 Then
                 Gosub StartRun
                 SOUND 300, 2: SOUND 150, 3
@@ -552,9 +583,13 @@ Do
             End If
         End If
         ' knapp-geometri: GEMENSAM bredd för hela huvudmenyn = längsta labeln
-        ' (START GAME / QUIT GAME) + 2*padX — båda knappar lika brede
+        ' (START GAME / QUIT GAME, eller 5D pick-raderna 1 TEST ARENA / 2 CAMPAIGN) + 2*padX
         padX = Int(btnFontSize * 0.9): If padX < 12 Then padX = 12
-        BtnTextW strStartBtn$, w1: BtnTextW strQuitBtn$, w2
+        If menuPick Then
+            BtnTextW strPickArena$, w1: BtnTextW strPickCamp$, w2
+        Else
+            BtnTextW strStartBtn$, w1: BtnTextW strQuitBtn$, w2
+        End If
         If w2 > w1 Then w1 = w2
         menuBtnW = w1 + padX * 2
         menuBtnTop = RH \ 2 + Int(RH * 40 / 1080)
@@ -575,11 +610,16 @@ Do
                 If hover > 0 Then SOUND 1500, 1   ' hover-tick
             End If
             If hover > 0 Then selIdx = hover   ' håll tangent-markering synkad
-            If _MouseButton(1) And hover = 1 Then
-                Gosub StartRun
-                SOUND 300, 2: SOUND 150, 3
+            If _MouseButton(1) And hover > 0 And state$ = "menu" Then
+                If menuPick Then
+                    pickAct = hover: Gosub PickAction   ' 5D pick menu: click row 1/2
+                ElseIf hover = 1 Then
+                    Gosub StartRun
+                    SOUND 300, 2: SOUND 150, 3
+                Else
+                    Gosub QuitGame
+                End If
             End If
-            If _MouseButton(1) And hover = 2 Then Gosub QuitGame
         Else
             prevHover = 0
         End If
@@ -594,10 +634,18 @@ Do
         _PrintString (ttx - 2, tty), strTitle$
         Color _RGB32(255, 200, 0)
         _PrintString (ttx, tty), strTitle$
-        ' två knappar via samma DrawButton-widget: START GAME + QUIT GAME (samma
-        ' bredd); markerad rad är amber (selIdx). INGEN pekare ritas i menyn.
-        DrawButton btnX0, btnY0, btnX1, btnY1, strStartBtn$, (selIdx = 1)
-        DrawButton quitX0, quitY0, quitX1, quitY1, strQuitBtn$, (selIdx = 2)
+        ' två knappar via samma DrawButton-widget (samma bredd); markerad rad är
+        ' amber (selIdx). 5D pick-läge: "1 TEST ARENA" / "2 CAMPAIGN" + hint-rad.
+        ' INGEN pekare ritas i menyn.
+        If menuPick Then
+            DrawButton btnX0, btnY0, btnX1, btnY1, strPickArena$, (selIdx = 1)
+            DrawButton quitX0, quitY0, quitX1, quitY1, strPickCamp$, (selIdx = 2)
+            Color _RGB32(150, 150, 150)
+            _PrintString ((RW - Len(strPickHint$) * 8) \ 2, quitY1 + Int(RH * 18 / 1080)), strPickHint$
+        Else
+            DrawButton btnX0, btnY0, btnX1, btnY1, strStartBtn$, (selIdx = 1)
+            DrawButton quitX0, quitY0, quitX1, quitY1, strQuitBtn$, (selIdx = 2)
+        End If
         ' versionshörn nere till höger på titelskärmen (ver + commit-hash)
         Color _RGB32(110, 110, 140)
         _PrintString (RW - Len(ver$ + " " + strBuild$) * 8 - 16, RH - 24), ver$ + " " + strBuild$
@@ -1293,8 +1341,10 @@ Do
                             zx = Int(px) + Sgn(ux * zamp * zs) * Int(Abs(ux * zamp * zs) + 0.5)
                             zy = Int(py) + Sgn(uy * zamp * zs) * Int(Abs(uy * zamp * zs) + 0.5)
                         End If
-                        If zx < 0 Then zx = 0: If zx > mapW - 1 Then zx = mapW - 1
-                        If zy < 0 Then zy = 0: If zy > mapH - 1 Then zy = mapH - 1
+                        If zx < 0 Then zx = 0
+                        If zx > mapW - 1 Then zx = mapW - 1
+                        If zy < 0 Then zy = 0
+                        If zy > mapH - 1 Then zy = mapH - 1
                         If Solid%(zx, zy) Then zx = Int(px): zy = Int(py)   ' wall/closed door -> no offset
                         enZigX(i) = zx: enZigY(i) = zy
                     End If
@@ -1377,8 +1427,10 @@ Do
                 ElseIf etShoot(enType(i)) = 2 And edist < 12 Then
                     ft! = etMortarT!(enType(i))
                     mtx = Int(px + pvx * ft!): mty = Int(py + pvy * ft!)
-                    If mtx < 0 Then mtx = 0: If mtx > mapW - 1 Then mtx = mapW - 1
-                    If mty < 0 Then mty = 0: If mty > mapH - 1 Then mty = mapH - 1
+                    If mtx < 0 Then mtx = 0
+                    If mtx > mapW - 1 Then mtx = mapW - 1
+                    If mty < 0 Then mty = 0
+                    If mty > mapH - 1 Then mty = mapH - 1
                     If Solid%(mtx, mty) Then mtx = Int(px): mty = Int(py)
                     spX = enX(i): spY = enY(i): spDX = 0: spDY = 0: spSpd! = 0
                     spOwner = 1: spDmg = 0: spType = PR_MORTAR
@@ -1810,14 +1862,23 @@ Do
                         If ballPx > ballPxMax Then ballPx = ballPxMax
                         bx0 = Int(bcx2 - ballPx / 2): bx1 = bx0 + ballPx - 1
                         by0 = Int(midY + pitch - ballPx / 2): by1 = by0 + ballPx - 1
-                        If bx0 < 0 Then bx0 = 0: If bx1 > RW - 1 Then bx1 = RW - 1
-                        If by0 < 0 Then by0 = 0: If by1 > RH - 1 Then by1 = RH - 1
+                        ' 5D FIX: clamps on SEPARATE lines — a single-line
+                        ' "If a<0 Then a=0: If b>RW Then b=..." would skip the
+                        ' b-clamp whenever a>=0 -> wallDist(b) subscript OOB
+                        ' (the "subscript out of range" crash at a ball near the
+                        ' right screen edge on the 64x64 arena).
+                        If bx0 < 0 Then bx0 = 0
+                        If bx1 > RW - 1 Then bx1 = RW - 1
+                        If by0 < 0 Then by0 = 0
+                        If by1 > RH - 1 Then by1 = RH - 1
                         If prOwner(i) = 0 Then bcol& = _RGB32(255, 255, 255) Else bcol& = _RGB32(255, 40, 40)
                         If by1 > by0 And bx1 >= bx0 Then
                             ' cheap 1px dark outline around the ball so it pops against walls
                             obx0 = bx0 - 1: obx1 = bx1 + 1: oby0 = by0 - 1: oby1 = by1 + 1
-                            If obx0 < 0 Then obx0 = 0: If obx1 > RW - 1 Then obx1 = RW - 1
-                            If oby0 < 0 Then oby0 = 0: If oby1 > RH - 1 Then oby1 = RH - 1
+                            If obx0 < 0 Then obx0 = 0
+                            If obx1 > RW - 1 Then obx1 = RW - 1
+                            If oby0 < 0 Then oby0 = 0
+                            If oby1 > RH - 1 Then oby1 = RH - 1
                             For sx = obx0 To obx1
                                 If bdistP < wallDist(sx) Then
                                     Line (sx, oby0)-(sx, oby1), _RGB32(20, 20, 20)
@@ -2389,6 +2450,36 @@ StartRun:
     fadeT0 = Timer
     Return
 
+' PickAction (5D start menu, no-arg): pickAct 1 = TEST ARENA (default.map, already
+' loaded at init), 2 = CAMPAIGN (maps/levels.lst from level 1; broken lst/map ->
+' the same loud fatal screen as everywhere else).
+PickAction:
+    If pickAct = 1 Then
+        menuPick = 0: gameMode$ = "arena"
+        Gosub StartRun
+        SOUND 300, 2: SOUND 150, 3
+    ElseIf pickAct = 2 Then
+        menuPick = 0: gameMode$ = "campaign"
+        lstFile$ = "maps/levels.lst"
+        Gosub LoadLevelsLst
+        If loadFatal Then
+            Print fatalMsg$   ' log line to the terminal
+            state$ = "fatal"
+        Else
+            lvlIdx = 0
+            mapFile$ = lvlFile$(0)
+            Gosub LoadMapAuto
+            If loadFatal Then
+                Print fatalMsg$
+                state$ = "fatal"
+            Else
+                Gosub StartRun
+                SOUND 300, 2: SOUND 150, 3
+            End If
+        End If
+    End If
+    Return
+
 ' LogMouse: mus-diagnos till /tmp/schleswig_mouse.log (frame + state + anrop)
 Sub LogMouse (msg$)
     mf = FreeFile
@@ -2490,6 +2581,26 @@ Function GameModeFromCmd$ (c$)
         GameModeFromCmd$ = "campaign"
     Else
         GameModeFromCmd$ = "single"
+    End If
+End Function
+
+' MenuPickFromCmd% (5D): 1 iff no argument (IDE F5 run) -> the start menu offers
+' [1] TEST ARENA / [2] CAMPAIGN instead of loading straight away.
+Function MenuPickFromCmd% (c$)
+    If LTrim$(RTrim$(c$)) = "" Then
+        MenuPickFromCmd% = 1
+    Else
+        MenuPickFromCmd% = 0
+    End If
+End Function
+
+' AutoStartFromCmd% (5D): 1 iff a campaign argument ("campaign" / "--level N")
+' -> those modes skip the start menu and go straight into the game.
+Function AutoStartFromCmd% (c$)
+    If GameModeFromCmd$(c$) = "campaign" Then
+        AutoStartFromCmd% = 1
+    Else
+        AutoStartFromCmd% = 0
     End If
 End Function
 
@@ -2635,8 +2746,16 @@ ParseMap:
         If tStartX >= 0 Then errRow = tStartY + 1: errCol = tStartX + 1
         Return
     End If
-    ' COMMIT — only now do mapRow$/mapW/mapH/doorOpen% change
+    ' COMMIT — only now do mapRow$/mapW/mapH/doorOpen% change.
+    ' 5D: the committed map arrays are REDIM'd to the ACTUAL map size — no static
+    ' map-dimension constant anywhere (MAP_MAX remains only as the input-read cap
+    ' for mapSrc$/mapTmp$ and the parse guard).
     mapW = mw2: mapH = srcN
+    REDIM mapRow$(mapH - 1)
+    REDIM doorOpen%(mapW - 1, mapH - 1)
+    REDIM bfsD(mapW - 1, mapH - 1)
+    REDIM qx(mapW * mapH - 1)
+    REDIM qy(mapW * mapH - 1)
     For py2 = 0 To mapH - 1: mapRow$(py2) = mapTmp$(py2): Next py2
     For yy = 0 To mapH - 1
         For xx = 0 To mapW - 1
@@ -5210,7 +5329,7 @@ SelftestDrive:
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3   ' fas12a needs a real frozen time (wt1 >= 1): pretend 3s elapsed
                 state$ = "playing"
-                testPhase = 12: testT0 = Timer: testFlag = 0
+                testPhase = 20: testT0 = Timer: testFlag = 0   ' 5D: start menu tests, then fas21 (64x64 regression), then fas12
             ElseIf testFlag = 14 And Timer - testT0 >= 5 Then
                 stMsg$ = "FAIL 5c-f2-timeout state=" + state$
                 Gosub STLog
@@ -5218,6 +5337,300 @@ SelftestDrive:
                 Gosub STLog
                 ShutdownSound
                 End
+            End If
+        Case 20  ' 5D START MENU (no-arg pick): (a) no-arg -> menu state with pick
+                 ' rows + arg-decision functions, (b) key "1" -> TEST ARENA (HUD
+                 ' ARENA + default.map + hash), key "2" -> CAMPAIGN LVL 1/5 with
+                 ' right MAP+hash+name, (c) campaign ARG auto-starts (no menu).
+            hp = 100
+            If testFlag = 0 Then
+                ' (a) decision functions + set up the no-arg pick menu
+                ok19 = (MenuPickFromCmd%("") = 1 And MenuPickFromCmd%("campaign") = 0 And MenuPickFromCmd%("--level 2") = 0 And MenuPickFromCmd%("maps/x.map") = 0 And MenuPickFromCmd%("selftest") = 0 And AutoStartFromCmd%("campaign") = 1 And AutoStartFromCmd%("--level 3") = 1 And AutoStartFromCmd%("") = 0 And AutoStartFromCmd%("maps/x.map") = 0 And AutoStartFromCmd%("selftest") = 0)
+                gameMode$ = "arena": menuPick = 1: autoCamp = 0: state$ = "menu": selIdx = 1
+                mapFile$ = "maps/default.map"
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                If ok19 And state$ = "menu" And menuPick = 1 And mapW = 64 And mapH = 64 And mapValid = 1 And loadFatal = 0 Then
+                    c20hash& = mapHash&
+                    stMsg$ = "PASS 5d-a-noarg-pick-menu (no-arg -> state=menu, menuPick=1, default.map 64x64 loaded, hash=" + Str$(c20hash&) + "; MenuPickFromCmd%('')=1 others=0; AutoStartFromCmd% campaign/--level=1 others=0)"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5d-a ok19=" + Str$(ok19) + " state=" + state$ + " menuPick=" + Str$(menuPick) + " mapW=" + Str$(mapW) + " loadFatal=" + Str$(loadFatal)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                inj20a = 0
+                testFlag = 1: testT0 = Timer   ' menu-branch injects k$="1"
+            End If
+            If testFlag = 1 And state$ = "playing" Then
+                c20hud$ = HudLevelTag$
+                If gameMode$ = "arena" And menuPick = 0 And mapW = 64 And mapHash& = c20hash& And InStr(c20hud$, "ARENA") > 0 And InStr(c20hud$, "default.map") > 0 Then
+                    stMsg$ = "PASS 5d-b1-pick1-arena (key '1' -> TEST ARENA: state=playing, gameMode=arena, 64x64 default.map same hash " + Str$(mapHash&) + ", HUD='" + c20hud$ + "')"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5d-b1 state=" + state$ + " mode=" + gameMode$ + " menuPick=" + Str$(menuPick) + " mapW=" + Str$(mapW) + " hud=" + c20hud$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' set up the campaign pick again (fresh no-arg menu)
+                menuPick = 1: state$ = "menu": selIdx = 1: gameMode$ = "arena": inj20c = 0
+                testFlag = 3: testT0 = Timer   ' menu-branch injects k$="2"
+            ElseIf testFlag = 1 And Timer - testT0 >= 5 Then
+                stMsg$ = "FAIL 5d-b1-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 3 And state$ = "playing" Then
+                c20hud$ = HudLevelTag$
+                If gameMode$ = "campaign" And menuPick = 0 And lvlIdx = 0 And lvlN = 5 And mapW = 16 And mapFile$ = "maps/level01.map" And InStr(c20hud$, "LVL 1/5") > 0 And InStr(c20hud$, "The Outskirts") > 0 And InStr(c20hud$, "level01.map") > 0 Then
+                    c20hash& = mapHash&
+                    stMsg$ = "PASS 5d-b2-pick2-campaign (key '2' -> CAMPAIGN: levels.lst level 1 loaded, lvlIdx=0 lvlN=5, 16x16, HUD='" + c20hud$ + "')"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5d-b2 state=" + state$ + " mode=" + gameMode$ + " lvlIdx=" + Str$(lvlIdx) + " lvlN=" + Str$(lvlN) + " mapW=" + Str$(mapW) + " mapFile=" + mapFile$ + " hud=" + c20hud$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' (c) campaign ARG skips the menu: autoCamp=1 + state=menu -> auto StartRun
+                autoCamp = 1: state$ = "menu": selIdx = 1
+                c20runs = startRuns
+                testFlag = 5: testT0 = Timer
+            ElseIf testFlag = 3 And Timer - testT0 >= 5 Then
+                stMsg$ = "FAIL 5d-b2-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+            If testFlag = 5 And state$ = "playing" Then
+                c20hud$ = HudLevelTag$
+                If autoCamp = 0 And gameMode$ = "campaign" And startRuns = c20runs + 1 And InStr(c20hud$, "LVL 1/5") > 0 And mapW = 16 Then
+                    stMsg$ = "PASS 5d-c-campaign-arg-skips-menu (autoCamp -> StartRun with NO key/menu interaction: startRuns " + Str$(c20runs) + "->" + Str$(startRuns) + ", playing on level 1, HUD='" + c20hud$ + "')"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5d-c autoCamp=" + Str$(autoCamp) + " state=" + state$ + " startRuns=" + Str$(startRuns) + "/" + Str$(c20runs) + " hud=" + c20hud$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                ' restore selftest env, continue to fas21 (64x64 regression)
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammo = 5
+                For i = 0 To 10: enActive(i) = 0: Next i
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For i = 0 To PR_MAX: prActive(i) = 0: Next i
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1
+                state$ = "playing"
+                testPhase = 21: testT0 = Timer: testFlag = 0
+            ElseIf testFlag = 5 And Timer - testT0 >= 5 Then
+                stMsg$ = "FAIL 5d-c-timeout state=" + state$
+                Gosub STLog
+                stMsg$ = "SELFTEST FAIL"
+                Gosub STLog
+                ShutdownSound
+                End
+            End If
+        Case 21  ' 5D 64x64 RUNTIME REGRESSION (the navet): load the real 64x64 arena
+                 ' (all enemy types incl. GENERAL/mortar), simulate a real session
+                 ' (~2 min): AI hunts, player balls + enemy balls + mortars fly,
+                 ' waves respawn, enemies die via the real kill path, player is
+                 ' teleported near the map edges/corners, a ball is fired AT a
+                 ' corner (must die at the boundary), a STATIONARY ball is placed
+                 ' at the right screen edge (bx1 > RW-1 — the old single-line clamp
+                 ' bug crashed here with subscript out of range), a mortar lands in
+                 ' corner cell (0,0). PASS = survive it all, 0 crash, probes done.
+            hp = 100
+            If testFlag = 0 Then
+                gameMode$ = "single"   ' neutral mode for the regression (result->pendingStart path)
+                mapFile$ = "maps/default.map"
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                If mapW = 64 And mapH = 64 And mapValid = 1 And loadFatal = 0 And spEnN >= 5 Then
+                    stMsg$ = "5d-64x64: arena loaded (" + loadedMapFile$ + " 64x64, " + Str$(spEnN) + " map spawns incl. all types), hash=" + Str$(mapHash&) + " — starting " + "120" + "s simulated session"
+                    Gosub STLog
+                Else
+                    stMsg$ = "FAIL 5d-64x64-load mapW=" + Str$(mapW) + " mapH=" + Str$(mapH) + " spEnN=" + Str$(spEnN) + " loadFatal=" + Str$(loadFatal)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+                waveNo = 0
+                Gosub SpawnEnemies
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammo = 20: lastShotTime = -1
+                For i = 0 To PR_MAX: prActive(i) = 0: Next i
+                bfsForX = -1: bfsForY = -1
+                c21t0 = Timer: c21shots = 0: c21corner = 0: c21cornerOK = 0: c21edge = 0: c21edgeOK = 0
+                c21mortar = 0: c21mortOK = 0: c21killed = 0: c21wave = 0
+                c21lastKill = Timer: c21lastWave = Timer: c21lastEdge = Timer: c21lastCorner = Timer
+                state$ = "playing"
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                ' keep the session alive and busy
+                hp = 100
+                If state$ = "result" Then pendingStart = 1: state$ = "menu"   ' wave cleared -> next round
+                If state$ = "playing" Then
+                    ' keep at least 2 enemies alive (respawn at an open cell)
+                    c21alive = 0
+                    For c21i = 0 To 10
+                        If enActive(c21i) Then c21alive = c21alive + 1
+                    Next c21i
+                    If c21alive < 2 Then
+                        c21x = 2 + Int(Rnd * (mapW - 4)): c21y = 2 + Int(Rnd * (mapH - 4))
+                        If OpenCell%(c21x, c21y) Then
+                            For c21i = 0 To 10
+                                If enActive(c21i) = 0 Then
+                                    enX(c21i) = c21x + 0.5: enY(c21i) = c21y + 0.5: enActive(c21i) = 1
+                                    enType(c21i) = ET_FOOT: enHP(c21i) = etHP(ET_FOOT): enDmg(c21i) = etDmg(ET_FOOT): enSpd(c21i) = etSpd!(ET_FOOT)
+                                    enState(c21i) = 0: enFireT(c21i) = Timer + 99: enZigT(c21i) = Timer + 99
+                                    c21i = 99
+                                End If
+                            Next c21i
+                        End If
+                    End If
+                    ' player near the edges/corners now and then
+                    If Timer - c21lastEdge >= 4 Then
+                        c21lastEdge = Timer
+                        c21c = Int(Rnd * 4)
+                        If c21c = 0 Then c21x = 1: c21y = 1
+                        If c21c = 1 Then c21x = mapW - 2: c21y = 1
+                        If c21c = 2 Then c21x = 1: c21y = mapH - 2
+                        If c21c = 3 Then c21x = mapW - 2: c21y = mapH - 2
+                        If OpenCell%(c21x, c21y) Then px = c21x + 0.5: py = c21y + 0.5: angle = Rnd * 6.2831853
+                    End If
+                    ' fire a real player ball AT the map corner (0,0) / (63,63):
+                    ' it must fly and DIE at the boundary (bounds check), never index OOB
+                    If c21corner = 0 And Timer - c21lastCorner >= 6 Then
+                        c21lastCorner = Timer
+                        c21corner = 1
+                        If OpenCell%(1, 1) Then px = 1.5: py = 1.5
+                        angle = _ATan2(0.5 - py, 0.5 - px)   ' straight at corner cell (0,0)
+                        dirX = Cos(angle): dirY = Sin(angle)
+                        lastShotTime = -1: ammo = 20: fireBtn = 1
+                        c21shots = c21shots + 1
+                    End If
+                    ' stationary probe ball at the RIGHT screen edge (bang ~0.62 rad):
+                    ' its screen x exceeds RW -> bx1 > RW-1 while bx0 >= 0 — the exact
+                    ' case where the old single-line clamp skipped bx1 and wallDist(sx)
+                    ' went subscript-out-of-range. Render must clamp and survive.
+                    If c21edge = 0 And Timer - testT0 >= 2 Then
+                        c21edge = 1
+                        c21lastEdge = Timer
+                        spX = px + Cos(angle + 0.62) * 2.5: spY = py + Sin(angle + 0.62) * 2.5
+                        If spX < 1 Then spX = 1: If spX > mapW - 2 Then spX = mapW - 2
+                        If spY < 1 Then spY = 1: If spY > mapH - 2 Then spY = mapH - 2
+                        spDX = 0: spDY = 0: spSpd! = 0   ' stationary: renders every frame
+                        spOwner = 0: spDmg = 1: spType = PR_BALL: spSrcType = -1: spTX = 0: spTY = 0: spLandT = 0
+                        Gosub SpawnProjectile
+                        c21edgePc = RW / 2 * (1 + Tan(0.62) / planeDist)   ' > RW: would crash old code
+                        stMsg$ = "5d-64x64 edge probe: stationary ball at screen x=" + LTrim$(Str$(Int(c21edgePc))) + " (> RW=" + Str$(RW) + ", bx1>RW-1 — old clamp bug crashed here); rendering..."
+                        Gosub STLog
+                    End If
+                    If c21edge = 1 And Timer - c21lastEdge >= 0.6 Then
+                        c21edgeOK = 1   ' survived 0.6s of edge rendering (0 subscript = process alive)
+                        For c21i = 0 To PR_MAX
+                            If prActive(c21i) And prSpd!(c21i) = 0 Then prActive(c21i) = 0   ' remove probe
+                        Next c21i
+                        c21edge = 2
+                    End If
+                    ' corner-cell MORTAR (target (0,0)) — splash at the corner, no OOB
+                    If c21mortar = 0 And Timer - testT0 >= 4 Then
+                        c21mortar = 1
+                        spX = px: spY = py: spDX = 0: spDY = 0: spSpd! = 0
+                        spOwner = 1: spDmg = 0: spType = PR_MORTAR: spSrcType = ET_GENERAL
+                        spTX = 0: spTY = 0: spLandT = Timer + 0.3
+                        Gosub SpawnProjectile
+                    End If
+                    If c21mortar = 1 And Timer - testT0 >= 5 Then c21mortOK = 1   ' survived the corner splash
+                    ' kill an enemy via the REAL kill path every ~8s (waves/kills)
+                    If Timer - c21lastKill >= 8 Then
+                        c21lastKill = Timer
+                        For c21i = 0 To 10
+                            If enActive(c21i) And c21killed < 99 Then hitE = c21i: hitDmg = 999: Gosub EnemyTakeHit: c21killed = c21killed + 1: c21i = 99
+                        Next c21i
+                    End If
+                    ' wave respawn every ~25s (SpawnEnemies: register reset path)
+                    If Timer - c21lastWave >= 25 Then
+                        c21lastWave = Timer: c21wave = c21wave + 1
+                        Gosub SpawnEnemies
+                        hp = 100
+                    End If
+                    ' aimed fire at nearest enemy (player balls in flight)
+                    c21alive = 0: c21bd = 999: c21bi = -1
+                    For c21i = 0 To 10
+                        If enActive(c21i) Then
+                            c21alive = c21alive + 1
+                            c21d = Sqr((enX(c21i) - px) ^ 2 + (enY(c21i) - py) ^ 2)
+                            If c21d < c21bd Then c21bd = c21d: c21bi = c21i
+                        End If
+                    Next c21i
+                    If c21bi >= 0 And Timer - lastShotTime >= 0.35 Then
+                        angle = _ATan2(enY(c21bi) - py, enX(c21bi) - px)
+                        dirX = Cos(angle): dirY = Sin(angle)
+                        ammo = 20: fireBtn = 1: c21shots = c21shots + 1
+                    Else
+                        fireBtn = 0
+                    End If
+                End If
+                ' verify the corner ball actually DIED at the boundary (no active balls stuck OOB)
+                If c21corner = 1 And c21cornerOK = 0 And Timer - c21lastCorner >= 1.5 Then
+                    c21stuck = 0
+                    For c21i = 0 To PR_MAX
+                        If prActive(c21i) And prType(c21i) = PR_BALL Then
+                            If prX(c21i) < 0 Or prX(c21i) >= mapW Or prY(c21i) < 0 Or prY(c21i) >= mapH Then c21stuck = 1
+                        End If
+                    Next c21i
+                    If c21stuck = 0 Then c21cornerOK = 1
+                End If
+                ' done after ~120s of simulated 64x64 play with all probes done
+                If Timer - c21t0 >= 120 And c21cornerOK = 1 And c21edgeOK = 1 And c21mortOK = 1 And c21killed >= 1 Then
+                    stMsg$ = "PASS 5d-64x64-regression (" + Str$(Int(Timer - c21t0)) + "s simulated session on the 64x64 arena: AI/waves=" + Str$(c21wave) + ", kills=" + Str$(c21killed) + ", player balls=" + Str$(c21shots) + ", corner ball died at boundary (0 OOB projectiles), edge ball at screen x>" + Str$(RW) + " rendered 0.6s (0 subscript — clamp fix proven), corner (0,0) mortar landed, 0 crash, clean exit)"
+                    Gosub STLog
+                    ' restore the selftest 16x16 env, continue to fas12
+                    gameMode$ = "selftest": menuPick = 0: autoCamp = 0
+                    mapFile$ = selftestMap$
+                    Gosub LoadMapAuto
+                    Gosub ApplyMapSpawns
+                    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammo = 5
+                    For i = 0 To 10: enActive(i) = 0: Next i
+                    enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                    enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    For i = 0 To PR_MAX: prActive(i) = 0: Next i
+                    bfsForX = -1: bfsForY = -1
+                    winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                    runT0 = Timer - 3   ' fas12a needs a real frozen time (wt1 >= 1)
+                    state$ = "playing"
+                    testPhase = 12: testT0 = Timer: testFlag = 0
+                ElseIf Timer - c21t0 >= 150 Then
+                    stMsg$ = "FAIL 5d-64x64-timeout t=" + Str$(Int(Timer - c21t0)) + " cornerOK=" + Str$(c21cornerOK) + " edgeOK=" + Str$(c21edgeOK) + " mortOK=" + Str$(c21mortOK) + " killed=" + Str$(c21killed) + " state=" + state$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
             End If
     End Select
     Return

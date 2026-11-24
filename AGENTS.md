@@ -71,6 +71,19 @@ weapons rendering).
   label can clobber the caller's loop variable (the 4B
   last-kill crash, i/j case) -> use dedicated loop names per
   block (e.g. spi/aej) in any shared label.
+- SINGLE-LINE IF TRAP (5D crash "subscript out of range"):
+  `If a Then b: c` — c is part of the THEN clause and runs ONLY
+  if a is true. NEVER put two independent clamps on one line
+  (`If x0 < 0 Then x0 = 0: If x1 > RW-1 Then x1 = RW-1`) — when
+  x0 >= 0 the x1-clamp is SKIPPED and wallDist(x1) goes out of
+  range (that was the 5D crash: ball sprite near the RIGHT screen
+  edge on the 64x64 arena). Always split clamps onto separate
+  lines. Fixed at the ball-sprite clamps (bx/by, obx/oby) and the
+  map-coordinate clamps (zigzag zx/zy, mortar mtx/mty).
+- Map arrays (mapRow$/doorOpen%/bfsD/qx/qy) are REDIM'd to the
+  ACTUAL map size in ParseMap at commit — no static map-dimension
+  constant drives any loop (MAP_MAX=128 remains only as the input
+  read cap for mapSrc$/mapTmp$ and the parse guard).
 
 ## PARKED (do not reactivate without André's OK)
 - Virtual cursor + arrow sprite (commit aa26eee):
@@ -122,13 +135,21 @@ root (/home/andre/QB64pe).
 mapRow$ is THE single map grid — every read goes via CellAt$/Solid%/OpenCell%.
 LoadMapAuto always runs before the first render frame.
 
-## Command-line arguments (5C)
-  schleswig                  -> mode "arena": maps/default.map (TEST ARENA), HUD "ARENA"
+## Command-line arguments (5C/5D)
+  schleswig                  -> NO-ARG START MENU (5D): title screen with
+                                [1] TEST ARENA (maps/default.map) / [2] CAMPAIGN
+                                (maps/levels.lst, level 1). Select with 1/2, or
+                                W/S + arrows to highlight + ENTER/E; mouse click
+                                works before the pointer lock; ESC/Q quits.
+                                Same menu when run from the QB64 IDE: F5 -> pick 1 or 2.
   schleswig selftest         -> scripted selftest (mode "selftest", HUD "SINGLE")
-  schleswig <file.map>       -> mode "single": that one map, test mode, HUD "SINGLE"
-  schleswig campaign         -> mode "campaign": maps/levels.lst from level 1
+  schleswig <file.map>       -> mode "single": that one map via the classic
+                                START GAME menu, HUD "SINGLE"
+  schleswig campaign         -> mode "campaign": maps/levels.lst from level 1,
+                                SKIPS the menu (auto-start, AutoStartFromCmd%)
   schleswig --level N        -> mode "campaign" starting at lst position N (1-based,
-                                clamped to the list; dev tool, also "--level=N")
+                                clamped to the list; dev tool, also "--level=N"),
+                                also skips the menu
 "campaign"/"--level" parse via GameModeFromCmd$/LevelFromCmd%; a missing or
 broken levels.lst is the SAME loud fatal as maps: "LEVELS FILE NOT FOUND: ..."
 / "INVALID LEVELS LIST line <r>: <why>" + state$ = "fatal" (Q/ESC quits).

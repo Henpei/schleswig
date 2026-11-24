@@ -14,17 +14,27 @@ different "layers" (directory vs file), so no name collision can occur.
 
 ## Run
 
-    ./schleswig/schleswig            # play (loads maps/default.map, HUD: ARENA)
+    ./schleswig/schleswig            # no-arg START MENU: [1] TEST ARENA / [2] CAMPAIGN
     ./schleswig/schleswig map.map    # single-map test mode (HUD: SINGLE)
-    ./schleswig/schleswig campaign   # campaign from maps/levels.lst, level 1 (HUD: LVL 1/5 ...)
+    ./schleswig/schleswig campaign   # campaign from maps/levels.lst, level 1 (no menu)
     ./schleswig/schleswig --level N  # campaign starting at levels.lst position N (dev tool)
     ./schleswig/schleswig selftest   # scripted self-test, log: /tmp/schleswig_selftest.log
 
+## Running from the QB64 IDE (ATT KÖRA VIA IDE)
+
+F5 on Schleswig.bas (no command-line argument) opens the START MENU:
+`[1] TEST ARENA` (maps/default.map, HUD: ARENA) or `[2] CAMPAIGN`
+(maps/levels.lst from level 1, HUD: LVL 1/5 ...). Press 1 or 2, or move
+the highlight with W/S / arrow keys and confirm with ENTER or E.
+Mouse click also works before the pointer lock. ESC or Q quits.
+
 A map file is the ONLY way to play — there is no embedded fallback map.
-No argument loads maps/default.map. Paths resolve relative to the executable's
-own directory (schleswig/); the loader also tries a "schleswig/" prefix.
+Paths resolve relative to the executable's own directory (schleswig/);
+the loader also tries a "schleswig/" prefix.
 Missing file -> fullscreen "MAP FILE NOT FOUND: <path>. Press Q to quit.";
 invalid map -> "INVALID MAP: <path> line <r> col <c>: <why>. Press Q to quit."
+(Broken maps/levels.lst in campaign mode: "LEVELS FILE NOT FOUND" /
+"INVALID LEVELS LIST line <r>: <why>", same fatal screen.)
 
 ## Campaign (maps/levels.lst)
 
