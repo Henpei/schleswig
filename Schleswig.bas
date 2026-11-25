@@ -94,6 +94,7 @@ DIM c23key$, c23map$, c23i, c23j, c23w, c23ok, c23h&, c23gx, c23gy, c23am0, c23p
 DIM c23f$, c23ln$, c23ch$, c23msg$, c23txt$, c23a, c23b, c23c, c23d, c23m, c23mx, c23my, c23dd, c23ok2, c23dx, c23dy, c23sp   ' 6B-KOMPLETT/6D fas23: 6b-b kanonmål, 6b-f ammo-distribution, 6d-a aim, 6d-c readme
 DIM c24key$, c24map$, c24i, c24j, c24t, c24m, c24ok, c24f, c24wx, c24wy, c24bad, c24x, c24y, dfx, dfy, dfx2, dfy2   ' Fas 24 (6B char-pairs + menu-blink) selftest vars
 DIM c25lvl, c25j, c25k, c25t, c25ok, c25bad, c25n, c25f, c25m, c25jw, c25nd, c25c$, c25hud$, c25alive, c25bi, c25bd, c25d, c25what, c25door, c25dx, c25dy, c25cx, c25cy, c25best, c25bnx, c25bny, c25nx2, c25ny2, c25y, c25kills0, c25assist, c25bot, c25hash&, c25doorX, c25doorY, c25gx, c25gy, c25msave, c25sh0, c25canFire, c25enF(5), c25enO(5), c25enU(5), c25enK(5), c25enG(5), c25wpExp(5), c25keyExp(5), c25doorN(5), c25i, c25x, c25north, c25north2, c25keyOK, c25seg, c25sum, c25ln$, c25f$, c25h&   ' Fas 25 (6C äkta kampanjbanor + 6D 6d-e/6d-f) selftest vars
+DIM c26key$, c26map$, c26i, c26j, c26k, c26t, c26ok, c26bad, c26f$, c26ln$, c26h&, c26txt$, c26x, c26y, c26c&, c26zone, c26found, c26ehF!, c26ehG!, c26ewF!, c26ewG!, c26px0, c26distW!, c26distS!, c26hp0, c26pr0, c26ang, c26f0, c26f1, c26p0, c26p1, c26blue, c26red, c26d, c26rockOK, c26redOK, c26goldOK, c26featherOK, c26spdMax!, c26lockSawBad, c26unlockSt, c26walkSprint   ' Fas 26 (6E) selftest vars
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
@@ -133,6 +134,7 @@ gunBH = Int(RH * 0.34): If gunBH < 96 Then gunBH = 96
 vmCX = gunBW \ 2                      ' single origin for every primitive
 vmBarrelHW = Int(gunBW * 0.09)        ' barrel half-width (musköt-referens)
 Gosub InitWeapons                     ' 6A: fyll vapenregistret (data-drivet)
+Gosub InitEnemySprites                ' 6E FIX A: procedur-fiende-sprites (enBuf& per typ/frame, palett från SPRITE-BRIEF)
 For wpi = 0 To WP_COUNT - 1
     gunBuf&(wpi) = _NewImage(gunBW, gunBH, 32)
     _Dest gunBuf&(wpi)
@@ -217,7 +219,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "38e7aa5"
+Const strBuild$ = "7dc3328"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -293,7 +295,7 @@ hpMsgTime = 0
 ' (defaultkartan har samma celler som tidigare hårdkodade värden).
 
 ' Fas 2: ammo + skjutning (ingen HP-regen; samma array-pool-mönster som medkit)
-Const maxAmmo = 20         ' ammo-cap TYP 1 (musköt) — samma konstant används av HUD-streckantalet
+Const maxAmmo = 40         ' ammo-cap TYP 1 (musköt) — 6E FIX E: 20->40 (minst dubbel); samma konstant används av HUD-streckantalet
 Const startAmmo = 15       ' 5E ammo-balans: start-ammo 5 -> 15 (~3x, André dog of ammoN(1) before level 3)
 Const ammoPickup = 10      ' 5E ammo-balans: per A-pickup +5 -> +10
 Const dbgCellScan = 0      ' 5E: 1 = HUD debug-rad med antal kvarblivna (icke-normaliserade) celltecken (mapBadN, ska vara 0)
@@ -357,6 +359,33 @@ DIM etDodgeMelee!(ET_COUNT)                               ' 6A: dodge-tröskel m
 DIM etFireT!(ET_COUNT), etProjSpd!(ET_COUNT), etProjDmg(ET_COUNT)          ' ranged: fire interval, ball speed/dmg
 DIM etMortarT!(ET_COUNT), etSplashR!(ET_COUNT), etSplashDmg(ET_COUNT)       ' mortar: flight time, splash radius/dmg
 DIM etScale!(ET_COUNT), etMinWave(ET_COUNT)                                 ' sprite scale + spawn gating wave
+DIM etAspect!(ET_COUNT)                                                       ' 6E FIX B: kropp:bredd/höjd (F 0.667, G 0.8 — bred general)
+DIM enAnimF(10), enAnimT!(10), enLastAX(10), enLastAY(10)                                                 ' 6E FIX A: gång-animationsframe per fiende (4 Hz toggle vid rörelse)
+' 6E FIX A: fiende-sprite-buffer per typ x 2 gång-frames (procedur-ritade, zoner A-D enligt doc/SPRITE-BRIEF.md)
+Const ESW = 48
+Const ESH = 72
+DIM enBuf&(ET_COUNT, 1)
+' 6E FIX A: färgpalett enligt SPRITE-BRIEF.md §3 (EN källa; selftest 6e-s1 speglar mot briefens _RGB32-värden).
+' Kan INTE vara Const (RGB32() är funktionsanrop) -> DIM SHARED + InitEnemyPalette.
+DIM SHARED spUniformBlue&, spUniformDeep&, spOfficerBlue&, spGeneralRed&, spHatBlack&, spHatBrim&
+DIM SHARED spCrossWhite&, spGoldYellow&, spFaceSkin&, spBootBlack&, spMusketBrown&, spFeatherWhite&
+DIM SHARED spEyeDark&, spEyeAlertRed&
+' 6E FIX C: z-order-probe (ritordning per frame) + 6E FIX B: senast renderade sprite-storlek (selftest-prober)
+DIM visI(10), visDist(10), visCX(10), visEW(10), visEH(10), visEX0(10), visEX1(10), visEY0(10), visEY1(10), visBase(10), visOrd(10), visN, zi, zj, zt
+DIM SHARED zProbeX, zProbeY, zProbeC&, zProbeB, zProbeR, zpdx, zpdy, zpx, zpy   ' 6E 6e-s5: pixel-probe läst INUTI render efter buf->display (före _Display)
+DIM SHARED zDrawOrder$
+DIM SHARED renEH!, renEW!, renType, wmin!
+' 6E FIX G: sprint + stamina
+DIM SHARED stamina!, sprintLock, spdMul, sprintInj, sprintOn   ' sprintInj = selftest-injektion (hermetiskt, riktig Shift ignoreras ej utan OR:as in)
+Const stamMax! = 100
+Const stamDrain! = 20      ' stamina/s vid sprint
+Const stamRegen! = 10      ' stamina/s vid gång
+Const stamRegenIdle! = 20  ' stamina/s stillastående
+Const stamUnlockAt! = 30   ' lås upp först vid denna stamina
+Const stamSprintMult! = 1.25
+stamina! = stamMax!: sprintLock = 0: sprintInj = 0   ' 6E FIX G: sprint-state init (efter Const — QB64 kräver Const före användning)
+' 6E FIX H: ljud-probe (senast spelade ljudets id + f0)
+DIM SHARED sndLastId, sndLastF0!
 DIM enType(10), enZigX(10), enZigY(10), enZigT(10), enZigS(10)   ' per-enemy type + zigzag target cell / re-roll timer / side sign
 DIM enFireT(10)                                                   ' Fas 4B: next allowed fire time per enemy (ranged types)
 DIM waveNo, killsTotal                                  ' spawn-wave counter / total kills (captain gate)
@@ -396,11 +425,12 @@ Const SND_HIT = 2             ' träff: fyrkant "puck"
 Const SND_ENDIE = 3           ' fiende-död: sågtand nedåt
 Const SND_PICKUP = 4          ' pickup: sinus uppåt
 Const SND_HURT = 5            ' player-skada: mörk fyrkant
-Const SND_ALERT = 6           ' detect-alert: två-ton (PATROLL->JAKT)
+Const SND_ALERT = 6           ' detect-alert: två-ton (PATROLL->JAKT) — 6E FIX H: en oktav NER (var 620->930)
 Const SND_STEP = 7            ' fotsteg spelare
 Const SND_ESTEP = 8           ' fotsteg fiende (volym efter avstånd)
 Const SND_BOOM = 9            ' Fas 4B: mortar-landning (långt brus)
-Const SND_COUNT = 9
+Const SND_ALERT_G = 10        ' 6E FIX H: generals egna upptäcktsljud — ännu lägre (general-bas, 155->232 Hz)
+Const SND_COUNT = 10
 ' OBS: DIM SHARED är NÖDVÄNDIGT här — variabler som bara används inuti SUBs
 ' (InitSounds/GenSample#/PlaySoundVol) blir annars sub-lokala i QB64-PE och
 ' sndPipe& läser alltid 0 där -> alla ljud tysta no-op (ljud-debug 2026-11-23).
@@ -467,7 +497,7 @@ If selftest Then Randomize 987654: dodgeSeed& = 987654: aiSeed& = 13579   ' Fas 
 testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFlag = 0
 Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 ' Highscore: nollställ counters, ladda bästa score från lokal fil (.schleswig_scores.txt)
-shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0: lvlT0 = Timer
+shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0: lvlT0 = Timer: stamina! = stamMax!: sprintLock = 0: sprintInj = 0   ' 6E FIX G: sprint-state reset vid StartRun
 winPending = 0: winT0 = 0: runTimeFrozen = -1: escCool = -99
 lockEngaged = 0: lockEngages = 0: lockDestroys = 0   ' låset engageras vid FÖRSTA fade-slutet (StartRun-vägen), INTE vid init
 gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: bobPhase = 0: turnDelta = 0: anglePrev = 0: gunSway = 0: gunRendered = 0   ' Fas 4C viewmodel init
@@ -578,6 +608,8 @@ Do
     If selftest And testPhase = 23 And c23key$ <> "" Then k$ = c23key$
     ' 6B fas24: key injection (r i dead, e i victory)
     If selftest And (testPhase = 24 Or testPhase = 25) And c24key$ <> "" Then k$ = c24key$
+    ' 6E fas26: key injection (w för sprint-testet)
+    If selftest And testPhase = 26 And c26key$ <> "" Then k$ = c26key$
 
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
     If selftest And (state$ = "menu" Or state$ = "result" Or state$ = "paused" Or state$ = "victory") Then Gosub SelftestDrive   ' fas12/13 kör även utanför playing (5C: även victory)
@@ -1211,6 +1243,29 @@ Do
     If turnL Then angle = angle - turnStep * speed
     If turnR Then angle = angle + turnStep * speed
 
+    ' 6E FIX G: SPRINT (Shift) + STAMINA — hastighet x1.25 vid sprint; stamina
+    ' 100 dräneras 20/s, tom bar -> gång-LÅS tills stamina >= 30; återhämtning
+    ' 10/s vid gång, 20/s stillastående. spdMul används av rörelseblocken nedan.
+    spdMul = 1
+    sprintOn = 0
+    If state$ = "playing" And (_KeyDown(42) Or _KeyDown(54) Or sprintInj) Then
+        If sprintLock = 0 And stamina! > 0 And (mvF Or mvB) Then sprintOn = 1
+    End If
+    If sprintOn Then
+        stamina! = stamina! - stamDrain! * dt
+        If stamina! <= 0 Then stamina! = 0: sprintLock = 1
+    Else
+        If state$ = "playing" And mvF = 0 And mvB = 0 And mvL = 0 And mvR = 0 Then
+            stamina! = stamina! + stamRegenIdle! * dt
+        Else
+            stamina! = stamina! + stamRegen! * dt
+        End If
+        If sprintLock And stamina! >= stamUnlockAt! Then sprintLock = 0
+    End If
+    If stamina! > stamMax! Then stamina! = stamMax!
+    If stamina! < 0 Then stamina! = 0
+    If sprintOn And sprintLock = 0 Then spdMul = stamSprintMult!   ' låset gäller direkt (även på framen då stamina når 0)
+
     ' 6A: vapenval + QTD easter egg (endast i playing)
     If state$ = "playing" Then
         ' QTD: senaste 3 tecknen i buffer; "qtd" -> quantum mode qtdDur! s
@@ -1261,26 +1316,26 @@ Do
     ' skotten gick "rakt fram" relativt det man pekade)
 
     If mvF Then
-        nx = px + dirX * moveStep * speed
-        ny = py + dirY * moveStep * speed
+        nx = px + dirX * moveStep * speed * spdMul
+        ny = py + dirY * moveStep * speed * spdMul
         If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
         If OpenCell%(Int(px), Int(ny + Sgn(ny - py) * 0.2)) Then py = ny   ' 5E FIX: was swapped (checked (y,x) — invisible phantom walls on vertical moves)
     End If
     If mvB Then
-        nx = px - dirX * moveStep * speed
-        ny = py - dirY * moveStep * speed
+        nx = px - dirX * moveStep * speed * spdMul
+        ny = py - dirY * moveStep * speed * spdMul
         If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
         If OpenCell%(Int(px), Int(ny + Sgn(ny - py) * 0.2)) Then py = ny   ' 5E FIX: was swapped (checked (y,x) — invisible phantom walls on vertical moves)
     End If
     If mvL Then
-        nx = px + dirY * moveStep * 0.6 * speed
-        ny = py - dirX * moveStep * 0.6 * speed
+        nx = px + dirY * moveStep * 0.6 * speed * spdMul
+        ny = py - dirX * moveStep * 0.6 * speed * spdMul
         If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
         If OpenCell%(Int(px), Int(ny + Sgn(ny - py) * 0.2)) Then py = ny   ' 5E FIX: was swapped (checked (y,x) — invisible phantom walls on vertical moves)
     End If
     If mvR Then
-        nx = px - dirY * moveStep * 0.6 * speed
-        ny = py + dirX * moveStep * 0.6 * speed
+        nx = px - dirY * moveStep * 0.6 * speed * spdMul
+        ny = py + dirX * moveStep * 0.6 * speed * spdMul
         If OpenCell%(Int(nx + Sgn(nx - px) * 0.2), Int(py)) Then px = nx
         If OpenCell%(Int(px), Int(ny + Sgn(ny - py) * 0.2)) Then py = ny   ' 5E FIX: was swapped (checked (y,x) — invisible phantom walls on vertical moves)
     End If
@@ -1450,7 +1505,7 @@ Do
                     ' Fas 4: DETECT-ALERT vid tillståndsväxlingen PATROLL->JAKT (inte per frame),
                     ' cooldown 0.5 s per fiende mot spam
                     If enState(i) = 0 And Timer - enAlertT(i) >= 0.5 Then
-                        PlaySound SND_ALERT
+                        If enType(i) = ET_GENERAL Then PlaySound SND_ALERT_G Else PlaySound SND_ALERT   ' 6E FIX H: general-bas
                         enAlertT(i) = Timer
                     End If
                     enState(i) = 1     ' fri sikt + inom 6 celler -> JAKT
@@ -1620,6 +1675,12 @@ Do
                 Case 2   ' ANFALL: står kvar och slår (själva skadan kommer nedan)
                     If edist > 1.2 Then enState(i) = 1
             End Select
+            ' 6E FIX A: gång-animation — frame togglar vid positions-flytt (mot förra
+            ' framen, enLastAX/Y), max 4 Hz (0.25 s mellanrum)
+            If (enX(i) <> enLastAX(i) Or enY(i) <> enLastAY(i)) And Timer - enAnimT!(i) >= 0.25 Then
+                enAnimF(i) = 1 - enAnimF(i): enAnimT!(i) = Timer
+            End If
+            enLastAX(i) = enX(i): enLastAY(i) = enY(i)
             ' Fas 4B: ranged attack (etShoot: 1 = BALL, 2 = MORTAR). Requires LOS
             ' (enSeen from pass 1) + fire interval per enemy (enFireT).
             ' Musketeer fires only inside his hold band (3-5 cells); the general
@@ -2098,8 +2159,11 @@ Do
         End If
     Next i
 
-    ' fiende-sprites (Fas 3): enkelt stående blockmonster, samma projektion +
-    ' vägg-ocklusion som pickup-sprites (jämför edist mot wallDist per kolumn)
+    ' 6E FIX A+C: fiende-sprites — procedur-sprite per typ (enBuf&(typ, frame)),
+    ' painter's algorithm: samla synbara fiender, sortera på avstånd (fjärran
+    ' först), rita närmast sist; VARJE kolumn z-clippas mot vägg-zbufferten
+    ' (wallDist) så fiender bakom väggar/varandra klipps korrekt.
+    visN = 0
     For i = 0 To 10
         If enActive(i) Then
             edx = enX(i) - px
@@ -2112,8 +2176,9 @@ Do
                 If Abs(eang) < fovCut Then
                     edistP = edist * Cos(eang)   ' perpendikulärt avstånd, samma mått som wallDist
                     ecx = RW / 2 * (1 + Tan(eang) / planeDist)
-                    ew = RW / edist * 0.6 * etScale!(enType(i))      ' bredd i px (Fas 4B: type scale, general is bigger)
-                    eh = RH / edist * 0.9 * etScale!(enType(i))      ' höjd i px (står på golvet)
+                    et2 = enType(i)
+                    eh = RH / edist * 0.9 * etScale!(et2)                  ' höjd px (står på golvet; G 1.4x)
+                    ew = RW / edist * 0.9 * etAspect!(et2) * etScale!(et2) ' 6E FIX B: bredd via aspekt (F 0.667, G 0.8)
                     ebase = midY + RH / (2 * edist) + pitch   ' golvlinje vid edist
                     ey0 = ebase - eh
                     ey1 = ebase
@@ -2122,48 +2187,87 @@ Do
                     ex0 = Int(ecx - ew / 2): ex1 = Int(ecx + ew / 2)
                     If ex0 < 0 Then ex0 = 0
                     If ex1 > RW - 1 Then ex1 = RW - 1
-                    ' avståndsskuggning som väggarna, skalad till kroppsfärgen (min 20% ljushet)
-                    eshade = 255 - edist * 15
-                    If eshade < 51 Then eshade = 51
-                    ' Fas 4A: body color comes from the enemy-type register (distance-shaded).
-                    ' NOTE: _RGB32() sets alpha=255 so etCol& is a NEGATIVE long — extract
-                    ' channels with _Red32/_Green32/_Blue32 (\ Mod on a negative long gives
-                    ' negative channels -> _RGB32 clamps them to 0 -> BLACK enemies, hotfix 4B)
-                    ec& = etCol&(enType(i))
-                    er = _Red32(ec&): eg = _Green32(ec&): eb = _Blue32(ec&)
-                    ebody& = _RGB32(Int(er * eshade / 255), Int(eg * eshade / 255), Int(eb * eshade / 255))
-                    If ey1 > ey0 And ex1 >= ex0 Then
-                        For sx = ex0 To ex1
-                            If edistP < wallDist(sx) Then Line (sx, ey0)-(sx, ey1), ebody&
-                        Next sx
-                        ' två svarta ögon upptill när fienden syns tillräckligt stor.
-                        ' OCKLUSION-FIX: ögonen ritas nu per kolumn med samma
-                        ' väggtest som kroppen (tidigare ritades de utan test ->
-                        ' syntes genom väggar).
-                        If ew > 16 Then
-                            eo = Int(ew * 0.12)
-                            If eo < 2 Then eo = 2
-                            eoy = Int(ey0 + eh * 0.15)
-                            eox0 = Int(ecx - ew * 0.2) - eo: eox1 = Int(ecx - ew * 0.2) + eo
-                            eox2 = Int(ecx + ew * 0.2) - eo: eox3 = Int(ecx + ew * 0.2) + eo
-                            If eox0 < 0 Then eox0 = 0
-                            If eox1 > RW - 1 Then eox1 = RW - 1
-                            If eox2 < 0 Then eox2 = 0
-                            If eox3 > RW - 1 Then eox3 = RW - 1
-                            If eoy >= 0 And eoy + eo * 2 <= RH - 1 Then
-                                For sx = eox0 To eox1
-                                    If edistP < wallDist(sx) Then Line (sx, eoy)-(sx, eoy + eo * 2), _RGB32(0, 0, 0)
-                                Next sx
-                                For sx = eox2 To eox3
-                                    If edistP < wallDist(sx) Then Line (sx, eoy)-(sx, eoy + eo * 2), _RGB32(0, 0, 0)
-                                Next sx
-                            End If
-                        End If
+                    If ex1 >= ex0 And ey1 > ey0 Then
+                        visI(visN) = i: visDist(visN) = edistP: visCX(visN) = ecx
+                        visEW(visN) = ew: visEH(visN) = eh
+                        visEX0(visN) = ex0: visEX1(visN) = ex1: visEY0(visN) = ey0: visEY1(visN) = ey1
+                        visBase(visN) = ebase
+                        visN = visN + 1
                     End If
+                    renEH! = eh: renEW! = ew: renType = et2   ' 6E 6e-s3 probe: senast synliga fiendens sprite-storlek
                 End If
             End If
         End If
     Next i
+    ' sortera synbara på avstånd — FJÄRRAN först (bubble sort, <=11 element)
+    For zi = 0 To visN - 1
+        visOrd(zi) = zi
+    Next zi
+    For zi = 0 To visN - 2
+        For zj = 0 To visN - 2 - zi
+            If visDist(visOrd(zj)) < visDist(visOrd(zj + 1)) Then
+                zt = visOrd(zj): visOrd(zj) = visOrd(zj + 1): visOrd(zj + 1) = zt
+            End If
+        Next zj
+    Next zi
+    zDrawOrder$ = ""
+    For zi = 0 To visN - 1
+        vk = visOrd(zi)
+        i = visI(vk)
+        edistP = visDist(vk): ecx = visCX(vk): ew = visEW(vk): eh = visEH(vk)
+        ex0 = visEX0(vk): ex1 = visEX1(vk): ey0 = visEY0(vk): ey1 = visEY1(vk)
+        et2 = enType(i)
+        zDrawOrder$ = zDrawOrder$ + LTrim$(Str$(i))   ' 6E 6e-s5 probe: ritordning
+        ' avståndsskuggning som väggarna (min 20% ljushet) — alpha-överlägg per kolumn efter blit
+        eshade = 255 - edistP * 15
+        If eshade < 51 Then eshade = 51
+        ealpha = 255 - eshade
+        ebf& = enBuf&(et2, enAnimF(i))
+        If ebf& <> 0 And ex1 >= ex0 And ey1 > ey0 Then
+            ' snabbväg: om HELA spriten ligger framför väggen (alla kolumner passerar
+            ' wallDist) -> EN enda skalad blit; annars per-kolumn z-clip (partial occlusion)
+            wmin! = wallDist(ex0)
+            For sx = ex0 + 1 To ex1
+                If wallDist(sx) < wmin! Then wmin! = wallDist(sx)
+            Next sx
+            If edistP < wmin! Then
+                _PutImage (ex0, ey0)-(ex1, ey1), ebf&, buf&, (0, 0)-(ESW - 1, ESH - 1)
+                If ealpha > 0 Then Line (ex0, ey0)-(ex1, ey1), _RGBA32(0, 0, 0, ealpha), BF
+            Else
+                For sx = ex0 To ex1
+                    If edistP < wallDist(sx) Then
+                        srcX = Int((sx - ex0 + 0.5) / (ex1 - ex0 + 1) * ESW)
+                        If srcX < 0 Then srcX = 0
+                        If srcX > ESW - 1 Then srcX = ESW - 1
+                        _PutImage (sx, ey0)-(sx, ey1), ebf&, buf&, (srcX, 0)-(srcX, ESH - 1)   ' världsbuffern buf& (samma _Dest som väggarna)
+                        If ealpha > 0 Then Line (sx, ey0)-(sx, ey1), _RGBA32(0, 0, 0, ealpha)
+                    End If
+                Next sx
+            End If
+            ' ögon i ZONE B (~30% ner): EN färgkälla — EnemyEyeColor&(enState) (patrol mörk / ALERT röd)
+            If ew > 14 Then
+                eco& = EnemyEyeColor&(enState(i))
+                eo = Int(ew * 0.07)
+                If eo < 2 Then eo = 2
+                eoy = Int(ey0 + eh * 0.30)
+                eoh = Int(eh * 0.08)
+                If eoh < 2 Then eoh = 2
+                eoxA = Int(ecx - ew * 0.18): eoxB = Int(ecx + ew * 0.18)
+                If eoy >= 0 And eoy + eoh <= RH - 1 Then
+                    For sx = eoxA - eo To eoxA + eo
+                        If sx >= 0 And sx < RW Then
+                            If edistP < wallDist(sx) Then Line (sx, eoy)-(sx, eoy + eoh), eco&
+                        End If
+                    Next sx
+                    For sx = eoxB - eo To eoxB + eo
+                        If sx >= 0 And sx < RW Then
+                            If edistP < wallDist(sx) Then Line (sx, eoy)-(sx, eoy + eoh), eco&
+                        End If
+                    Next sx
+                End If
+            End If
+        End If
+    Next zi
 
     ' Fas 4B: render flying BALLs (small dot, wall-occluded; white = player's,
     ' red = enemy's) and MORTAR telegraphs (blinking amber ring on the floor at
@@ -2413,6 +2517,21 @@ Do
     Else
         _PutImage (0, 0)-(RW - 1, RH - 1), buf&
     End If
+    ' 6E 6e-s5: pixel-probe — nu ligger världen på display& (skärm), Point fungerar, före _Display
+    If selftest And testPhase = 26 And testFlag = 6 And visN >= 2 And zProbeX >= 0 And zProbeY >= 0 Then
+        ' 5x5-patch runt proben: räkna blå-/röd-dominanta pixlar (nära F blå ska vinna över G röd)
+        zProbeB = 0: zProbeR = 0
+        For zpdy = -2 To 2
+            For zpdx = -2 To 2
+                zpx = zProbeX + zpdx: zpy = zProbeY + zpdy
+                If zpx >= 0 And zpx < RW And zpy >= 0 And zpy < RH Then
+                    zProbeC& = Point(zpx, zpy)
+                    If _Blue32(zProbeC&) > _Red32(zProbeC&) + 10 Then zProbeB = zProbeB + 1
+                    If _Red32(zProbeC&) > _Blue32(zProbeC&) + 10 Then zProbeR = zProbeR + 1
+                End If
+            Next zpdx
+        Next zpdy
+    End If
     ' Fas 4C: weapon viewmodel — bottom layer, UNDER the HUD (HUD is drawn below,
     ' so ammoN(1)/HP stay readable). This code is only reachable in the playing
     ' branch, so the gun is never rendered in menu/result/paused/dead.
@@ -2482,6 +2601,17 @@ Do
     If hp > 0 Then Line (hpX0 + 2, hudY + 2)-(hpX0 + 2 + Int(hp * (hpW - 8) / 100), hudY + 18), barCol&, BF
     Color _RGB32(255, 255, 255)
     _PrintString (hpX1 + 8, hudY + 4), strHudHp$ + Str$(Int(hp))
+    ' 6E FIX G: stamina-bar — smal vågrät bar direkt UNDER HP-boxen (alltid synlig)
+    Line (hpX0, hudY + 23)-(hpX1, hudY + 26), _RGB32(40, 40, 40), BF
+    Line (hpX0, hudY + 23)-(hpX1, hudY + 26), _RGB32(160, 160, 160), B
+    If sprintLock Then
+        stCol& = _RGB32(220, 60, 60)
+    ElseIf stamina! > 50 Then
+        stCol& = _RGB32(80, 220, 80)
+    Else
+        stCol& = _RGB32(230, 200, 0)
+    End If
+    If stamina! > 0 Then Line (hpX0 + 1, hudY + 24)-(hpX0 + 1 + Int(stamina! * (hpW - 2) / stamMax!), hudY + 25), stCol&, BF
     ' ammoN(1)-ruta relativt HP-boxens bredd/högerkant (gul kant = ammoN(1)-pickups)
     amX0 = hpX1 + Int(RW * 104 / 1920): amW = Int(RW * 100 / 1920): amX1 = amX0 + amW
     Line (amX0, hudY)-(amX1, hudY + 20), _RGB32(40, 40, 40), BF
@@ -2615,7 +2745,134 @@ InitEnemyTypes:
     etName$(ET_MUSKETEER) = "MUSKETEER": etHP(ET_MUSKETEER) = 5: etDmg(ET_MUSKETEER) = 10: etSpd!(ET_MUSKETEER) = 0.45: etZigAmp(ET_MUSKETEER) = 1: etDodge!(ET_MUSKETEER) = 0.4: etDodgeMelee!(ET_MUSKETEER) = 0.15: etShoot(ET_MUSKETEER) = 1: etHold!(ET_MUSKETEER) = 4: etCol&(ET_MUSKETEER) = _RGB32(150, 90, 40):  etSpr(ET_MUSKETEER) = 0: etScale!(ET_MUSKETEER) = 1: etMinWave(ET_MUSKETEER) = 4: etFireT!(ET_MUSKETEER) = 1.2: etProjSpd!(ET_MUSKETEER) = 7: etProjDmg(ET_MUSKETEER) = 10: etMortarT!(ET_MUSKETEER) = 0: etSplashR!(ET_MUSKETEER) = 0: etSplashDmg(ET_MUSKETEER) = 0   ' 6D FIX D: enemy ball 5->7 (still slower than player 12, fairness)
     etName$(ET_CAPTAIN) = "CAPTAIN":    etHP(ET_CAPTAIN) = 12: etDmg(ET_CAPTAIN) = 10: etSpd!(ET_CAPTAIN) = 0.3:  etZigAmp(ET_CAPTAIN) = 0: etDodge!(ET_CAPTAIN) = 0.5: etDodgeMelee!(ET_CAPTAIN) = 0.2:  etShoot(ET_CAPTAIN) = 0: etHold!(ET_CAPTAIN) = 0:   etCol&(ET_CAPTAIN) = _RGB32(230, 180, 40): etSpr(ET_CAPTAIN) = 0: etScale!(ET_CAPTAIN) = 1.25: etMinWave(ET_CAPTAIN) = 3: etFireT!(ET_CAPTAIN) = 0: etProjSpd!(ET_CAPTAIN) = 0: etProjDmg(ET_CAPTAIN) = 0: etMortarT!(ET_CAPTAIN) = 0: etSplashR!(ET_CAPTAIN) = 0: etSplashDmg(ET_CAPTAIN) = 0
     etName$(ET_GENERAL) = "GENERAL":    etHP(ET_GENERAL) = 25: etDmg(ET_GENERAL) = 10: etSpd!(ET_GENERAL) = 0.2:  etZigAmp(ET_GENERAL) = 0: etDodge!(ET_GENERAL) = 0: etDodgeMelee!(ET_GENERAL) = 0:    etShoot(ET_GENERAL) = 2: etHold!(ET_GENERAL) = 0:   etCol&(ET_GENERAL) = _RGB32(30, 90, 40):   etSpr(ET_GENERAL) = 0: etScale!(ET_GENERAL) = 1.4: etMinWave(ET_GENERAL) = ET_BOSS_STEP: etFireT!(ET_GENERAL) = 3: etProjSpd!(ET_GENERAL) = 0: etProjDmg(ET_GENERAL) = 0: etMortarT!(ET_GENERAL) = 1.8: etSplashR!(ET_GENERAL) = 1.5: etSplashDmg(ET_GENERAL) = 25
+    ' 6E FIX B: kroppsaspekt per typ (bredd/höjd i sprite-render): alla 0.667 (=0.6/0.9 som före), G 0.8 (bred general)
+    For i = 0 To ET_COUNT - 1: etAspect!(i) = 0.667: Next i
+    etAspect!(ET_GENERAL) = 0.8
     Return
+
+' InitEnemyPalette (6E FIX A): färgpaletten från doc/SPRITE-BRIEF.md §3 — EN
+' källa i kod (kan ej vara Const då _RGB32() är ett funktionsanrop).
+' Selftest 6e-s1 speglar dessa mot briefens värden.
+InitEnemyPalette:
+    spUniformBlue& = _RGB32(22, 44, 110)
+    spUniformDeep& = _RGB32(16, 32, 80)
+    spOfficerBlue& = _RGB32(32, 56, 120)
+    spGeneralRed& = _RGB32(150, 28, 28)
+    spHatBlack& = _RGB32(24, 24, 24)
+    spHatBrim& = _RGB32(40, 40, 40)
+    spCrossWhite& = _RGB32(235, 235, 235)
+    spGoldYellow& = _RGB32(255, 205, 60)
+    spFaceSkin& = _RGB32(205, 170, 130)
+    spBootBlack& = _RGB32(15, 15, 15)
+    spMusketBrown& = _RGB32(105, 68, 38)
+    spFeatherWhite& = _RGB32(240, 240, 240)
+    spEyeDark& = _RGB32(20, 20, 30)
+    spEyeAlertRed& = _RGB32(255, 60, 60)
+    Return
+
+' EnemyEyeColor& (6E FIX A, 6e-s7): ögonfärg = EN funktion av fiendens
+' tillstånd — PATROLL(0) mörka ögon, JAKT(1)/ANFALL(2) röda ALERT-ögon.
+Function EnemyEyeColor& (st%)
+    If st% >= 1 Then
+        EnemyEyeColor& = spEyeAlertRed&
+    Else
+        EnemyEyeColor& = spEyeDark&
+    End If
+End Function
+
+' InitEnemySprites (6E FIX A): skapar enBuf&(typ, frame) — 2 gång-frames per
+' fiendetyp, ESW x ESH, transparent bakgrund (så väggen bakom syns igenom).
+InitEnemySprites:
+    Gosub InitEnemyPalette
+    For t = 0 To ET_COUNT - 1
+        For fr = 0 To 1
+            If enBuf&(t, fr) <> 0 Then _FreeImage enBuf&(t, fr)
+            enBuf&(t, fr) = _NewImage(ESW, ESH, 32)
+            _Dest enBuf&(t, fr)
+            Line (0, 0)-(ESW - 1, ESH - 1), _RGBA32(0, 0, 0, 0), BF   ' transparent
+            DrawEnemySprite t, fr
+        Next fr
+    Next t
+    _Dest display&
+    Return
+
+' DrawEnemySprite (6E FIX A): procedur-ritad dansk soldat i enBuf&(t, fr).
+' Zoner (andel av ESH): A 0-20% mössa/hatt, B 20-45% ansikte, C 45-85% rock+vapen,
+' D 85-100% ben/stövlar. fr = gång-frame (benskift + rocksvaj +-1 px i zon C).
+Sub DrawEnemySprite (t%, fr%)
+    bw = Int(ESW * 0.7)          ' kroppsbredd ~70% av sprite-bredden
+    bx0 = (ESW - bw) \ 2: bx1 = bx0 + bw - 1
+    ay1 = Int(ESH * 0.2)         ' zon A: 0..ay1-1
+    by1 = Int(ESH * 0.45)        ' zon B: ay1..by1-1
+    cy1 = Int(ESH * 0.85)        ' zon C: by1..cy1-1
+    sw = fr%                     ' rocksvaj i zon C vid gång-frame 1
+    ' --- ZONE A: mössa/hatt ---
+    Select Case t%
+        Case ET_FOOT, ET_MUSKETEER
+            ' trekantmössa i uniformens mörka ton
+            Line (bx0 + 8, 3)-(bx1 - 8, ay1 - 2), spUniformDeep&, BF
+            Line (bx0 + 5, ay1 - 2)-(bx0 + 12, 0), spUniformDeep&
+            Line (bx1 - 12, 0)-(bx1 - 5, ay1 - 2), spUniformDeep&
+            Line (bx0 + 12, 0)-(bx1 - 12, 0), spUniformDeep&
+            If t% = ET_MUSKETEER Then Line (ESW \ 2 - 1, 5)-(ESW \ 2, 6), spGoldYellow&, BF   ' U: gul emblem-pixel
+        Case ET_OFFICER
+            Line (bx0 + 5, 4)-(bx1 - 5, ay1 - 1), spHatBlack&, BF   ' mellan-hatt
+        Case ET_CAPTAIN, ET_GENERAL
+            Line (bx0 + 2, 6)-(bx1 - 2, ay1 - 1), spHatBlack&, BF   ' bred hatt
+            If t% = ET_CAPTAIN Then
+                Line (bx0, ay1 - 1)-(bx1, ay1 - 1), spGoldYellow&   ' K: guldkant
+            Else
+                Line (bx0, ay1 - 1)-(bx1, ay1 - 1), spHatBrim&       ' G: hattkant
+                For fy = 0 To 5: Line (ESW \ 2, fy)-(ESW \ 2, fy), spFeatherWhite&: Next fy   ' G: fjäder (vit pixel-rad)
+            End If
+    End Select
+    ' --- ZONE B: ansikte ---
+    Line (bx0 + 8, ay1)-(bx1 - 8, by1 - 1), spFaceSkin&, BF   ' ögon ritas vid render (tillståndsberoende)
+    ' --- ZONE C: rock + rem + vapen ---
+    rock& = spUniformBlue&
+    If t% = ET_MUSKETEER Then rock& = spUniformDeep&
+    If t% = ET_OFFICER Then rock& = spOfficerBlue&
+    If t% = ET_GENERAL Then rock& = spGeneralRed&
+    Line (bx0 + sw, by1)-(bx1 + sw, cy1 - 1), rock&, BF
+    ' vit diagonal korsrem
+    For k = 0 To bw - 1
+        Line (bx0 + k + sw, by1 + 2 + Int(k * (cy1 - by1 - 4) / bw))-(bx0 + k + sw + 1, by1 + 2 + Int(k * (cy1 - by1 - 4) / bw) + 1), spCrossWhite&
+    Next k
+    If t% = ET_MUSKETEER Then Line (bx0, by1 + Int((cy1 - by1) / 2))-(bx1, by1 + Int((cy1 - by1) / 2) + 2), spHatBlack&, BF   ' U: svart bandolär
+    If t% = ET_CAPTAIN Or t% = ET_GENERAL Then
+        Line (bx0 + 6, by1 + 4)-(bx0 + 7, by1 + 5), spGoldYellow&, BF   ' guldknappar
+        Line (bx1 - 7, by1 + 4)-(bx1 - 6, by1 + 5), spGoldYellow&, BF
+        Line (bx0 + 1 + sw, by1)-(bx0 + 4 + sw, by1 + 2), spGoldYellow&, BF   ' epåletter
+        Line (bx1 - 4 + sw, by1)-(bx1 - 1 + sw, by1 + 2), spGoldYellow&, BF
+    End If
+    ' OBS: O får INTE bära guld (brief-regel: guld endast K+G — "farlig leadership")
+    ' vapen i händerna (alltid synligt i zon C)
+    Select Case t%
+        Case ET_FOOT   ' musket lutad
+            Line (bx1 - 3, cy1 - 2)-(bx1 - 9, by1 + 6), spMusketBrown&
+            Line (bx1 - 2, cy1 - 2)-(bx1 - 8, by1 + 6), spMusketBrown&
+        Case ET_MUSKETEER   ' musket I ANSATS (horisontell, framför kroppen)
+            Line (bx0 - 2, cy1 - 12)-(bx1 + 2, cy1 - 12), spMusketBrown&
+            Line (bx0 - 2, cy1 - 11)-(bx1 + 2, cy1 - 11), spMusketBrown&
+            Line (bx0 - 2, cy1 - 10)-(bx1 + 2, cy1 - 10), spMusketBrown&
+        Case ET_OFFICER   ' musket + svärd
+            Line (bx1 - 3, cy1 - 2)-(bx1 - 9, by1 + 6), spMusketBrown&
+            Line (bx1 - 6, cy1 - 2)-(bx1 - 7, by1 + 8), spCrossWhite&
+        Case ET_CAPTAIN   ' kommandostav/sabel
+            Line (bx1 - 3, by1 + 4)-(bx1 - 3, cy1 - 2), spGoldYellow&
+            Line (bx1 - 2, by1 + 4)-(bx1 - 2, cy1 - 2), spGoldYellow&
+        Case ET_GENERAL   ' mörser-pose: tjock mörk tub snett uppåt höger
+            Line (bx0 + 4 + sw, cy1 - 4)-(bx1 - 4 + sw, by1 + 8), spHatBlack&
+            Line (bx0 + 5 + sw, cy1 - 4)-(bx1 - 3 + sw, by1 + 8), spHatBlack&
+            Line (bx0 + 6 + sw, cy1 - 4)-(bx1 - 2 + sw, by1 + 8), spHatBlack&
+    End Select
+    ' --- ZONE D: ben + stövlar (benskift mellan frames) ---
+    lshift = fr% * 3
+    Line (bx0 + 3 + lshift, cy1)-(bx0 + 12 + lshift, ESH - 3), spHatBlack&, BF
+    Line (bx1 - 12 - lshift, cy1)-(bx1 - 3 - lshift, ESH - 3), spHatBlack&, BF
+    Line (bx0 + 3 + lshift, ESH - 3)-(bx0 + 12 + lshift, ESH - 1), spBootBlack&, BF   ' stövlar
+    Line (bx1 - 12 - lshift, ESH - 3)-(bx1 - 3 - lshift, ESH - 1), spBootBlack&, BF
+End Sub
 
 ' InitWeapons (6A): fyller det data-drivna VAPEN-registret (samma mönster som
 ' InitEnemyTypes). Balans ändras här utan kodlogikändringar. Kolumner:
@@ -2630,9 +2887,9 @@ InitWeapons:
     wpName$(WP_MUSKET) = "MUSKET":     wpDmg(WP_MUSKET) = plrBallDmg: wpCool!(WP_MUSKET) = 0.3: wpRecoil!(WP_MUSKET) = gunRecoil: wpShake!(WP_MUSKET) = gunShakeFrames: wpSpread!(WP_MUSKET) = 0: wpPellets(WP_MUSKET) = 1: wpAmmoT(WP_MUSKET) = 1: wpMag(WP_MUSKET) = 0: wpReload!(WP_MUSKET) = 0: wpMelee(WP_MUSKET) = 0: wpArc(WP_MUSKET) = 0: wpBallSpd!(WP_MUSKET) = plrBallSpd!: wpCol&(WP_MUSKET) = _RGB32(45, 45, 52): wpSplashR!(WP_MUSKET) = 0: wpSplashDmg(WP_MUSKET) = 0
     wpName$(WP_BLUNDER) = "BLUNDERBUSS": wpDmg(WP_BLUNDER) = 2: wpCool!(WP_BLUNDER) = 0.9: wpRecoil!(WP_BLUNDER) = 30: wpShake!(WP_BLUNDER) = 5: wpSpread!(WP_BLUNDER) = 0.18: wpPellets(WP_BLUNDER) = 6: wpAmmoT(WP_BLUNDER) = 2: wpMag(WP_BLUNDER) = 2: wpReload!(WP_BLUNDER) = 1.2: wpMelee(WP_BLUNDER) = 0: wpArc(WP_BLUNDER) = 0: wpBallSpd!(WP_BLUNDER) = plrBallSpd!: wpCol&(WP_BLUNDER) = _RGB32(40, 36, 34): wpSplashR!(WP_BLUNDER) = 0: wpSplashDmg(WP_BLUNDER) = 0   ' 6B-KOMPLETT (iii) kombo: 6 kulor x dmg 2 i tätare kon (0.18 rad) — full träff <2 celler = >=4 dmg dödar foot (HP4); spridningen ger naturlig falloff på avstånd
     wpName$(WP_MG) = "MACHINE MUSKET": wpDmg(WP_MG) = 1:  wpCool!(WP_MG) = 0.08: wpRecoil!(WP_MG) = 7:  wpShake!(WP_MG) = 2: wpSpread!(WP_MG) = 0.05: wpPellets(WP_MG) = 1: wpAmmoT(WP_MG) = 3: wpMag(WP_MG) = 0: wpReload!(WP_MG) = 0:    wpMelee(WP_MG) = 0: wpArc(WP_MG) = 0: wpBallSpd!(WP_MG) = 16:  wpCol&(WP_MG) = _RGB32(60, 60, 66):  wpSplashR!(WP_MG) = 0:    wpSplashDmg(WP_MG) = 0   ' 6D FIX D: MG ball 10->16 (musket now 12); 6B-KOMPLETT FIX G: namnbyte
-    wpName$(WP_CANNON) = "MINI CANNON": wpDmg(WP_CANNON) = 0: wpCool!(WP_CANNON) = 1.5: wpRecoil!(WP_CANNON) = 40: wpShake!(WP_CANNON) = 8: wpSpread!(WP_CANNON) = 0: wpPellets(WP_CANNON) = 1: wpAmmoT(WP_CANNON) = 4: wpMag(WP_CANNON) = 0: wpReload!(WP_CANNON) = 0: wpMelee(WP_CANNON) = 0: wpArc(WP_CANNON) = 1: wpBallSpd!(WP_CANNON) = 0: wpCol&(WP_CANNON) = _RGB32(110, 80, 40): wpSplashR!(WP_CANNON) = 2.0: wpSplashDmg(WP_CANNON) = 25   ' 6B-KOMPLETT FIX C: splash 1.5->2.0 ( täcker en hel korridorkorsning; fiende-mörsern behåller etSplashR 1.5)
+    wpName$(WP_CANNON) = "MINI CANNON": wpDmg(WP_CANNON) = 0: wpCool!(WP_CANNON) = 1.5: wpRecoil!(WP_CANNON) = 40: wpShake!(WP_CANNON) = 8: wpSpread!(WP_CANNON) = 0: wpPellets(WP_CANNON) = 1: wpAmmoT(WP_CANNON) = 4: wpMag(WP_CANNON) = 0: wpReload!(WP_CANNON) = 0: wpMelee(WP_CANNON) = 0: wpArc(WP_CANNON) = 1: wpBallSpd!(WP_CANNON) = 0: wpCol&(WP_CANNON) = _RGB32(110, 80, 40): wpSplashR!(WP_CANNON) = 2.0: wpSplashDmg(WP_CANNON) = 40   ' 6E FIX F: dmg 25->40; 6B-KOMPLETT FIX C: splashR 1.5->2.0
     ' ammo-caps per typ (typ 1 = maxAmmo ärvt från 5E)
-    capAmmo(1) = maxAmmo: capAmmo(2) = 6: capAmmo(3) = 24: capAmmo(4) = 4
+    capAmmo(1) = maxAmmo: capAmmo(2) = 12: capAmmo(3) = 48: capAmmo(4) = 8   ' 6E FIX E: 20/6/24/4 -> 40/12/48/8 (minst dubbelt)
     ' 6D FIX C: ammo-pickup FÄRGER — fyra tydligt olika, EN per typ (legend i README):
     ' A=typ1 gul, B=typ2 orange, C=typ3 cyan, D=typ4 magenta (+ formdiff i render)
     amCol&(1) = _RGB32(255, 220, 0)
@@ -2753,6 +3010,7 @@ SpawnEnemies:
         enType(i) = ET_FOOT
         enZigX(i) = 0: enZigY(i) = 0: enZigT(i) = 0: enZigS(i) = 1
         enFireT(i) = 0      ' Fas 4B: ranged fire timer
+        enAnimF(i) = 0: enAnimT!(i) = -99: enLastAX(i) = 0: enLastAY(i) = 0   ' 6E FIX A: gång-animationsframe
     Next i
     For i = 0 To PR_MAX: prActive(i) = 0: Next i   ' Fas 4B: clear projectile pool on wave start
     bfsForX = -1: bfsForY = -1
@@ -2890,9 +3148,11 @@ InitSounds:
     sndWave(SND_ENDIE) = 3: sndF0!(SND_ENDIE) = 400: sndF1!(SND_ENDIE) = 70: sndDur!(SND_ENDIE) = 0.3: sndVol!(SND_ENDIE) = 0.22
     sndWave(SND_PICKUP) = 4: sndF0!(SND_PICKUP) = 660: sndF1!(SND_PICKUP) = 990: sndDur!(SND_PICKUP) = 0.15: sndVol!(SND_PICKUP) = 0.18
     sndWave(SND_HURT) = 2: sndF0!(SND_HURT) = 110: sndF1!(SND_HURT) = 65: sndDur!(SND_HURT) = 0.12: sndVol!(SND_HURT) = 0.28
-    ' ALERT får vara TYDLIG (undantag från låg-volym-kappan): hård "dun-DUM-DUM",
-    ' 620->930 Hz stigande, 350 ms, vol 0.45 (2026-11-23, Andrés önskemål)
-    sndWave(SND_ALERT) = 6: sndF0!(SND_ALERT) = 620: sndF1!(SND_ALERT) = 930: sndDur!(SND_ALERT) = 0.35: sndVol!(SND_ALERT) = 0.45
+    ' ALERT får vara TYDLIG (undantag från låg-volym-kappan): hård "dun-DUM-DUM".
+    ' 6E FIX H: en OKTAV NER — basigare "den har sett mig" (var 620->930 Hz).
+    sndWave(SND_ALERT) = 6: sndF0!(SND_ALERT) = 310: sndF1!(SND_ALERT) = 465: sndDur!(SND_ALERT) = 0.35: sndVol!(SND_ALERT) = 0.45
+    ' 6E FIX H: generalens EGEN upptäckt — ännu lägre general-bas (155->232 Hz, 0.5 s)
+    sndWave(SND_ALERT_G) = 6: sndF0!(SND_ALERT_G) = 155: sndF1!(SND_ALERT_G) = 232: sndDur!(SND_ALERT_G) = 0.5: sndVol!(SND_ALERT_G) = 0.5
     sndWave(SND_STEP) = 1: sndF0!(SND_STEP) = 0: sndF1!(SND_STEP) = 0: sndDur!(SND_STEP) = 0.045: sndVol!(SND_STEP) = 0.1
     sndWave(SND_ESTEP) = 1: sndF0!(SND_ESTEP) = 0: sndF1!(SND_ESTEP) = 0: sndDur!(SND_ESTEP) = 0.05: sndVol!(SND_ESTEP) = 0.12
     sndWave(SND_BOOM) = 1: sndF0!(SND_BOOM) = 0: sndF1!(SND_BOOM) = 0: sndDur!(SND_BOOM) = 0.4: sndVol!(SND_BOOM) = 0.5
@@ -2924,11 +3184,11 @@ Function GenSample# (id%, i%, n%)
         Case 5   ' två-ton fyrkant (första halvan f0, andra f1)
             If t# < dur# / 2 Then f# = f0# Else f# = f1#
             If Sin(6.2831853 * f# * t#) >= 0 Then GenSample# = env# Else GenSample# = -env#
-        Case 6   ' ALERT "dun-DUM-DUM": låg sub-ton (110 Hz) först, sedan två stigande
-                 ' hårda fyrkantstoner f0->f1. Front-loadad attack: full vol direkt,
-                 ' decay bara i sista 15% (inget mjukt fade-in).
+        Case 6   ' ALERT "dun-DUM-DUM": låg sub-ton (55 Hz — 6E FIX H, var 110) först,
+                 ' sedan två stigande hårda fyrkantstoner f0->f1. Front-loadad attack:
+                 ' full vol direkt, decay bara i sista 15% (inget mjukt fade-in).
             If t# < dur# * 0.25 Then
-                f# = 110
+                f# = 55
             ElseIf t# < dur# * 0.6 Then
                 f# = f0#
             Else
@@ -2949,6 +3209,7 @@ Sub PlaySoundVol (id%, vol!)
     sndCalls = sndCalls + 1
     If sndPipe& <= 0 Then Exit Sub
     If id% < 1 Or id% > SND_COUNT Then Exit Sub
+    sndLastId = id%: sndLastF0! = sndF0!(id%)   ' 6E 6e-e probe: senast spelade ljudets id + startfrekvens
     n% = Int(sndDur!(id%) * SND_RATE)
     If n% < 8 Then n% = 8
     If n% > SND_RATE Then n% = SND_RATE
@@ -3592,7 +3853,7 @@ LoadLevel:
     End If
     Gosub ApplyMapSpawns
     px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0
-    hp = 100   ' 6A: ammoN/vapen PERSISTERAR över banor (ingen reset här)
+    hp = 100: stamina! = stamMax!: sprintLock = 0   ' 6E FIX G + 6A: ammoN/vapen PERSISTERAR över banor (ingen reset här)
     waveNo = 0
     Gosub SpawnEnemies   ' resets ALL enemy state + projectiles + BFS (no leak from level N)
     hpMsg$ = "": hpMsgTime = 0
@@ -3903,6 +4164,7 @@ MortarLand:
             PlaySound SND_HURT
         End If
     End If
+    hitMelee = 0   ' 6E FIX D: splash är ALDRIG melee — annars kan stale hitMelee=1 trigga melee-dodge på granat-träff
     For j = 0 To 10
         If enActive(j) Then
             ed = Sqr((enX(j) - cx) ^ 2 + (enY(j) - cy) ^ 2)
@@ -6979,7 +7241,7 @@ SelftestDrive:
                                 ' hunt-bot: fire only with clear LOS and short range;
                                 ' otherwise walk toward the enemy along the BFS gradient
                                 fx = px: fy = py: tx = enX(c22bi): ty = enY(c22bi): Gosub LOSCheck
-                                If losOK And c22bd <= 2 Then   ' 6D: skjut bara på kort håll (färre miss vid fienderörelse)
+                                If losOK And c22bd <= 3 Then   ' 6E: tillbaka till 3 celler (6D:s 2 fick botten att fastna i labyrinten på L3; caps 40 ger ammo-marginal ändå)
                                     angle = _ATan2(enY(c22bi) - py, enX(c22bi) - px)
                                     dirX = Cos(angle): dirY = Sin(angle)
                                     fireBtn = 1: c22shots = c22shots + 1
@@ -7046,9 +7308,9 @@ SelftestDrive:
                 If wpName$(WP_MUSKET) = "MUSKET" And wpMelee(WP_MUSKET) = 0 And wpDmg(WP_MUSKET) = plrBallDmg And wpAmmoT(WP_MUSKET) = 1 And wpCool!(WP_MUSKET) = 0.3 And wpBallSpd!(WP_MUSKET) = plrBallSpd! Then c23ok = c23ok + 1
                 If wpName$(WP_BLUNDER) = "BLUNDERBUSS" And wpPellets(WP_BLUNDER) = 6 And wpDmg(WP_BLUNDER) = 2 And wpSpread!(WP_BLUNDER) = 0.18 And wpAmmoT(WP_BLUNDER) = 2 And wpMag(WP_BLUNDER) = 2 And wpReload!(WP_BLUNDER) = 1.2 Then c23ok = c23ok + 1   ' 6B-KOMPLETT: 6x2 i tätare kon
                 If wpName$(WP_MG) = "MACHINE MUSKET" And wpCool!(WP_MG) <= 0.1 And wpAmmoT(WP_MG) = 3 And wpBallSpd!(WP_MG) > plrBallSpd! Then c23ok = c23ok + 1   ' 6B-KOMPLETT FIX G: omdöpt
-                If wpName$(WP_CANNON) = "MINI CANNON" And wpArc(WP_CANNON) = 1 And wpAmmoT(WP_CANNON) = 4 And wpSplashR!(WP_CANNON) = 2 And wpSplashDmg(WP_CANNON) = 25 And wpShake!(WP_CANNON) >= 8 Then c23ok = c23ok + 1   ' 6B-KOMPLETT FIX C: splash 1.5->2.0
+                If wpName$(WP_CANNON) = "MINI CANNON" And wpArc(WP_CANNON) = 1 And wpAmmoT(WP_CANNON) = 4 And wpSplashR!(WP_CANNON) = 2 And wpSplashDmg(WP_CANNON) = 40 And wpShake!(WP_CANNON) >= 8 Then c23ok = c23ok + 1   ' 6E FIX F: splashDmg 25->40
                 If c23ok = 5 Then
-                    stMsg$ = "PASS 6a-a-weapon-register (5 vapen: AXE melee dmg3 cd1.2 / MUSKET dmg1 cd0.3 typ1 / BLUNDERBUSS 6 kulor x dmg2 spread0.18 mag2 rl1.2s typ2 / MACHINE MUSKET cd0.08 typ3 snabb kula / CANNON arc splash2.0x25 typ4 shake8 — alla parametrar maskinlästa ur registret)"
+                    stMsg$ = "PASS 6a-a-weapon-register (5 vapen: AXE melee dmg3 cd1.2 / MUSKET dmg1 cd0.3 typ1 / BLUNDERBUSS 6 kulor x dmg2 spread0.18 mag2 rl1.2s typ2 / MACHINE MUSKET cd0.08 typ3 snabb kula / CANNON arc splash2.0x40 typ4 shake8 — alla parametrar maskinlästa ur registret)"
                     Gosub STLog
                 Else
                     stMsg$ = "FAIL 6a-a register ok=" + Str$(c23ok) + "/5"
@@ -7961,7 +8223,7 @@ SelftestDrive:
                     If Timer - c23t >= 0.15 Then
                         Gosub BuildAmmoHud
                         If ammoN(1) = 11 And ammoHud$ = "AMMO  A:11  B:2  C:0  D:4" And InStr(wpHud$, "MUSKET*11") > 0 Then c23ok = c23ok + 1
-                        ' pickup typ A på spelaren -> A 11+10=21 -> cap 20
+                        ' pickup typ A på spelaren -> A 11+10=21 (cap 40 efter 6E FIX E)
                         For c23j = 0 To 10: amActive(c23j) = 0: Next c23j
                         amActive(0) = 1: amX(0) = px: amY(0) = py: amT(0) = 1
                         c23i = 3: c23t = Timer
@@ -7969,8 +8231,8 @@ SelftestDrive:
                 ElseIf c23i = 3 Then
                     If Timer - c23t >= 0.5 Then
                         Gosub BuildAmmoHud
-                        If ammoN(1) = 20 And ammoHud$ = "AMMO  A:20  B:2  C:0  D:4" And InStr(wpHud$, "MUSKET*20") > 0 And c23ok = 2 Then
-                            stMsg$ = "PASS 6d-b-hud-ammo-panel (panel '" + ammoHud$ + "' alltid alla fyra; musköt fire A 12->11; pickup A 11+10->cap 20; vapenlistan 'MUSKET*20')"
+                        If ammoN(1) = 21 And ammoHud$ = "AMMO  A:21  B:2  C:0  D:4" And InStr(wpHud$, "MUSKET*21") > 0 And c23ok = 2 Then
+                            stMsg$ = "PASS 6d-b-hud-ammo-panel (panel '" + ammoHud$ + "' alltid alla fyra; musköt fire A 12->11; pickup A 11+10->21 (cap 40); vapenlistan 'MUSKET*21')"
                             Gosub STLog
                             testFlag = 16: testT0 = Timer: c23i = 0: c23t = Timer: c23ok = 0
                         Else
@@ -8013,6 +8275,12 @@ SelftestDrive:
                     If Not _FileExists(c23f$) Then
                         If _FileExists("schleswig/README.md") Then c23f$ = "schleswig/README.md"
                     End If
+                    If Not _FileExists(c23f$) Then
+                        If _FileExists("doc/README.md") Then c23f$ = "doc/README.md"
+                    End If
+                    If Not _FileExists(c23f$) Then
+                        If _FileExists("schleswig/doc/README.md") Then c23f$ = "schleswig/doc/README.md"
+                    End If   ' 6E: doksen ligger i doc/ efter flytten
                     If _FileExists(c23f$) Then
                         c23h& = FreeFile
                         Open c23f$ For Input As #c23h&
@@ -8967,7 +9235,7 @@ SelftestDrive:
                     runT0 = Timer - 3
                     state$ = "playing"
                     c24key$ = ""
-                    testPhase = 12: testT0 = Timer: testFlag = 0
+                    testPhase = 26: testT0 = Timer: testFlag = 0   ' 6E: danska-makeover + balans (6e-*), sedan fas12
                 ElseIf Timer - testT0 >= 120 Then
                     stMsg$ = "FAIL 6d-f-timeout state=" + state$ + " c25j=" + Str$(c25j) + " lvlIdx=" + Str$(lvlIdx)
                     Gosub STLog
@@ -8976,6 +9244,616 @@ SelftestDrive:
                     ShutdownSound
                     End
                 End If
+            End If
+        Case 26  ' 6E: danska-makeover + balans. 6e-s1..s7 (sprites/palett/skala/zoner/
+                 ' z-order/anim/ögon) + 6e-a..e (fiendesikte, vägg/dörr, kanon,
+                 ' sprint/stamina, alert-ljud). Sedan fas12.
+            If testFlag = 0 Then
+                ' --- 6e-s1: paletten speglar SPRITE-BRIEF §3 exakt ---
+                c26ok = 0
+                If spUniformBlue& = _RGB32(22, 44, 110) Then c26ok = c26ok + 1
+                If spUniformDeep& = _RGB32(16, 32, 80) Then c26ok = c26ok + 1
+                If spOfficerBlue& = _RGB32(32, 56, 120) Then c26ok = c26ok + 1
+                If spGeneralRed& = _RGB32(150, 28, 28) Then c26ok = c26ok + 1
+                If spHatBlack& = _RGB32(24, 24, 24) Then c26ok = c26ok + 1
+                If spHatBrim& = _RGB32(40, 40, 40) Then c26ok = c26ok + 1
+                If spCrossWhite& = _RGB32(235, 235, 235) Then c26ok = c26ok + 1
+                If spGoldYellow& = _RGB32(255, 205, 60) Then c26ok = c26ok + 1
+                If spFaceSkin& = _RGB32(205, 170, 130) Then c26ok = c26ok + 1
+                If spBootBlack& = _RGB32(15, 15, 15) Then c26ok = c26ok + 1
+                If spMusketBrown& = _RGB32(105, 68, 38) Then c26ok = c26ok + 1
+                If spFeatherWhite& = _RGB32(240, 240, 240) Then c26ok = c26ok + 1
+                If spEyeDark& = _RGB32(20, 20, 30) Then c26ok = c26ok + 1
+                If spEyeAlertRed& = _RGB32(255, 60, 60) Then c26ok = c26ok + 1
+                If c26ok = 14 Then
+                    stMsg$ = "PASS 6e-s1-palette (alla 14 palettfärger == SPRITE-BRIEF §3 _RGB32-värden)"
+                    Gosub STLog
+                    testFlag = 1: testT0 = Timer
+                Else
+                    stMsg$ = "FAIL 6e-s1 ok=" + Str$(c26ok) + "/14"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 1 Then
+                ' --- 6e-s2: uniform-blå/guld krockar INTE med pickup-färger; G ensam röd ---
+                c26bad = 0
+                For c26j = 1 To AMMO_N
+                    If amCol&(c26j) = spUniformBlue& Or amCol&(c26j) = spUniformDeep& Or amCol&(c26j) = spOfficerBlue& Then c26bad = 1
+                    If amCol&(c26j) = spGoldYellow& Then c26bad = 1
+                Next c26j
+                If _RGB32(200, 30, 30) = spUniformBlue& Or _RGB32(200, 30, 30) = spUniformDeep& Or _RGB32(200, 30, 30) = spOfficerBlue& Then c26bad = 1   ' medkit
+                If _RGB32(205, 127, 50) = spUniformBlue& Or _RGB32(200, 200, 215) = spUniformBlue& Or _RGB32(255, 215, 0) = spUniformBlue& Then c26bad = 1   ' nycklar
+                If _RGB32(205, 127, 50) = spUniformDeep& Or _RGB32(200, 200, 215) = spUniformDeep& Or _RGB32(255, 215, 0) = spUniformDeep& Then c26bad = 1
+                If _RGB32(205, 127, 50) = spOfficerBlue& Or _RGB32(200, 200, 215) = spOfficerBlue& Or _RGB32(255, 215, 0) = spOfficerBlue& Then c26bad = 1
+                For c26j = 0 To WP_COUNT - 1
+                    If wpCol&(c26j) = spUniformBlue& Or wpCol&(c26j) = spUniformDeep& Or wpCol&(c26j) = spOfficerBlue& Then c26bad = 1
+                Next c26j
+                ' (generalRed/guld "bara hos G/K" kontrolleras via buffer-scan i 6e-s4)
+                If c26bad = 0 Then
+                    stMsg$ = "PASS 6e-s2-no-pickup-collision (uniform-blå/guld finns EJ bland ammo/medkit/nyckel/vapen-färger)"
+                    Gosub STLog
+                    testFlag = 2: testT0 = Timer
+                Else
+                    stMsg$ = "FAIL 6e-s2 bad=" + Str$(c26bad)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' --- 6e-s4: zon-scan per typ i enBuf&(t,0): A hatt, B ansikte, C rock, D stövlar ---
+                ' + G ensam röd rock + guld EJ i F/O/U-buffrar + fjäder bara hos G
+                c26ok = 0: c26bad = 0
+                For c26j = 0 To ET_COUNT - 1
+                    ' Point() läser bara skärmen i denna QB64-build -> blitta bufferten till display& först
+                    _Dest display&
+                    _PutImage (0, 0), enBuf&(c26j, 0), display&
+                    c26zone = 0   ' bit0 A-hatt, bit1 B-ansikte, bit2 C-rock, bit3 D-stövlar
+                    c26rockOK = 0: c26redOK = 0: c26goldOK = 0: c26featherOK = 0
+                    For c26y = 0 To ESH - 1
+                        For c26x = 0 To ESW - 1
+                            c26c& = Point(c26x, c26y)
+                            If c26y < Int(ESH * 0.2) And (c26c& = spHatBlack& Or c26c& = spUniformDeep& Or c26c& = spHatBrim& Or c26c& = spFeatherWhite&) Then c26zone = c26zone Or 1
+                            If c26y >= Int(ESH * 0.2) And c26y < Int(ESH * 0.45) And c26c& = spFaceSkin& Then c26zone = c26zone Or 2
+                            If c26y >= Int(ESH * 0.45) And c26y < Int(ESH * 0.85) Then
+                                If c26c& = spUniformBlue& Or c26c& = spUniformDeep& Or c26c& = spOfficerBlue& Or c26c& = spGeneralRed& Then c26zone = c26zone Or 4
+                                If c26c& = spGeneralRed& Then c26redOK = 1
+                                If c26c& = spGoldYellow& Then c26goldOK = 1
+                            End If
+                            If c26y >= Int(ESH * 0.85) And c26c& = spBootBlack& Then c26zone = c26zone Or 8
+                            If c26y < Int(ESH * 0.2) And c26c& = spFeatherWhite& Then c26featherOK = 1
+                        Next c26x
+                    Next c26y
+                    _Dest display&
+                    If c26zone = 15 Then c26ok = c26ok + 1
+                    If c26j = ET_GENERAL And c26redOK = 1 And c26featherOK = 1 Then c26ok = c26ok + 1
+                    If c26j <> ET_GENERAL And c26j <> ET_CAPTAIN And c26goldOK = 1 Then c26bad = 1   ' guld bara K+G
+                    If c26j <> ET_GENERAL And c26redOK = 1 Then c26bad = 1   ' röd rock bara G
+                    If c26j <> ET_GENERAL And c26featherOK = 1 Then c26bad = 1
+                Next c26j
+                If c26ok = 6 And c26bad = 0 Then
+                    stMsg$ = "PASS 6e-s4-zones (alla 5 typer: zon A hatt + B ansikte + C rock + D stövlar i buffer; G ensam röd+fjäder; guld bara K/G)"
+                    Gosub STLog
+                    testFlag = 3: testT0 = Timer: c26i = 0
+                Else
+                    stMsg$ = "FAIL 6e-s4 ok=" + Str$(c26ok) + "/6 bad=" + Str$(c26bad)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 3 Then
+                ' --- 6e-s3: G 1.4x skala (mätt renderad sprite-storlek mot F på samma avstånd) ---
+                If c26i = 0 Then
+                    mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    px = 8.5: py = 4.5: angle = 0: pitch = 0: hp = 100
+                    For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
+                    enX(0) = 12.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = ET_FOOT: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    c26i = 1: c26t = Timer
+                ElseIf c26i = 1 And Timer - c26t >= 0.2 Then
+                    If renType = ET_FOOT Then c26ehF! = renEH!: c26ewF! = renEW!
+                    enActive(0) = 0
+                    enX(0) = 12.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = ET_GENERAL: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    c26i = 2: c26t = Timer
+                ElseIf c26i = 2 And Timer - c26t >= 0.2 Then
+                    If renType = ET_GENERAL Then c26ehG! = renEH!: c26ewG! = renEW!
+                    c26ok = 0
+                    If etScale!(ET_GENERAL) = 1.4 And etAspect!(ET_GENERAL) = 0.8 And etAspect!(ET_FOOT) = 0.667 Then c26ok = c26ok + 1
+                    If c26ehF! > 0 And Abs(c26ehG! / c26ehF! - 1.4) < 0.02 Then c26ok = c26ok + 1   ' Y-skala 1.4x
+                    If c26ewF! > 0 And Abs(c26ewG! / c26ewF! - 1.68) < 0.06 Then c26ok = c26ok + 1   ' X-skala 1.4 x (0.8/0.667)=1.68
+                    If c26ok = 3 Then
+                        stMsg$ = "PASS 6e-s3-general-scale (G/F: höjd x" + LTrim$(Str$(Int(c26ehG! / c26ehF! * 100) / 100)) + " (1.4x), bredd x" + LTrim$(Str$(Int(c26ewG! / c26ewF! * 100) / 100)) + " (1.68 = 1.4 x aspekt 0.8/0.667); etScale 1.4, etAspect G 0.8)"
+                        Gosub STLog
+                        testFlag = 4: testT0 = Timer: c26i = 0
+                    Else
+                        stMsg$ = "FAIL 6e-s3 ok=" + Str$(c26ok) + " ehF=" + Str$(Int(c26ehF!)) + " ehG=" + Str$(Int(c26ehG!)) + " ewF=" + Str$(Int(c26ewF!)) + " ewG=" + Str$(Int(c26ewG!))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 10 Then
+                    stMsg$ = "FAIL 6e-s3-timeout c26i=" + Str$(c26i) + " renType=" + Str$(renType)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 4 Then
+                ' --- 6e-s6: gång-animation togglar frame vid positions-flytt (max 4 Hz) ---
+                If c26i = 0 Then
+                    mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    px = 8.5: py = 4.5: angle = 0: hp = 100
+                    For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
+                    enX(0) = 12.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = ET_FOOT: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    enAnimF(0) = 0: enAnimT!(0) = -99: enLastAX(0) = enX(0): enLastAY(0) = enY(0)
+                    For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    c26i = 1: c26t = Timer
+                ElseIf c26i = 1 Then
+                    If Timer - c26t >= 0.15 Then
+                        c26f0 = enAnimF(0)
+                        enX(0) = enX(0) + 0.4   ' simulera positions-flytt mellan frames
+                        c26i = 2: c26t = Timer
+                    End If
+                ElseIf c26i = 2 And Timer - c26t >= 0.15 Then
+                    c26f1 = enAnimF(0)
+                    If c26f1 <> c26f0 Then
+                        ' vänta utan rörelse: ingen toggle (timer-gate + stillastående)
+                        c26i = 3: c26t = Timer
+                    Else
+                        stMsg$ = "FAIL 6e-s6 no-toggle f0=" + Str$(c26f0) + " f1=" + Str$(c26f1)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c26i = 3 And Timer - c26t >= 0.6 Then
+                    If enAnimF(0) = c26f1 Then
+                        stMsg$ = "PASS 6e-s6-walk-anim (frame togglar vid positions-flytt " + Str$(c26f0) + "->" + Str$(c26f1) + ", ingen toggle stillastående)"
+                        Gosub STLog
+                        testFlag = 5: testT0 = Timer: c26i = 0
+                    Else
+                        stMsg$ = "FAIL 6e-s6 toggled-while-idle f=" + Str$(enAnimF(0))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 10 Then
+                    stMsg$ = "FAIL 6e-s6-timeout c26i=" + Str$(c26i)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 5 Then
+                ' --- 6e-s7: ALERT-ögon röda endast i combat-läge (patrol mörka) ---
+                c26ok = 0
+                If EnemyEyeColor&(0) = spEyeDark& Then c26ok = c26ok + 1
+                If EnemyEyeColor&(1) = spEyeAlertRed& And EnemyEyeColor&(2) = spEyeAlertRed& Then c26ok = c26ok + 1
+                ' bufferten ska EJ innehålla röd ögonfärg i zon B (ögon ritas vid render)
+                c26bad = 0
+                For c26j = 0 To ET_COUNT - 1
+                    _Dest display&
+                    _PutImage (0, 0), enBuf&(c26j, 0), display&   ' Point() läser skärmen — blitta bufferten först
+                    For c26y = Int(ESH * 0.2) To Int(ESH * 0.45) - 1
+                        For c26x = 0 To ESW - 1
+                            If Point(c26x, c26y) = spEyeAlertRed& Then c26bad = 1
+                        Next c26x
+                    Next c26y
+                Next c26j
+                _Dest display&
+                If c26ok = 2 And c26bad = 0 Then
+                    stMsg$ = "PASS 6e-s7-alert-eyes (EnemyEyeColor: PATROLL mörk, JAKT/ANFALL röd; ingen röd pixel i sprite-buffern)"
+                    Gosub STLog
+                    testFlag = 6: testT0 = Timer: c26i = 0
+                Else
+                    stMsg$ = "FAIL 6e-s7 ok=" + Str$(c26ok) + " bad=" + Str$(c26bad)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 6 Then
+                ' --- 6e-s5: z-order — två fiender på samma siktlinje, närmaste occluderar ---
+                If c26i = 0 Then
+                    mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    px = 8.5: py = 4.5: angle = 0: pitch = 0: hp = 100
+                    For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
+                    enX(0) = 10.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = ET_FOOT: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99   ' nära F, dist 2
+                    enX(1) = 13.5: enY(1) = 4.5: enActive(1) = 1: enType(1) = ET_GENERAL: enSpd(1) = 0: enState(1) = 0: enFireT(1) = Timer + 99: enZigT(1) = Timer + 99   ' långt bort G, dist 5
+                    For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    zProbeX = -1: zProbeY = -1
+                    c26i = 1: c26t = Timer
+                ElseIf c26i = 1 And Timer - c26t >= 0.2 Then
+                    ' sätt proben från NÄRMASTE fiendens rect (visOrd(visN-1) = sist ritad = närmast):
+                    ' vänster del av spriten, strax under zon B (ren rock i zon C, ovanför viewmodeln)
+                    If visN >= 2 Then
+                        vk = visOrd(visN - 1)
+                        zProbeX = Int(visCX(vk) - visEW(vk) * 0.25)
+                        zProbeY = Int(visBase(vk) - visEH(vk) + visEH(vk) * 0.83)   ' nedre zon C = ren rock (under rem, över ben)
+                        If zProbeX < 0 Then zProbeX = 0
+                        If zProbeY < 0 Then zProbeY = 0
+                        If zProbeY > RH - 1 Then zProbeY = RH - 1
+                    End If
+                    c26i = 2: c26t = Timer
+                ElseIf c26i = 2 And Timer - c26t >= 0.25 Then
+                    ' zDrawOrder$ från render: fjärran (en1) måste ritas FÖRE nära (en0); 5x5-proben (läst
+                    ' inuti render efter buf->display) ska mestadels vara närmaste fiendens blå rock
+                    c26p1 = InStr(zDrawOrder$, "1"): c26p0 = InStr(zDrawOrder$, "0")
+                    If c26p1 > 0 And c26p0 > 0 And c26p1 < c26p0 And zProbeB > zProbeR Then
+                        stMsg$ = "PASS 6e-s5-zorder (ritordning '" + zDrawOrder$ + "': fjärran G först, nära F sist; 5x5-probe (" + Str$(zProbeX) + "," + Str$(zProbeY) + ") blåpixlar " + Str$(zProbeB) + " > röda " + Str$(zProbeR) + " — närmaste F occluderar G)"
+                        Gosub STLog
+                        zProbeX = -1
+                        testFlag = 7: testT0 = Timer: c26i = 0
+                    Else
+                        stMsg$ = "FAIL 6e-s5 order='" + zDrawOrder$ + "' p1=" + Str$(c26p1) + " p0=" + Str$(c26p0) + " probe=(" + Str$(zProbeX) + "," + Str$(zProbeY) + ") blå=" + Str$(zProbeB) + " röd=" + Str$(zProbeR) + " visN=" + Str$(visN)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 10 Then
+                    stMsg$ = "FAIL 6e-s5-timeout order='" + zDrawOrder$ + "' visN=" + Str$(visN)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 7 Then
+                ' --- 6e-a: FIENDESIKTE — fiendekula mot spelarens pos VID AVFYRNING; vägg stoppar ---
+                If c26i = 0 Then
+                    mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    px = 8.5: py = 4.5: angle = 0: hp = 100
+                    For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
+                    enActive(0) = 1: Gosub DummyFar: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    enX(1) = 12.5: enY(1) = 4.5: enActive(1) = 1: enType(1) = ET_MUSKETEER: enHP(1) = etHP(ET_MUSKETEER): enSpd(1) = 0: enState(1) = 0: enFireT(1) = Timer - 1: enZigT(1) = Timer + 99: enAlertT(1) = -99
+                    For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
+                    prLastOwner = -1
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    c26i = 1: c26t = Timer
+                ElseIf c26i = 1 And Timer - c26t >= 0.3 Then
+                    ' U på (12.5,4.5), spelare (8.5,4.5): förväntad riktning = atan2(0,-4) = pi
+                    If prLastOwner = 1 And prLastType = PR_BALL Then
+                        c26ang = _ATan2(prLastDY!, prLastDX!)
+                        c26d = Abs(c26ang - 3.14159265)
+                        If c26d > 3.14159265 Then c26d = 6.2831853 - c26d   ' wrap: -pi == pi
+                        If c26d < 0.1 Then
+                            c26i = 2: c26t = Timer
+                            c26pr0 = projEnemySpawned
+                            ' nu bakom vägg: ingen fiende-kula får spawnas
+                            enX(1) = 10.5: enY(1) = 9.5: enFireT(1) = Timer - 1   ' vägg mellan (9,8)/(10,9)
+                        Else
+                            stMsg$ = "FAIL 6e-a-bad-aim ang=" + Str$(Int(c26ang * 1000) / 1000) + " d=" + Str$(Int(c26d * 1000) / 1000) + " vill pi"
+                            Gosub STLog
+                            stMsg$ = "SELFTEST FAIL"
+                            Gosub STLog
+                            ShutdownSound
+                            End
+                        End If
+                    ElseIf Timer - c26t >= 2 Then
+                        stMsg$ = "FAIL 6e-a-no-ball owner=" + Str$(prLastOwner)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c26i = 2 And Timer - c26t >= 1.2 Then
+                    If projEnemySpawned = c26pr0 Then
+                        stMsg$ = "PASS 6e-a-enemy-aim (U:s kula dir=atan2 mot spelaren VID avfyrning (pi±0.1); bakom vägg spawnas INGEN kula)"
+                        Gosub STLog
+                        testFlag = 8: testT0 = Timer: c26i = 0
+                    Else
+                        stMsg$ = "FAIL 6e-a-fired-through-wall proj+=" + Str$(projEnemySpawned - c26pr0)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 15 Then
+                    stMsg$ = "FAIL 6e-a-timeout c26i=" + Str$(c26i)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 8 Then
+                ' --- 6e-b: ingen skada genom vägg/stängd dörr (LOS + projektil-Solid%) ---
+                If c26i = 0 Then
+                    c26map$ = "/tmp/schleswig_6eb.map"
+                    c26h& = FreeFile
+                    Open c26map$ For Output As #c26h&
+                    For c26y = 0 To 15
+                        c26ln$ = ""
+                        For c26x = 0 To 15
+                            If c26x = 0 Or c26x = 15 Or c26y = 0 Or c26y = 15 Then c26ln$ = c26ln$ + "#" Else c26ln$ = c26ln$ + "."
+                        Next c26x
+                        If c26y = 8 Then c26ln$ = Left$(c26ln$, 2) + "S" + Mid$(c26ln$, 4, 4) + "d" + Mid$(c26ln$, 9, 6) + "U" + Right$(c26ln$, 1)
+                        Print #c26h&, c26ln$
+                    Next c26y
+                    Close #c26h&
+                    mapFile$ = c26map$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: hp = 100: dmgTaken = 0
+                    For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
+                    ' fienden (U) finns på kartan via ApplyMapSpawns/SpawnEnemies? nej — sätt manuellt:
+                    enX(0) = 14.5: enY(0) = 8.5: enActive(0) = 1: enType(0) = ET_MUSKETEER: enHP(0) = etHP(ET_MUSKETEER): enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer - 1: enZigT(0) = Timer + 99: enAlertT(0) = -99
+                    For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
+                    c26pr0 = projEnemySpawned
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    c26i = 1: c26t = Timer
+                ElseIf c26i = 1 And Timer - c26t >= 1.5 Then
+                    ' stängd dörr (8,8) blockerar LOS -> ingen fiende-kula, ingen skada
+                    c26ok = 0
+                    If hp = 100 And dmgTaken = 0 And projEnemySpawned = c26pr0 Then c26ok = 1
+                    ' manuell fiende-kula genom stängda dörren: ska stoppas av Solid%
+                    spX = 13.5: spY = 8.5: spDX = -1: spDY = 0: spSpd! = 7: spOwner = 1: spDmg = 10: spType = PR_BALL: spSrcType = ET_MUSKETEER: spTX = 0: spTY = 0: spLandT = 0
+                    Gosub SpawnProjectile
+                    c26i = 2: c26t = Timer
+                    If c26ok = 0 Then
+                        stMsg$ = "FAIL 6e-b-damage-through-door hp=" + Str$(Int(hp)) + " dmg=" + Str$(dmgTaken) + " proj+=" + Str$(projEnemySpawned - c26pr0)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c26i = 2 And Timer - c26t >= 0.6 Then
+                    If hp = 100 And dmgTaken = 0 Then
+                        stMsg$ = "PASS 6e-b-no-damage-through-wall-door (stängd dörr: ingen LOS -> ingen fiende-kula, ingen skada; manuell kula genom dörren stoppas av Solid%)"
+                        Gosub STLog
+                        testFlag = 9: testT0 = Timer: c26i = 0
+                    Else
+                        stMsg$ = "FAIL 6e-b-ball-through-door hp=" + Str$(Int(hp)) + " dmg=" + Str$(dmgTaken)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 15 Then
+                    stMsg$ = "FAIL 6e-b-timeout c26i=" + Str$(c26i) + " hp=" + Str$(Int(hp))
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 9 Then
+                ' --- 6e-c: mini-kanon splash 40 — foot dör av 1 granat, K kräver 2 (vid pd 1.7) ---
+                If c26i = 0 Then
+                    mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    px = 2.5: py = 13.5: angle = 0: hp = 100   ' säkert avstånd från mål (8.5,13.5)
+                    For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
+                    enX(0) = 8.5: enY(0) = 13.5: enActive(0) = 1: enType(0) = ET_FOOT: enHP(0) = 4: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    enX(1) = 10.2: enY(1) = 13.5: enActive(1) = 1: enType(1) = ET_CAPTAIN: enHP(1) = 12: enSpd(1) = 0: enState(1) = 0: enFireT(1) = Timer + 99: enZigT(1) = Timer + 99
+                    enX(2) = 13.5: enY(2) = 9.5: enActive(2) = 1: enType(2) = ET_FOOT: enHP(2) = 4: enSpd(2) = 0: enState(2) = 0: enFireT(2) = Timer + 99: enZigT(2) = Timer + 99   ' dummy håller win borta (slot 2 — DummyFar skriver slot 0!)
+                    For c26j = 0 To ET_COUNT - 1: etDodge!(c26j) = 0: etDodgeMelee!(c26j) = 0: Next c26j   ' K får inte ducka bort från andra granaten
+                    hitMelee = 0
+                    For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    c26hp0 = hp
+                    ' granat 1: spelar-ägd mörser på (8,13)
+                    prActive(0) = 1: prType(0) = PR_MORTAR: prOwner(0) = 0: prSrcType(0) = -1: prX(0) = 8.5: prY(0) = 13.5: prTX(0) = 8: prTY(0) = 13: prLandT(0) = Timer - 0.01: prBornT(0) = Timer
+                    c26i = 1: c26t = Timer
+                ElseIf c26i = 1 And Timer - c26t >= 0.3 Then
+                    ' efter granat 1: F död (40 >= 4); K vid pd 1.7 tar Int(40*0.2)=7-8 (fp) -> hp 4-5, lever; spelaren oskadd
+                    If enActive(0) = 0 And enHP(1) <= 5 And enHP(1) >= 4 And hp = c26hp0 Then
+                        ' granat 2 samma mål: K dör (8+8=16 >= 12)
+                        For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
+                        prActive(0) = 1: prType(0) = PR_MORTAR: prOwner(0) = 0: prSrcType(0) = -1: prX(0) = 8.5: prY(0) = 13.5: prTX(0) = 8: prTY(0) = 13: prLandT(0) = Timer - 0.01: prBornT(0) = Timer
+                        c26i = 2: c26t = Timer
+                    Else
+                        stMsg$ = "FAIL 6e-c-grenade1 en0act=" + Str$(enActive(0)) + " en1hp=" + Str$(enHP(1)) + " hp=" + Str$(Int(hp)) + "/" + Str$(Int(c26hp0))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c26i = 2 And Timer - c26t >= 0.3 Then
+                    If enActive(1) = 0 And hp = c26hp0 Then
+                        stMsg$ = "PASS 6e-c-cannon-splash40 (splash 40: foot dör av 1 granat i centrum; K vid pd 1.7 tar 8/granat -> dör av 2; spelare oskadd på säkert avstånd)"
+                        Gosub STLog
+                        testFlag = 10: testT0 = Timer: c26i = 0
+                    Else
+                        stMsg$ = "FAIL 6e-c-grenade2 en1act=" + Str$(enActive(1)) + " en1hp=" + Str$(enHP(1)) + " en1pos=" + Str$(Int(enX(1) * 10) / 10) + "," + Str$(Int(enY(1) * 10) / 10) + " pr0=" + Str$(prActive(0)) + "/" + Str$(prType(0)) + " txy=" + Str$(prTX(0)) + "," + Str$(prTY(0)) + " landT=" + Str$(Int(prLandT(0) * 10) / 10) + " now=" + Str$(Int(Timer * 10) / 10) + " hp=" + Str$(Int(hp))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 15 Then
+                    stMsg$ = "FAIL 6e-c-timeout c26i=" + Str$(c26i)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 10 Then
+                ' --- 6e-d: sprint + stamina — x1.25 hastighet, dränering 20/s, lås vid 0, upplås vid 30 ---
+                If c26i = 0 Then
+                    mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    px = 2.5: py = 13.5: angle = 0: hp = 100: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                    For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
+                    enActive(0) = 1: Gosub DummyFar: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    c26key$ = "w"
+                    c26i = 1: c26t = Timer: c26spdMax! = 0: c26lockSawBad = 0: c26walkSprint = 0
+                ElseIf c26i = 1 Then
+                    If spdMul > 1 Then c26walkSprint = 1   ' gång-fasen får INTE sprinta
+                    If Timer - c26t >= 1.0 Then
+                        c26distW! = px - 2.5
+                        sprintInj = 1
+                        c26px0 = px: c26t = Timer
+                        c26i = 2
+                    End If
+                ElseIf c26i = 2 Then
+                    If spdMul > c26spdMax! Then c26spdMax! = spdMul
+                    If Timer - c26t >= 1.0 Then
+                        c26distS! = px - c26px0
+                        c26i = 3: c26t = Timer
+                        stamina! = 5   ' nästan tom -> lås inom kort
+                    End If
+                ElseIf c26i = 3 Then
+                    If spdMul > c26spdMax! Then c26spdMax! = spdMul
+                    If sprintLock And spdMul > 1 Then c26lockSawBad = 1
+                    If sprintLock And Timer - c26t >= 0.2 Then
+                        ' låst vid tom stamina; vänta på upplås (regen 10/s vid gång -> 30 tar 3 s)
+                        c26i = 4: c26t = Timer: sprintInj = 0
+                    ElseIf Timer - c26t >= 4 Then
+                        stMsg$ = "FAIL 6e-d-no-lock stamina=" + Str$(Int(stamina!)) + " lock=" + Str$(sprintLock)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c26i = 4 Then
+                    If sprintLock = 0 Then
+                        c26unlockSt = stamina!
+                        c26ok = 0
+                        If c26walkSprint = 0 Then c26ok = c26ok + 1   ' gång-fasen: spdMul aldrig >1
+                        If c26distW! > 0.2 Then c26ok = c26ok + 1   ' rörde sig under gång
+                        If c26spdMax! = stamSprintMult! Then c26ok = c26ok + 1   ' sprint: spdMul == 1.25
+                        If c26lockSawBad = 0 Then c26ok = c26ok + 1   ' låst: spdMul == 1
+                        If c26unlockSt >= stamUnlockAt! Then c26ok = c26ok + 1   ' upplås först vid >=30
+                        If c26ok = 5 Then
+                            stMsg$ = "PASS 6e-d-sprint-stamina (spdMul 1 vid gång / 1.25 vid sprint (bas*1.25); dist sprint/walk=" + LTrim$(Str$(Int(c26distS! / c26distW! * 100) / 100)) + "; drän 20/s -> lås vid 0 (spdMul 1); upplås vid stamina " + Str$(Int(c26unlockSt)) + " >= 30)"
+                            Gosub STLog
+                            c26key$ = ""
+                            testFlag = 11: testT0 = Timer: c26i = 0
+                        Else
+                            stMsg$ = "FAIL 6e-d ok=" + Str$(c26ok) + "/5 walkSprint=" + Str$(c26walkSprint) + " distW=" + Str$(Int(c26distW! * 100) / 100) + " ratio=" + Str$(Int(c26distS! / c26distW! * 100) / 100) + " spdMax=" + LTrim$(Str$(c26spdMax!)) + " mult=" + LTrim$(Str$(stamSprintMult!)) + " lockBad=" + Str$(c26lockSawBad) + " unlockSt=" + LTrim$(Str$(c26unlockSt)) + " unlAt=" + LTrim$(Str$(stamUnlockAt!))
+                            Gosub STLog
+                            stMsg$ = "SELFTEST FAIL"
+                            Gosub STLog
+                            ShutdownSound
+                            End
+                        End If
+                    ElseIf Timer - c26t >= 8 Then
+                        stMsg$ = "FAIL 6e-d-no-unlock stamina=" + Str$(Int(stamina!)) + " lock=" + Str$(sprintLock)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 30 Then
+                    stMsg$ = "FAIL 6e-d-timeout c26i=" + Str$(c26i)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 11 Then
+                ' --- 6e-e: alert-ljud en oktav ner; general ännu lägre (general-bas) ---
+                If c26i = 0 Then
+                    c26ok = 0
+                    If sndF0!(SND_ALERT) = 310 And sndF1!(SND_ALERT) = 465 Then c26ok = c26ok + 1   ' var 620/930 -> oktav ner
+                    If sndF0!(SND_ALERT) * 2 = 620 Then c26ok = c26ok + 1
+                    If sndF0!(SND_ALERT_G) = 155 And sndF1!(SND_ALERT_G) = 232 And sndF0!(SND_ALERT_G) < sndF0!(SND_ALERT) Then c26ok = c26ok + 1
+                    If c26ok = 3 Then
+                        ' live: G med LOS -> SND_ALERT_G spelas (lägre än F:s alert)
+                        mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                        px = 8.5: py = 4.5: angle = 0: hp = 100
+                        For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
+                        enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = ET_GENERAL: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99: enAlertT(0) = -99
+                        For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
+                        bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                        state$ = "playing"
+                        c26i = 1: c26t = Timer
+                    Else
+                        stMsg$ = "FAIL 6e-e-register ok=" + Str$(c26ok) + " f0=" + Str$(Int(sndF0!(SND_ALERT))) + " g0=" + Str$(Int(sndF0!(SND_ALERT_G)))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c26i = 1 And Timer - c26t >= 0.4 Then
+                    If sndLastId = SND_ALERT_G And sndLastF0! = 155 And sndLastF0! < sndF0!(SND_ALERT) Then
+                        stMsg$ = "PASS 6e-e-alert-octave (SND_ALERT 620->310 / 930->465 Hz = en oktav ner; G: SND_ALERT_G 155->232 Hz live-spelad vid upptäckt, lägre än F:s 310)"
+                        Gosub STLog
+                        testFlag = 12: testT0 = Timer: c26i = 0
+                    Else
+                        stMsg$ = "FAIL 6e-e-live lastId=" + Str$(sndLastId) + " f0=" + Str$(Int(sndLastF0!))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 10 Then
+                    stMsg$ = "FAIL 6e-e-timeout lastId=" + Str$(sndLastId)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 12 Then
+                ' --- 6E klar: återställ selftest-miljö, gå till fas12 ---
+                Gosub InitEnemyTypes
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
+                For c26j = 0 To WP_COUNT - 1: wpOwned(c26j) = 0: Next c26j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
+                c26key$ = ""
+                testPhase = 12: testT0 = Timer: testFlag = 0
             End If
     End Select
     Return

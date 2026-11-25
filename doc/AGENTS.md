@@ -242,8 +242,8 @@ five weapon chars, row 3 B/C/D next to A — the test kitchen.
 ## Ammo balance (5E + 6A)
 Const startAmmo = 15 (was 5 — ~3x, André ran dry before level 3),
 Const ammoPickup = 10 per ammo pickup (was +5). 6A: ammo is PER TYPE —
-ammoN(1..4) with per-type caps capAmmo: typ1 (musköt) = maxAmmo = 20,
-typ2 (blunderbuss) = 6, typ3 (maskingevär) = 24, typ4 (mini-kanon) = 4.
+ammoN(1..4) with per-type caps capAmmo (6E FIX E: minst dubbelt — var 20/6/24/4):
+typ1 (musköt) = maxAmmo = 40, typ2 (blunderbuss) = 12, typ3 (maskingevär) = 48, typ4 (mini-kanon) = 8.
 Pickup chars: A=+10 typ1, B=+10 typ2, C=+10 typ3, D=+10 typ4 (capped).
 6C real maps (measured char counts, selftest 6b-f re-proves >= principle):
 level01 A x3 M x1; level02 A x3 B x3 M x2; level03 A/B/C x2 M x2;
@@ -282,7 +282,7 @@ WP_BLUNDER=2, WP_MG=3, WP_CANNON=4 (WP_COUNT=5).
   MINI CANNON: reuses the enemy MORTAR (arc + flight 1.2 s + splash), but
     prOwner=0 (player); target = the crosshair DDA hit cell; splash radius
     2.0 (6B-KOMPLETT FIX C: was 1.5 — covers a whole corridor crossing; the
-    ENEMY general's mortar keeps etSplashR 1.5), dmg 25 with linear falloff;
+    ENEMY general's mortar keeps etSplashR 1.5), dmg 40 with linear falloff (6E FIX F: var 25);
     cooldown 1.5 s, heavy recoil+shake; ammo type 4. Splash CAN hurt the
     player up close (radial risk documented) but not at safe distance.
     6B-KOMPLETT FIX C: ONE shared aim computation — CrosshairDDA (center-ray
@@ -300,7 +300,7 @@ WP_BLUNDER=2, WP_MG=3, WP_CANNON=4 (WP_COUNT=5).
                                     (~1.07 s total) the MUSKET beats the axe (1.2 s)
   BLUNDERBUSS    full hit <2 cells >= 4 dmg -> 1 shot (~0.9 s, +1.2 s reload / 2 shots)
   MACHINE MUSKET dmg 1 / 0.08 s  -> 4 shots, kill at ~0.24 s
-  MINI CANNON    splash 25       -> 1 grenade (1.5 s cooldown)
+  MINI CANNON    splash 40 (6E FIX F: var 25) -> foot dör av 1 granat i splash; K kräver 2 vid splash-kant (pd 1.7 ger 8/granat)
   (Enemy register 6B-KOMPLETT: etHP(ET_FOOT) 3 -> 4 — required so the axe
   dmg 3 does NOT one-shot a foot; fas14a asserts the new value.)
 
@@ -389,6 +389,57 @@ FIX G (score model): lvlScore&(lvlIdx) = CalcSegScore&(segShots, segDmg,
   reset doneScore& = 0 and lvlScore&(0..19) = 0. Selftest 6d-f: scripted
   3-level temp campaign asserts lvlScore&(n) == CalcSegScore& at each result,
   score == doneScore&, and victory TOTAL == L1+L2+L3.
+
+## SCHLESWIG 6E — danska-makeover + balans (design-sanning: doc/SPRITE-BRIEF.md)
+FIX A (nya fiende-sprites): "ögon-kuberna" borta. InitEnemySprites skapar
+  enBuf&(typ, 2 gång-frames) ESW x ESH = 48x72, transparent bakgrund;
+  DrawEnemySprite ritar zoner A(0-20% mössa/hatt) B(20-45% ansikte)
+  C(45-85% rock+vapen) D(85-100% ben/stövlar) per typ: F musket lutad,
+  U musket i ansats + bandolär + gul emblem-pixel, O mellan-hatt (INGEN guld —
+  brief-regel: guld endast K+G), K bred hatt + guldkant + guldknappar +
+  epåletter + kommandostav, G bred hatt + fjäder + RÖD rock + mörser-pose.
+  Paletten är EN källa i kod (InitEnemyPalette, spUniformBlue& osv — kan ej
+  vara Const då _RGB32() är funktionsanrop); värdena = briefens _RGB32-tabell,
+  selftest 6e-s1 speglar alla 14. Ögon ritas vid render i ZONE B (~30% ner)
+  via EN funktion EnemyEyeColor&(state): PATROLL mörka, JAKT/ANFALL röda
+  (6e-s7). Gång-animation: enAnimF togglar vid positions-flytt (enLastAX/Y),
+  max 4 Hz (6e-s6). Render: avståndsskuggning = alpha-överlägg per kolumn
+  (min 20% ljushet som väggarna); snabbväg = EN skalad blit när hela spriten
+  passerar wallDist, annars per-kolumn z-clip (prestanda: per-kolumn _PutImage
+  gjorde 64x64-selftestet för långsamt).
+FIX B (G boss-skala): etScale!(G) = 1.4 (höjd), etAspect!(G) = 0.8 mot 0.667
+  för övriga (bredd/höjd) -> mätt: höjd x1.4, bredd x1.68 (6e-s3 via
+  renEH!/renEW! render-prober).
+FIX C (z-order): synbara fiender samlas i visI/visDist/..., sorteras på
+  avstånd FJÄRRAN först (bubble sort), ritas närmast sist, per-kolumn z-clip
+  mot wallDist — närmaste occluderar (6e-s5: ritordning + 5x5-pixel-probe
+  läst inuti render efter buf->display, före _Display; zDrawOrder$/zProbe*).
+  VIKTIGT: sprites blitas till världsbuffern buf& (samma _Dest som väggarna),
+  INTE display& (annars skrivs de över av buf->display-blitten).
+FIX D (attack-verifiering): U:s kulor färdas mot spelarens position VID
+  AVFYRNING (redan korrekt — spDX/spDY = riktning mot (px,py) + liten seedad
+  spridning; 6e-a: dir == atan2 inom 0.1 rad, vägg mellan -> ingen kula spawnas
+  eftersom enSeen=0). Inga träffar genom väggar/stängda dörrar (LOS + projektil-
+  Solid% per substeg; 6e-b på tempkarta med stängd dörr). Närstrid: edist<0.8,
+  cd 0.7 s, alla typer. G: mörser mot förutsedd position, edist<12, LOS krävs.
+  BUGGRÄTTNING: MortarLand sätter nu hitMelee=0 före fiende-loopen (splash är
+  aldrig melee — annars kunde stale hitMelee=1 trigga melee-dodge på granat).
+FIX E (ammo-caps): maxAmmo 20->40, capAmmo 40/12/48/8 (var 20/6/24/4).
+  6d-b justerad (pickup A 11+10=21, ej cap). 5e-d/6c-d körda om: ammo når
+  aldrig 0.
+FIX F (mini-kanon): wpSplashDmg 25->40. TTK: foot dör av 1 granat i splash,
+  K (HP 12) kräver 2 vid pd 1.7 (8/granat); spelaren oskadd på säkert avstånd
+  (6e-c).
+FIX G (sprint+stamina): Shift = sprint x1.25 (spdMul, appliceras på
+  rörelseblocken; mouse-look påverkas ej). stamina 100: drän 20/s vid sprint,
+  tom -> sprintLock tills stamina >= 30 (låset gäller direkt, även på framen
+  då stamina når 0); återhämtning 10/s vid gång, 20/s stillastående.
+  HUD: smal bar under HP-boxen (hudY+23..26), grön/gul/röd, grå vid lås.
+  Reset i StartRun och LoadLevel. Selftest 6e-d (hermetisk via sprintInj).
+FIX H (ljud oktav ner): SND_ALERT 620->310 / 930->465 Hz (sub-ton 110->55);
+  NY SND_ALERT_G = 10: 155->232 Hz, 0.5 s — generalens egen upptäckt (ännu
+  lägre general-bas), spelas vid PATROLL->JAKT för ET_GENERAL (6e-e: register
+  + live-probe sndLastId/sndLastF0!).
 
 ## Menu render gating (6B FIX F — no menu blink between levels)
 The title/pick menu is rendered ONLY when state$ is still "menu" at render
