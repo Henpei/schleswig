@@ -10,7 +10,7 @@ From the repository root, using your local QB64-PE installation (`qb64pe`):
 
 The binary is always named `schleswig` (lowercase) at the repository root
 (gitignored). Never assume a workdir — always read it from the task
-instructions or doc/AGENTS.md; the project can be moved by the user, so no
+instructions or AGENTS.md (repo root); the project can be moved by the user, so no
 absolute machine paths are hardcoded here.
 
 ## Run
