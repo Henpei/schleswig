@@ -100,6 +100,8 @@ DIM c28k, c28s, c28n, c28ok, c28bad, c28pxR, c28pyR, c28px0, c28py0, c28sawVel, 
 DIM c28msg$   ' 6f-d: per-tangent diagnostiksträng
 DIM c29i, c29j, c29ok, c29pr0, c29hp0, c29t, c29dz!, c29h!   ' Fas 29 (6F-FULL 6f-e) pitch-aim selftest vars
 DIM c29msg$   ' 6f-e: diagnostiksträng
+DIM c30i, c30j, c30t, c30ok, c30act, c30f, c30a0(4), c30exp   ' Fas 30 (6F-FULL 6f-f) ammo-pickup selftest vars
+DIM c30msg$   ' 6f-f: diagnostiksträng
 DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
@@ -225,7 +227,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "bfcb8fe"
+Const strBuild$ = "6046efe"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -10472,6 +10474,137 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c29j = 0 To PR_MAX: prActive(c29j) = 0: Next c29j
                 For c29j = 0 To WP_COUNT - 1: wpOwned(c29j) = 0: Next c29j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
+                testPhase = 30: testT0 = Timer: testFlag = 0   ' 6F-FULL: vidare till 6f-f (ammo-pickups)
+            End If
+        Case 30  ' 6F-FULL 6f-f: ammo-pickups — gå över kart-spawnade A/B/C/D ger +ammoPickup
+                 ' per TYP; överlappande multi-pickups samma frame; 0-ammo edge; cap-edge
+                 ' (inget överskott); förrådet PERSISTERAR över LoadLevel (nivåsektioner);
+                 ' HUD-panelen uppdateras.
+            If testFlag = 0 Then
+                ' temp-karta 16x16: S=(1,12), A=(3,12) B=(4,12) C=(5,12) D=(6,12)
+                c30f = FreeFile
+                Open "/tmp/schleswig_6ff.map" For Output As #c30f
+                Print #c30f, "################"
+                For c30j = 1 To 11: Print #c30f, "#..............#": Next c30j
+                Print #c30f, "#S.ABCD........#"
+                Print #c30f, "#..............#"
+                Print #c30f, "#..............#"
+                Print #c30f, "################"
+                Close #c30f
+                mapFile$ = "/tmp/schleswig_6ff.map": Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100
+                For c30j = 0 To 10: enActive(c30j) = 0: Next c30j
+                enActive(0) = 1: Gosub DummyFar: enType(0) = ET_FOOT: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99   ' dummy håller win-triggern borta
+                For c30j = 0 To PR_MAX: prActive(c30j) = 0: Next c30j
+                For c30j = 1 To AMMO_N: ammoN(c30j) = 0: Next c30j
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                state$ = "playing"
+                injMvF = 1   ' gå +x över alla fyra pickups
+                c30ok = 0: c30i = 1: c30msg$ = ""
+                testFlag = 1: testT0 = Timer: c30t = Timer
+            End If
+            If testFlag = 1 Then
+                If c30i = 1 Then
+                    ' gå tills alla ammo-pickups är slut (eller timeout)
+                    c30act = 0
+                    For c30j = 0 To 10
+                        If amActive(c30j) Then c30act = c30act + 1
+                    Next c30j
+                    If c30act = 0 Or Timer - c30t > 8 Then
+                        injMvF = 0
+                        ' (a) gå-över-grant per typ: ammoN(t) = min(0+10, capAmmo(t)) (cap 40/12/48/8)
+                        c30ok = 0
+                        For c30j = 1 To AMMO_N
+                            c30exp = ammoPickup: If c30exp > capAmmo(c30j) Then c30exp = capAmmo(c30j)
+                            If ammoN(c30j) = c30exp Then c30ok = c30ok + 1
+                            c30msg$ = c30msg$ + " t" + Str$(c30j) + "=" + Str$(ammoN(c30j)) + "/" + Str$(c30exp)
+                        Next c30j
+                        ' (b) HUD-uppdatering: ammoHud$ ska visa aktuella värden (A:10 B:10 C:10 D:8 — D capas vid 8)
+                        Gosub BuildAmmoHud
+                        If ammoHud$ = "AMMO  A:10  B:10  C:10  D:8" Then c30ok = c30ok + 1
+                        c30i = 2: c30t = Timer
+                    End If
+                ElseIf c30i = 2 Then
+                    If Timer - c30t >= 0.3 Then
+                        ' (c) överlappande multi-pickups SAMMA cell samma frame (typ 1+2)
+                        For c30j = 0 To 10: amActive(c30j) = 0: Next c30j
+                        c30a0(1) = ammoN(1): c30a0(2) = ammoN(2)
+                        amActive(0) = 1: amX(0) = px: amY(0) = py: amT(0) = 1
+                        amActive(1) = 1: amX(1) = px: amY(1) = py: amT(1) = 2
+                        c30i = 3: c30t = Timer
+                    End If
+                ElseIf c30i = 3 Then
+                    If Timer - c30t >= 0.3 Then
+                        c30exp = c30a0(2) + ammoPickup: If c30exp > capAmmo(2) Then c30exp = capAmmo(2)
+                        If ammoN(1) = c30a0(1) + ammoPickup And ammoN(2) = c30exp And amActive(0) = 0 And amActive(1) = 0 Then c30ok = c30ok + 1
+                        c30msg$ = c30msg$ + " overlap[1:" + Str$(c30a0(1)) + "->" + Str$(ammoN(1)) + " 2:" + Str$(c30a0(2)) + "->" + Str$(ammoN(2)) + "/" + Str$(c30exp) + "]"
+                        ' (d) 0-ammo edge: C-pickup vid 0 ger exakt +10
+                        ammoN(3) = 0
+                        For c30j = 0 To 10: amActive(c30j) = 0: Next c30j
+                        amActive(0) = 1: amX(0) = px: amY(0) = py: amT(0) = 3
+                        c30i = 4: c30t = Timer
+                    End If
+                ElseIf c30i = 4 Then
+                    If Timer - c30t >= 0.3 Then
+                        If ammoN(3) = 10 Then c30ok = c30ok + 1
+                        ' cap-edge: B-pickup vid cap ger inget överskott
+                        ammoN(2) = capAmmo(2)
+                        For c30j = 0 To 10: amActive(c30j) = 0: Next c30j
+                        amActive(0) = 1: amX(0) = px: amY(0) = py: amT(0) = 2
+                        c30i = 5: c30t = Timer
+                    End If
+                ElseIf c30i = 5 Then
+                    If Timer - c30t >= 0.3 Then
+                        If ammoN(2) = capAmmo(2) Then c30ok = c30ok + 1
+                        ' (e) persistence över nivåsektioner: LoadLevel rör INTE ammoN
+                        gameMode$ = "campaign": lvlN = 1: lvlIdx = 0: lvlFile$(0) = "maps/level01.map": lvlName$(0) = "t"
+                        ammoN(2) = 7
+                        Gosub LoadLevel
+                        If ammoN(2) = 7 And mapValid = 1 Then c30ok = c30ok + 1
+                        c30msg$ = c30msg$ + " persist[2=7->" + Str$(ammoN(2)) + " mapValid=" + Str$(mapValid) + "]"
+                        c30i = 6
+                    End If
+                ElseIf c30i = 6 Then
+                    If c30ok = 9 Then
+                        stMsg$ = "PASS 6f-f-ammo-pickups (gå över A/B/C/D ger +10 per typ, capad: A/B/C 0->10, D 0->8=cap; HUD-panel A:10 B:10 C:10 D:8; överlappande multi-pickups samma frame; 0-ammo edge +10; cap-edge utan overflow; ammoN persisterar över LoadLevel) " + c30msg$
+                        Gosub STLog
+                        testFlag = 2: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL 6f-f ok=" + Str$(c30ok) + "/9 msg=" + c30msg$
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+                If Timer - testT0 > 40 Then
+                    stMsg$ = "FAIL 6f-f-timeout c30i=" + Str$(c30i) + " ok=" + Str$(c30ok)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' 6f-f klar: återställ selftest-miljö, vidare till fas12 (6f-g kedjas in senare)
+                injMvF = 0
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                For c30j = 0 To 10: enActive(c30j) = 0: Next c30j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c30j = 0 To PR_MAX: prActive(c30j) = 0: Next c30j
+                For c30j = 0 To WP_COUNT - 1: wpOwned(c30j) = 0: Next c30j
                 wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
