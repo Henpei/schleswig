@@ -264,7 +264,8 @@ Const strFps$ = "FPS:"                             ' debug line + window title
 Const strDmgDebug$ = "-5 HP"                       ' debug key G
 Const strMedkit$ = "+25 HP"                        ' medkit pickup
 ' 6L: strAmmoPick$ ("+10 AMMO") borttagen — ammo-pickup-meddelandet byggs per-typ
-' vid pickup (hpMsg$ = "+" + amPickup(at2) + " " + AmmoTypeName$(at2) + " AMMO")
+' vid pickup (hpMsg$ = "+" + amPickup(at2) + " " + AmmoTypeName$(at2) + " AMMO");
+' 6L-B: vid cap "<NAME> AMMO FULL", vid partial "+<gain> <NAME> AMMO (FULL: +<lost> lost)"
 Const strQtd$ = "QUANTUM MODE ENGAGED — danskarnas osäkerhetsprincip är DIN"   ' 6A QTD easter egg (permanent)
 Const strScore$ = "SCORE:"                         ' death screen/HUD: score line
 Const strBest$ = "BEST:"                           ' death/result screen: best score
@@ -1662,10 +1663,22 @@ Do
             If Sqr((amX(i) - px) ^ 2 + (amY(i) - py) ^ 2) < 0.5 Then
                 amActive(i) = 0
                 at2 = amT(i): If at2 < 1 Or at2 > AMMO_N Then at2 = 1
-                ammoN(at2) = ammoN(at2) + amPickup(at2)   ' 6H: per-typ (var delad +10)
-                If ammoN(at2) > capAmmo(at2) Then ammoN(at2) = capAmmo(at2)  ' per-typ cap (överskott försvinner)
-                ' 6L: meddelandet är per-typ — alltid pickupens belopp (cap-truncering påverkar INTE texten)
-                hpMsg$ = "+" + LTrim$(Str$(amPickup(at2))) + " " + AmmoTypeName$(at2) + " AMMO"
+                ' 6H: per-typ belopp. 6L-B: cap-synlighet — pool redan vid cap -> "<NAME> AMMO FULL";
+                ' partial trunkering -> "+<verklig ökning> <NAME> AMMO (FULL: +<förlust> lost)";
+                ' normal -> oförändrad 6L-text (alltid pickupens belopp)
+                If ammoN(at2) >= capAmmo(at2) Then
+                    hpMsg$ = AmmoTypeName$(at2) + " AMMO FULL"
+                Else
+                    apGain = amPickup(at2)
+                    If ammoN(at2) + apGain > capAmmo(at2) Then apGain = capAmmo(at2) - ammoN(at2)
+                    apLost = amPickup(at2) - apGain
+                    ammoN(at2) = ammoN(at2) + apGain
+                    If apLost > 0 Then
+                        hpMsg$ = "+" + LTrim$(Str$(apGain)) + " " + AmmoTypeName$(at2) + " AMMO (FULL: +" + LTrim$(Str$(apLost)) + " lost)"
+                    Else
+                        hpMsg$ = "+" + LTrim$(Str$(amPickup(at2))) + " " + AmmoTypeName$(at2) + " AMMO"
+                    End If
+                End If
                 hpMsgTime = Timer
                 PlaySound SND_PICKUP
             End If

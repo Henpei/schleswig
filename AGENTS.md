@@ -262,8 +262,8 @@ D=mini-kanon) and per-type caps capAmmo = 40/16/48/12 (B 12->16, D 8->12 in 6H).
 Pickup chars: A=+10 typ1, B=+4 typ2, C=+12 typ3, D=+2 typ4 (capped).
 6L: pickup message is per-type — hpMsg$ = "+"+amPickup(t)+" "+AmmoTypeName$(t)+" AMMO".
 6L-B: cap visibility — pool already at cap -> "<NAME> AMMO FULL"; partial
-truncation -> "+<actual> <NAME> AMMO (FULL: +<lost> lost)"; message always
-shows the pickup's amount, never the truncated gain, except in the FULL case.
+truncation -> "+<actual gain> <NAME> AMMO (FULL: +<lost> lost)"; normal pickup
+without truncation -> the unchanged 6L message (always the pickup's amount).
 6C real maps (measured char counts, selftest 6b-f re-proves >= principle):
 level01 A x3 M x1; level02 A x3 B x3 M x2; level03 A/B/C x2 M x2;
 level04 A/B/C/D x2 M x2; level05 A/B/C x1 D x3 M x2 — every level carries
