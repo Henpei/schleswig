@@ -401,7 +401,7 @@ DIM SHARED injMvF, injMvB, injMvL, injMvR, injTurnL, injTurnR   ' 6F FIX A: herm
 ' 6G FIX 1/2: replay-mode — simulerade OS-tangenter som matas in i SAMMA polling-pipeline som riktiga
 DIM SHARED replayMode, keySim%(0 To 127), keySimShift, keySimFire   ' keySim% indexeras med VERSAL ascii (65..90); keySimShift = båda Shift; keySimFire = avfyra (6H reload-test)
 DIM SHARED auditMode, auLogF, auMsg$, auLvl, auStarted, auT0, auEnN, auEnHP, auShots0, auShots, auStarveN, auStarveWas, auAlive, auBi, auBd, auD, auI, auJ, auT, auWat, auCx, auCy, auNx, auNy, auNx2, auNy2, auBest, auFire, auTx, auTy, auPd, auF2, auWpN, auWhy$, auFr, auUseE, auHasRanged, auCh$, auPk(0 To 4), auMin(0 To 4)   ' 6H STEG 5 audit-bot
-DIM SHARED keyEv%(0 To 255), keyLogOn, keyLogF, khi, khits$   ' 6I: event-driven key-state overlay (1=down, -1=up, 0=unknown) + SCHLESWIG_KEYLOG capture
+DIM SHARED keyEv%(0 To 255), keyLogOn, keyLogF, khi, khits$, klc, klLine$, keyLogLastSt$, keyLogAnom%(0 To 255)   ' 6I/6I-FU2: event-driven key-state overlay (1=down, -1=up, 0=unknown) + SCHLESWIG_KEYLOG capture
 DIM SHARED enAliveN, enHPTot   ' 6H audit: aktiva fiender + deras total-HP (replay-telemetry)
 DIM SHARED replayAt&(0 To 2000), replayTok$(0 To 2000), replayN, replayCnt, replayLogF, replayClk&, replayPlayFr&   ' replayAt/replayTok = script /tmp/schleswig_replay.scr ("pN" = N frames efter state=playing); replayClk& = monoton frame-räknare (frames nollställs varje sekund för FPS)
 Const stamMax! = 100
@@ -697,12 +697,38 @@ Do
         If keyLogOn Then khits$ = khits$ + LTrim$(Str$(khi)) + " "
         khi = _KeyHit
     Wend
-    ' 6I STEG 2: SCHLESWIG_KEYLOG=1 -> per-frame key/mouse capture to /tmp/schleswig_keylog.txt
+    ' 6I-FU2 STEG 5: SCHLESWIG_KEYLOG=1 -> /tmp/schleswig_keylog.txt, but ONLY on
+    ' events (khits$), anomalies (OVERLAY-STALE / STICKY-OVERRIDE) or state change
+    ' + a heartbeat every 300 frames — NOT per frame (André's session was 10714 rows).
     If keyLogOn Then
-        keyLogF = FreeFile
-        Open "/tmp/schleswig_keylog.txt" For Append As #keyLogF
-        Print #keyLogF, "fr=" + LTrim$(Str$(frames)) + " st=" + state$ + " kd87=" + LTrim$(Str$(_KeyDown(87))) + " kd119=" + LTrim$(Str$(_KeyDown(119))) + " ev87=" + LTrim$(Str$(keyEv%(87))) + " ev119=" + LTrim$(Str$(keyEv%(119))) + " hits=" + khits$ + " mb=" + LTrim$(Str$(_MouseButton(1)))
-        Close #keyLogF
+        klLine$ = ""
+        If khits$ <> "" Then klLine$ = "fr=" + LTrim$(Str$(frames)) + " st=" + state$ + " hits=" + khits$ + " mb=" + LTrim$(Str$(_MouseButton(1)))
+        If klLine$ = "" And state$ <> keyLogLastSt$ Then klLine$ = "fr=" + LTrim$(Str$(frames)) + " STATE " + keyLogLastSt$ + "->" + state$
+        If klLine$ = "" And frames Mod 300 = 0 Then klLine$ = "fr=" + LTrim$(Str$(frames)) + " st=" + state$ + " hb kd87=" + LTrim$(Str$(_KeyDown(87))) + " kd119=" + LTrim$(Str$(_KeyDown(119))) + " ev87=" + LTrim$(Str$(keyEv%(87))) + " ev119=" + LTrim$(Str$(keyEv%(119)))
+        ' anomaly scan over WASD (both letter cases): overlay/polling divergence
+        For khi = 0 To 3
+            klc = Asc(Mid$("WASD", khi + 1, 1))
+            If keyEv%(klc) = 1 And _KeyDown(klc) = 0 And _KeyDown(klc + 32) = 0 Then
+                If keyLogAnom%(klc) = 0 Then
+                    keyLogAnom%(klc) = 1
+                    klLine$ = "fr=" + LTrim$(Str$(frames)) + " OVERLAY-STALE key=" + LTrim$(Str$(klc)) + " ev=1 kd=0"
+                End If
+            ElseIf _KeyDown(klc) Or _KeyDown(klc + 32) Then
+                If keyEv%(klc) = -1 And keyLogAnom%(klc) = 0 Then
+                    keyLogAnom%(klc) = 1
+                    klLine$ = "fr=" + LTrim$(Str$(frames)) + " STICKY-OVERRIDE key=" + LTrim$(Str$(klc)) + " ev=-1 kd=1"
+                End If
+            Else
+                keyLogAnom%(klc) = 0
+            End If
+        Next khi
+        If klLine$ <> "" Then
+            keyLogF = FreeFile
+            Open "/tmp/schleswig_keylog.txt" For Append As #keyLogF
+            Print #keyLogF, klLine$
+            Close #keyLogF
+        End If
+        keyLogLastSt$ = state$
     End If
     ' selftest fas12d: meny-nav via tangent — ner-pil (navStep 0->1), upp-pil (2->3)
     If selftest And testPhase = 12 And testFlag = 5 And navStep = 0 Then k$ = Chr$(0) + "P": navStep = 1
@@ -736,10 +762,20 @@ Do
             rlen = Len(rtok$)
             If rlen >= 2 And Right$(rtok$, 1) = "+" Then
                 If rtok$ = "SH+" Then keySimShift = 1
-                If rtok$ = "F+" Then keySimFire = 1 Else keySim%(Asc(UCase$(Left$(rtok$, 1)))) = 1
+                ' 6I-FU2: single-line If-Else trap — "SH+" must NOT fall into the
+                ' Else and set keySim%(Asc("S"))=1 (it did: Shift also pressed S)
+                If rtok$ = "F+" Then
+                    keySimFire = 1
+                ElseIf rtok$ <> "SH+" Then
+                    keySim%(Asc(UCase$(Left$(rtok$, 1)))) = 1
+                End If
             ElseIf rlen >= 2 And Right$(rtok$, 1) = "-" Then
                 If rtok$ = "SH-" Then keySimShift = 0
-                If rtok$ = "F-" Then keySimFire = 0 Else keySim%(Asc(UCase$(Left$(rtok$, 1)))) = 0
+                If rtok$ = "F-" Then
+                    keySimFire = 0
+                ElseIf rtok$ <> "SH-" Then
+                    keySim%(Asc(UCase$(Left$(rtok$, 1)))) = 0
+                End If
             ElseIf rlen = 1 Then
                 k$ = rtok$   ' tap: one-frame InKey$ event (real menu/select path)
             End If
@@ -3543,34 +3579,29 @@ End Function
 ' W dead and could leave a stuck uppercase entry after Shift+W. Check BOTH cases; in replay
 ' mode the simulated key table keySim% (indexed by UPPERCASE code) feeds the same predicate.
 Function KeyDown2% (c%)
-    ' 6I: event-driven overlay first. _KeyHit delivers key-down as positive and
-    ' key-release as NEGATIVE codes; keyEv% tracks that per code. A release that
-    ' libqb drops (e.g. window unfocused at release time) leaves _KeyDown stuck,
-    ' so an event-level "up" (keyEv%=-1) must OVERRIDE _KeyDown. In replay mode
-    ' the keySim% table is authoritative instead (headless has no real keys).
+    ' 6I-FU2: RELEASE ALWAYS WINS, both directions. Two key-state sources exist:
+    '  - polling _KeyDown (libqb keyheld vector, updated synchronously in
+    '    keyboard_keydown/keyup — reliable)
+    '  - event overlay keyEv% (drained from _KeyHit; _KeyHit buffer is a
+    '    RingBuffer<8192, OverwriteOnFull=true> that EVICTS the oldest event under
+    '    spam, and _KeyClear clears it WITHOUT clearing keyheld — so the overlay
+    '    can go stale in BOTH directions: ev=1 while keyheld=up (André's 6I-FU2
+    '    log: kd87=-1, ev87=1 for 40+ frames), or ev=-1 while keyheld stuck down
+    '    (release dropped while unfocused). Rule: any source saying UP wins;
+    '    DOWN requires polling-down AND overlay-not-up.
+    ' Replay mode: keySim% table is authoritative (headless has no real keys).
     If replayMode And c% >= 0 And c% <= 127 And keySim%(c%) Then
         KeyDown2% = -1
         Exit Function
     End If
-    If c% >= 0 And c% <= 255 Then
-        If keyEv%(c%) = 1 Then
-            KeyDown2% = -1
-            Exit Function
-        End If
-        If keyEv%(c%) = -1 And Not replayMode Then
-            Exit Function   ' event says released — overrides a stuck _KeyDown
-        End If
-    End If
-    If _KeyDown(c%) Then
-        KeyDown2% = -1
-        Exit Function
-    End If
+    polD = 0
+    If _KeyDown(c%) Then polD = 1
     If c% >= 65 And c% <= 90 Then
-        If _KeyDown(c% + 32) Then
-            KeyDown2% = -1
-            Exit Function
-        End If
+        If _KeyDown(c% + 32) Then polD = 1
     End If
+    If polD = 0 Then Exit Function   ' 6I-FU2 guard: polling says UP -> not down, even if a stale keyEv%=1 says down
+    If c% >= 0 And c% <= 255 And keyEv%(c%) = -1 And Not replayMode Then Exit Function   ' 6I: event release overrides a stuck _KeyDown
+    KeyDown2% = -1
 End Function
 
 ' InitSounds (Fas 4): fyller det datadrivna ljud-registret (id -> vågform,

@@ -62,6 +62,15 @@ script.append(("p380", "W+"))
 script.append(("p390", "S+"))
 script.append(("p430", "W-"))
 script.append(("p440", "S-"))
+# (d) ANDRÉ'S EXACT 6I-FU2 SCENARIO: Shift+W sprint + repeated axe swings
+# (click spam at melee cadence), W released MID-swing-spam, stamina exhausted
+# (sprintLock) mid-sequence. Sprint drains 20/s from 100 -> empty ~p765.
+script.append(("p460", "SH+"))
+script.append(("p465", "W+"))
+spam("p470", "p1600", step=10)
+script.append(("p1450", "W-"))    # W released AFTER stamina lock, mid-spam, still Shift
+script.append(("p1610", "F-"))
+script.append(("p1650", "SH-"))
 
 def frkey(item):
     fr = item[0]
@@ -93,7 +102,7 @@ while time.time() < deadline:
                     break
         if first_playing is not None and lines:
             try:
-                if int(lines[-1].split()[0][3:]) >= first_playing + 450:
+                if int(lines[-1].split()[0][3:]) >= first_playing + 1680:
                     break
             except Exception:
                 pass
@@ -128,7 +137,9 @@ for l in lines:
     if fr < P:
         continue
     seq.append({"fr": fr, "mv": d.get("mv", "0000"), "pv": d.get("pv", "0,0"),
-                "ksW": d.get("ksW", "0"), "shots": int(d.get("shots", 0))})
+                "ksW": d.get("ksW", "0"), "shots": int(d.get("shots", 0)),
+                "stam": d.get("stam", "100"), "lock": d.get("lock", "0"),
+                "ksSH": d.get("ksSH", "0"), "spd": d.get("spd", "1")})
 
 fails = []
 def check(name, cond, detail=""):
@@ -181,6 +192,25 @@ else:
 
 s440 = at_or_after(440)
 check("release both -> stopped", s440 is not None and s440["mv"] == "0000", "mv=%s" % (s440["mv"] if s440 else "-"))
+
+# (d) André's scenario: sprint (Shift+W) was active when W was released mid-spam
+s465 = at_or_after(465)
+s600 = at_or_after(1450)
+check("(d) sprint active before release (spd=1.5, stam draining)",
+      s465 is not None and s465["spd"] == "1.5" and float(s465["stam"]) < 100,
+      "fr=%s spd=%s stam=%s" % (s465["fr"] if s465 else "-", s465["spd"] if s465 else "-", s465["stam"] if s465 else "-"))
+check("(d) W released mid sprint+swing spam -> mvF=0 within 1 frame",
+      s600 is not None and s600["mv"][0] == "0" and s600["ksW"] == "0",
+      "fr=%s mv=%s ksW=%s" % (s600["fr"] if s600 else "-", s600["mv"] if s600 else "-", s600["ksW"] if s600 else "-"))
+if s600:
+    after = [s for s in seq if s600["fr"] <= s["fr"] <= s600["fr"] + 40]
+    check("(d) stays stopped during continued sprint+spam (no sticky)", all(s["mv"][0] == "0" for s in after))
+dwin = [s for s in seq if P + 465 <= s["fr"] <= P + 1600]
+lockseen = any(s["lock"] == "1" and float(s["stam"]) <= 0.5 for s in dwin)
+check("(d) stamina exhausted mid-sprint (sprintLock=1 at stam~0 seen)", lockseen,
+      "min stam in sprint window: %s" % min((float(s["stam"]) for s in dwin), default=-1))
+check("(d) swings happened during sprint spam", dwin and dwin[-1]["shots"] > dwin[0]["shots"],
+      "shots %s -> %s" % (dwin[0]["shots"] if dwin else "-", dwin[-1]["shots"] if dwin else "-"))
 
 print()
 if fails:

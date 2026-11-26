@@ -542,10 +542,19 @@ _KeyDown stuck; _KeyClear does NOT clear keyheld_buffer. Fix (6I): an
 event-driven overlay keyEv%(0..255) drained from _KeyHit every frame at loop
 top (_KeyHit = positive on down, NEGATIVE on release); KeyDown2% lets an
 event-level "up" (keyEv%=-1) override a stuck _KeyDown (replayMode keeps keySim%
-authoritative). Debug capture: run with SCHLESWIG_KEYLOG=1 -> per-frame
-_KeyDown/_KeyHit/mouse log at /tmp/schleswig_keylog.txt. NOTE: this QB64-PE
-build (V4.7.0-GLFW) does NOT expose _HasFocus to BASIC ("Invalid variable
-name") — func__hasfocus exists in window-gui.cpp but is not registered.
+authoritative). Debug capture: run with SCHLESWIG_KEYLOG=1 -> /tmp/schleswig_keylog.txt.
+6I-FU2 (André's log: kd87=-1 but ev87=1 for 40+ frames): the _KeyHit buffer is
+a RingBuffer<8192, OverwriteOnFull=true> — under key-repeat spam it EVICTS the
+oldest events, and _KeyClear clears it WITHOUT clearing keyheld, so the overlay
+can go stale in BOTH directions. Final rule in KeyDown2% (6I-FU2): RELEASE
+ALWAYS WINS — DOWN requires _KeyDown polling down AND keyEv%<>-1; polling up
+wins over a stale keyEv%=1; keyEv%=-1 wins over a stuck keyheld. Keylog now
+logs only events/anomalies (OVERLAY-STALE / STICKY-OVERRIDE)/state changes +
+heartbeat, not per frame. Also fixed a replay-harness bug: token "SH+" fell
+into a single-line If-Else and also set keySim%(Asc("S"))=1 (Shift pressed S);
+use multi-line If/ElseIf for token parsing. NOTE: this QB64-PE build (V4.7.0-GLFW)
+does NOT expose _HasFocus to BASIC ("Invalid variable name") — func__hasfocus
+exists in window-gui.cpp but is not registered.
 
 ## Viewmodel design note (5A-hotfix2)
 The viewmodel sits deliberately ~half a gun-width RIGHT of center
