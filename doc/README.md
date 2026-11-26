@@ -77,6 +77,23 @@ data) — see AGENTS.md.
 - Easter egg: type `qtd` while playing for 60 s of QUANTUM MODE (the Danes'
   uncertainty principle is YOURS) — see AGENTS.md
 
+### Enemy types — who shoots (6F-FULL FIX D)
+
+All types EXCEPT the weakest (FOOT) shoot when the player is in line of sight
+within range (same LOS check as detection). FOOT is a pure melee charge.
+
+| Type | HP | Shoots | Projectile | Cadence | Range | Behavior at distance |
+|---|---|---|---|---|---|---|
+| FOOT SOLDIER (`F`) | 4 | no — melee only | melee hit 10 | — | < 0.8 | charges |
+| OFFICER (`O`) | 6 | yes | ball spd 8, dmg 8 | 1.0 s | 2–8 cells | run-and-shoot |
+| MUSKETEER (`U`) | 5 | yes | ball spd 7, dmg 10 | 1.2 s | 3–5.5 cells | stops and shoots (holds ~4 cells) |
+| CAPTAIN (`K`) | 12 | yes | ball spd 9, dmg 12 | 0.8 s | 2.5–7 cells | run-and-shoot |
+| GENERAL (`G`) | 25 | yes | mortar, splash 1.5, dmg 25 | 2.0 s | ≤ 12 cells | stops, lobs over obstacles at predicted position |
+
+The GENERAL (boss) shoots most aggressively. Enemy balls are slower than the
+player's (dodgeable) and orange-hot with a white core; see the projectile
+legend below.
+
 ## Status
 
 Early development, tagged v0.1.0 ("first playable build"): title menu,

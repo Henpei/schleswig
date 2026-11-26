@@ -102,6 +102,8 @@ DIM c29i, c29j, c29ok, c29pr0, c29hp0, c29t, c29dz!, c29h!   ' Fas 29 (6F-FULL 6
 DIM c29msg$   ' 6f-e: diagnostiksträng
 DIM c30i, c30j, c30t, c30ok, c30act, c30f, c30a0(4), c30exp   ' Fas 30 (6F-FULL 6f-f) ammo-pickup selftest vars
 DIM c30msg$   ' 6f-f: diagnostiksträng
+DIM c31k, c31s, c31t, c31ok, c31pr0, c31j, c31types(4)   ' Fas 31 (6F-FULL 6f-g) fiende-eldgivning selftest vars
+DIM c31msg$   ' 6f-g: diagnostiksträng
 DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
@@ -227,7 +229,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "6046efe"
+Const strBuild$ = "1c8c635"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -367,6 +369,7 @@ DIM etHP(ET_COUNT), etDmg(ET_COUNT), etZigAmp(ET_COUNT), etShoot(ET_COUNT), etSp
 DIM etSpd!(ET_COUNT), etDodge!(ET_COUNT), etHold!(ET_COUNT), etCol&(ET_COUNT), etName$(ET_COUNT)
 DIM etDodgeMelee!(ET_COUNT)                               ' 6A: dodge-tröskel mot MELEE (lägre än mot kulor)
 DIM etFireT!(ET_COUNT), etProjSpd!(ET_COUNT), etProjDmg(ET_COUNT)          ' ranged: fire interval, ball speed/dmg
+DIM etMinR!(ET_COUNT), etRange!(ET_COUNT)                                  ' 6F FIX D: räckviddsband per typ (kula: min..max; mörser: <= range)
 DIM etMortarT!(ET_COUNT), etSplashR!(ET_COUNT), etSplashDmg(ET_COUNT)       ' mortar: flight time, splash radius/dmg
 DIM etScale!(ET_COUNT), etMinWave(ET_COUNT)                                 ' sprite scale + spawn gating wave
 DIM etAspect!(ET_COUNT)                                                       ' 6E FIX B: kropp:bredd/höjd (F 0.667, G 0.8 — bred general)
@@ -1719,7 +1722,7 @@ Do
             ' Musketeer fires only inside his hold band (3-5 cells); the general
             ' lobs a MORTAR at the player's PREDICTED position (pos + vel * flygtid).
             If etShoot(enType(i)) > 0 And enSeen(i) And Timer >= enFireT(i) Then
-                If etShoot(enType(i)) = 1 And edist >= 3 And edist <= 5.5 Then
+                If etShoot(enType(i)) = 1 And edist >= etMinR!(enType(i)) And edist <= etRange!(enType(i)) Then   ' 6F FIX D: per-typ räckvidd
                     adx = px - enX(i): ady = py - enY(i)
                     ad = Sqr(adx * adx + ady * ady): If ad < 0.01 Then adx = 1: ady = 0: ad = 1
                     spr! = (AiRnd# - 0.5) * 0.12   ' small seeded spread
@@ -1732,7 +1735,7 @@ Do
                     Gosub SpawnProjectile
                     PlaySoundVol SND_SHOT, 0.5
                     enFireT(i) = Timer + etFireT!(enType(i))
-                ElseIf etShoot(enType(i)) = 2 And edist < 12 Then
+                ElseIf etShoot(enType(i)) = 2 And edist <= etRange!(enType(i)) Then   ' 6F FIX D: per-typ räckvidd
                     ft! = etMortarT!(enType(i))
                     mtx = Int(px + pvx * ft!): mty = Int(py + pvy * ft!)
                     If mtx < 0 Then mtx = 0
@@ -2904,10 +2907,16 @@ LOOP
 ' scale, etMinWave spawn gating wave (general additionally: wave Mod 5 = 0).
 InitEnemyTypes:
     etName$(ET_FOOT) = "FOOT SOLDIER":  etHP(ET_FOOT) = 4:  etDmg(ET_FOOT) = 10: etSpd!(ET_FOOT) = 0.45: etZigAmp(ET_FOOT) = 1: etDodge!(ET_FOOT) = 0.3: etDodgeMelee!(ET_FOOT) = 0.1: etShoot(ET_FOOT) = 0: etHold!(ET_FOOT) = 0:   etCol&(ET_FOOT) = _RGB32(170, 35, 35):   etSpr(ET_FOOT) = 0: etScale!(ET_FOOT) = 1:   etMinWave(ET_FOOT) = 1: etFireT!(ET_FOOT) = 0: etProjSpd!(ET_FOOT) = 0: etProjDmg(ET_FOOT) = 0: etMortarT!(ET_FOOT) = 0: etSplashR!(ET_FOOT) = 0: etSplashDmg(ET_FOOT) = 0   ' 6B-KOMPLETT: HP 3->4 så yxan (dmg 3) INTE one-shottar en foot (1 HP marginal kvar)
-    etName$(ET_OFFICER) = "OFFICER":    etHP(ET_OFFICER) = 6:  etDmg(ET_OFFICER) = 10: etSpd!(ET_OFFICER) = 0.6:  etZigAmp(ET_OFFICER) = 2: etDodge!(ET_OFFICER) = 0.4: etDodgeMelee!(ET_OFFICER) = 0.15: etShoot(ET_OFFICER) = 0: etHold!(ET_OFFICER) = 0:  etCol&(ET_OFFICER) = _RGB32(200, 30, 80):  etSpr(ET_OFFICER) = 0: etScale!(ET_OFFICER) = 1.1: etMinWave(ET_OFFICER) = 3: etFireT!(ET_OFFICER) = 0: etProjSpd!(ET_OFFICER) = 0: etProjDmg(ET_OFFICER) = 0: etMortarT!(ET_OFFICER) = 0: etSplashR!(ET_OFFICER) = 0: etSplashDmg(ET_OFFICER) = 0
+    etName$(ET_OFFICER) = "OFFICER":    etHP(ET_OFFICER) = 6:  etDmg(ET_OFFICER) = 10: etSpd!(ET_OFFICER) = 0.6:  etZigAmp(ET_OFFICER) = 2: etDodge!(ET_OFFICER) = 0.4: etDodgeMelee!(ET_OFFICER) = 0.15: etShoot(ET_OFFICER) = 1: etHold!(ET_OFFICER) = 0:   etCol&(ET_OFFICER) = _RGB32(200, 30, 80):  etSpr(ET_OFFICER) = 0: etScale!(ET_OFFICER) = 1.1: etMinWave(ET_OFFICER) = 3: etFireT!(ET_OFFICER) = 1: etProjSpd!(ET_OFFICER) = 8: etProjDmg(ET_OFFICER) = 8: etMortarT!(ET_OFFICER) = 0: etSplashR!(ET_OFFICER) = 0: etSplashDmg(ET_OFFICER) = 0   ' 6F FIX D: officeren skjuter (kula spd 8 dmg 8, kadens 1 s, rackvidd 2-8)
     etName$(ET_MUSKETEER) = "MUSKETEER": etHP(ET_MUSKETEER) = 5: etDmg(ET_MUSKETEER) = 10: etSpd!(ET_MUSKETEER) = 0.45: etZigAmp(ET_MUSKETEER) = 1: etDodge!(ET_MUSKETEER) = 0.4: etDodgeMelee!(ET_MUSKETEER) = 0.15: etShoot(ET_MUSKETEER) = 1: etHold!(ET_MUSKETEER) = 4: etCol&(ET_MUSKETEER) = _RGB32(150, 90, 40):  etSpr(ET_MUSKETEER) = 0: etScale!(ET_MUSKETEER) = 1: etMinWave(ET_MUSKETEER) = 4: etFireT!(ET_MUSKETEER) = 1.2: etProjSpd!(ET_MUSKETEER) = 7: etProjDmg(ET_MUSKETEER) = 10: etMortarT!(ET_MUSKETEER) = 0: etSplashR!(ET_MUSKETEER) = 0: etSplashDmg(ET_MUSKETEER) = 0   ' 6D FIX D: enemy ball 5->7 (still slower than player 12, fairness)
-    etName$(ET_CAPTAIN) = "CAPTAIN":    etHP(ET_CAPTAIN) = 12: etDmg(ET_CAPTAIN) = 10: etSpd!(ET_CAPTAIN) = 0.3:  etZigAmp(ET_CAPTAIN) = 0: etDodge!(ET_CAPTAIN) = 0.5: etDodgeMelee!(ET_CAPTAIN) = 0.2:  etShoot(ET_CAPTAIN) = 0: etHold!(ET_CAPTAIN) = 0:   etCol&(ET_CAPTAIN) = _RGB32(230, 180, 40): etSpr(ET_CAPTAIN) = 0: etScale!(ET_CAPTAIN) = 1.25: etMinWave(ET_CAPTAIN) = 3: etFireT!(ET_CAPTAIN) = 0: etProjSpd!(ET_CAPTAIN) = 0: etProjDmg(ET_CAPTAIN) = 0: etMortarT!(ET_CAPTAIN) = 0: etSplashR!(ET_CAPTAIN) = 0: etSplashDmg(ET_CAPTAIN) = 0
-    etName$(ET_GENERAL) = "GENERAL":    etHP(ET_GENERAL) = 25: etDmg(ET_GENERAL) = 10: etSpd!(ET_GENERAL) = 0.2:  etZigAmp(ET_GENERAL) = 0: etDodge!(ET_GENERAL) = 0: etDodgeMelee!(ET_GENERAL) = 0:    etShoot(ET_GENERAL) = 2: etHold!(ET_GENERAL) = 0:   etCol&(ET_GENERAL) = _RGB32(30, 90, 40):   etSpr(ET_GENERAL) = 0: etScale!(ET_GENERAL) = 1.4: etMinWave(ET_GENERAL) = ET_BOSS_STEP: etFireT!(ET_GENERAL) = 3: etProjSpd!(ET_GENERAL) = 0: etProjDmg(ET_GENERAL) = 0: etMortarT!(ET_GENERAL) = 1.8: etSplashR!(ET_GENERAL) = 1.5: etSplashDmg(ET_GENERAL) = 25
+    etName$(ET_CAPTAIN) = "CAPTAIN":    etHP(ET_CAPTAIN) = 12: etDmg(ET_CAPTAIN) = 10: etSpd!(ET_CAPTAIN) = 0.3:  etZigAmp(ET_CAPTAIN) = 0: etDodge!(ET_CAPTAIN) = 0.5: etDodgeMelee!(ET_CAPTAIN) = 0.2:  etShoot(ET_CAPTAIN) = 1: etHold!(ET_CAPTAIN) = 0:   etCol&(ET_CAPTAIN) = _RGB32(230, 180, 40): etSpr(ET_CAPTAIN) = 0: etScale!(ET_CAPTAIN) = 1.25: etMinWave(ET_CAPTAIN) = 3: etFireT!(ET_CAPTAIN) = 0.8: etProjSpd!(ET_CAPTAIN) = 9: etProjDmg(ET_CAPTAIN) = 12: etMortarT!(ET_CAPTAIN) = 0: etSplashR!(ET_CAPTAIN) = 0: etSplashDmg(ET_CAPTAIN) = 0   ' 6F FIX D: kaptenen skjuter (kula spd 9 dmg 12, kadens 0.8 s, rackvidd 2.5-7)
+    etName$(ET_GENERAL) = "GENERAL":    etHP(ET_GENERAL) = 25: etDmg(ET_GENERAL) = 10: etSpd!(ET_GENERAL) = 0.2:  etZigAmp(ET_GENERAL) = 0: etDodge!(ET_GENERAL) = 0: etDodgeMelee!(ET_GENERAL) = 0:    etShoot(ET_GENERAL) = 2: etHold!(ET_GENERAL) = 0:   etCol&(ET_GENERAL) = _RGB32(30, 90, 40):   etSpr(ET_GENERAL) = 0: etScale!(ET_GENERAL) = 1.4: etMinWave(ET_GENERAL) = ET_BOSS_STEP: etFireT!(ET_GENERAL) = 2: etProjSpd!(ET_GENERAL) = 0:   etProjDmg(ET_GENERAL) = 0: etMortarT!(ET_GENERAL) = 1.8: etSplashR!(ET_GENERAL) = 1.5: etSplashDmg(ET_GENERAL) = 25   ' 6F FIX D: G mörser-kadens 3->2 s (mest aggressiv)
+    ' 6F FIX D: räckvidd per fiendetyp — kula: etMinR!..etRange!, mörser: <= etRange!
+    etMinR!(ET_FOOT) = 0:      etRange!(ET_FOOT) = 0      ' FOOT = ren melee-laddning (svagast, skjuter aldrig)
+    etMinR!(ET_OFFICER) = 2:   etRange!(ET_OFFICER) = 8
+    etMinR!(ET_MUSKETEER) = 3: etRange!(ET_MUSKETEER) = 5.5 ' stannar och skjuter (etHold 4)
+    etMinR!(ET_CAPTAIN) = 2.5: etRange!(ET_CAPTAIN) = 7
+    etMinR!(ET_GENERAL) = 0:   etRange!(ET_GENERAL) = 12
     ' 6E FIX B: kroppsaspekt per typ (bredd/höjd i sprite-render): alla 0.667 (=0.6/0.9 som före), G 0.8 (bred general)
     For i = 0 To ET_COUNT - 1: etAspect!(i) = 0.667: Next i
     etAspect!(ET_GENERAL) = 0.8
@@ -4882,13 +4891,13 @@ SelftestDrive:
                 okA = okA And (etSpd!(ET_OFFICER) > etSpd!(ET_FOOT) And etSpd!(ET_FOOT) = etSpd!(ET_MUSKETEER) And etSpd!(ET_CAPTAIN) < etSpd!(ET_FOOT) And etSpd!(ET_GENERAL) < etSpd!(ET_CAPTAIN))
                 okA = okA And (etZigAmp(ET_FOOT) = 1 And etZigAmp(ET_OFFICER) = 2 And etZigAmp(ET_MUSKETEER) = 1 And etZigAmp(ET_CAPTAIN) = 0 And etZigAmp(ET_GENERAL) = 0)
                 okA = okA And (etDodge!(ET_FOOT) = 0.3 And etDodge!(ET_OFFICER) = 0.4 And etDodge!(ET_MUSKETEER) = 0.4 And etDodge!(ET_CAPTAIN) = 0.5 And etDodge!(ET_GENERAL) = 0)
-                okA = okA And (etShoot(ET_FOOT) = 0 And etShoot(ET_OFFICER) = 0 And etShoot(ET_CAPTAIN) = 0 And etShoot(ET_MUSKETEER) = 1 And etShoot(ET_GENERAL) = 2)
+                okA = okA And (etShoot(ET_FOOT) = 0 And etShoot(ET_OFFICER) = 1 And etShoot(ET_MUSKETEER) = 1 And etShoot(ET_CAPTAIN) = 1 And etShoot(ET_GENERAL) = 2)   ' 6F FIX D: alla utom FOOT skjuter
                 okA = okA And (etHold!(ET_MUSKETEER) >= 3 And etHold!(ET_MUSKETEER) <= 5 And etHold!(ET_FOOT) = 0)
                 okA = okA And (etCol&(ET_CAPTAIN) <> etCol&(ET_FOOT) And etCol&(ET_OFFICER) <> etCol&(ET_FOOT) And etCol&(ET_GENERAL) <> etCol&(ET_FOOT))
                 okA = okA And (etMinWave(ET_FOOT) = 1 And etMinWave(ET_OFFICER) = 3 And etMinWave(ET_MUSKETEER) = 4 And etMinWave(ET_GENERAL) = 5)
                 okA = okA And (etMortarT!(ET_GENERAL) >= 1.5 And etMortarT!(ET_GENERAL) <= 2 And etSplashR!(ET_GENERAL) > 1 And etSplashDmg(ET_GENERAL) > 0)
                 If okA Then
-                    stMsg$ = "PASS fas14a-register (HP 3/6/5/12/25, spd officer>foot=musketeer>captain>general, zig 1/2/1/0/0, dodge .3/.4/.4/.5/0, shoot 0/0/1/0/2, musketeer hold 3-5, minWave 1/3/4/3/5, mortar 1.5-2s splash, distinct colors)"
+                    stMsg$ = "PASS fas14a-register (HP 3/6/5/12/25, spd officer>foot=musketeer>captain>general, zig 1/2/1/0/0, dodge .3/.4/.4/.5/0, shoot 0/1/1/1/2 (6F FIX D: alla utom FOOT skjuter), musketeer hold 3-5, minWave 1/3/4/3/5, mortar 1.5-2s splash, distinct colors)"
                     Gosub STLog
                 Else
                     stMsg$ = "FAIL fas14a-register hp=" + Str$(etHP(ET_FOOT)) + "/" + Str$(etHP(ET_OFFICER)) + "/" + Str$(etHP(ET_MUSKETEER)) + "/" + Str$(etHP(ET_CAPTAIN)) + " dodge=" + Str$(etDodge!(ET_FOOT)) + "/" + Str$(etDodge!(ET_CAPTAIN)) + " shoot=" + Str$(etShoot(ET_CAPTAIN)) + " hold=" + Str$(etHold!(ET_MUSKETEER))
@@ -6288,6 +6297,15 @@ SelftestDrive:
                 bfsForX = 77: bfsForY = 77               ' BFS-target leak probe
                 Gosub LoadLevel
                 c19bfs = bfsForX   ' captured BEFORE the first playing frame can recompute BFS
+                ' 6F FIX D: projektil-poolen fångas DIREKT efter LoadLevel — fiender (O/K
+                ' skjuter nu) kan avfyra samma frame, så en senare avläsning vore kontaminerad.
+                ' Dessutom låses fiende-eldgivning här (enFireT +99) så dmgTaken=10-proben
+                ' i 5c-b0/b2 blir deterministisk även med skjutande fiender.
+                c19prAll = 1
+                For c19i = 0 To PR_MAX
+                    If prActive(c19i) Then c19prAll = 0
+                Next c19i
+                For c19i = 0 To 10: enFireT(c19i) = Timer + 99: Next c19i
                 testFlag = 2: testT0 = Timer
             End If
             If testFlag = 2 And state$ = "playing" Then
@@ -6295,10 +6313,6 @@ SelftestDrive:
                 c19alive = 0
                 For c19i = 0 To 10
                     If enActive(c19i) Then c19alive = c19alive + 1
-                Next c19i
-                c19prAll = 1
-                For c19i = 0 To PR_MAX
-                    If prActive(c19i) Then c19prAll = 0
                 Next c19i
                 c19hud$ = HudLevelTag$
                 If lvlIdx = 0 And mapW = 16 And mapValid = 1 And loadFatal = 0 And c19alive = 2 And waveNo = 1 And c19prAll = 1 And enState(0) = 0 And enHP(0) = etHP(ET_FOOT) And c19bfs = -1 And shotsFired = 7 And dmgTaken = 10 And InStr(c19hud$, "LVL 1/5") > 0 And InStr(c19hud$, "Test One") > 0 Then
@@ -10605,6 +10619,79 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c30j = 0 To PR_MAX: prActive(c30j) = 0: Next c30j
                 For c30j = 0 To WP_COUNT - 1: wpOwned(c30j) = 0: Next c30j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
+                testPhase = 31: testT0 = Timer: testFlag = 0   ' 6F-FULL: vidare till 6f-g (fiende-eldgivning)
+            End If
+        Case 31  ' 6F-FULL 6f-g: fiende-eldgivning per typ — alla UTOM den svagaste (FOOT)
+                 ' skjuter när spelaren är i sikte inom räckvidd; FOOT avfyrar ALDRIG.
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                c31types(0) = ET_FOOT: c31types(1) = ET_OFFICER: c31types(2) = ET_MUSKETEER: c31types(3) = ET_CAPTAIN: c31types(4) = ET_GENERAL
+                c31k = 0: c31s = 0: c31ok = 0: c31msg$ = ""
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                If c31s = 0 Then
+                    ' fiende av aktuell typ 3 celler bort med fri siktlinje (rad 4)
+                    px = 8.5: py = 4.5: angle = 0: pitch = 0: hp = 100
+                    For c31j = 0 To 10: enActive(c31j) = 0: Next c31j
+                    For c31j = 0 To PR_MAX: prActive(c31j) = 0: Next c31j
+                    enX(0) = 5.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = c31types(c31k): enHP(0) = etHP(c31types(c31k)): enSpd(0) = 0: enState(0) = 0: enFireT(0) = 0: enZigT(0) = Timer + 99: enZ(0) = 0
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    c31pr0 = projSpawned
+                    c31s = 1: c31t = Timer
+                ElseIf c31s = 1 Then
+                    If projSpawned > c31pr0 Then
+                        If c31types(c31k) <> ET_FOOT Then c31ok = c31ok + 1
+                        c31msg$ = c31msg$ + " " + etName$(c31types(c31k)) + ":fired(d" + Str$(projSpawned - c31pr0) + ")"
+                        c31k = c31k + 1: c31s = 0
+                        If c31k > 4 Then c31s = 2
+                    ElseIf Timer - c31t > 2 Then
+                        If c31types(c31k) = ET_FOOT Then c31ok = c31ok + 1   ' FOOT: INGEN projektil någonsin
+                        c31msg$ = c31msg$ + " " + etName$(c31types(c31k)) + ":nofire(d" + Str$(projSpawned - c31pr0) + ")"
+                        c31k = c31k + 1: c31s = 0
+                        If c31k > 4 Then c31s = 2
+                    End If
+                ElseIf c31s = 2 Then
+                    If c31ok = 5 Then
+                        stMsg$ = "PASS 6f-g-enemy-fire-per-type (FOOT: 0 projektiler någonsin; OFFICER/MUSKETEER/CAPTAIN: kula spawnad inom 2 s vid dist 3 i sikte; GENERAL: mörser spawnad — alla skjutyper avfyrar, FOOT gör det inte)" + c31msg$
+                        Gosub STLog
+                        testFlag = 2: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL 6f-g ok=" + Str$(c31ok) + "/5 msg=" + c31msg$
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+                If Timer - testT0 > 30 Then
+                    stMsg$ = "FAIL 6f-g-timeout k=" + Str$(c31k) + " s=" + Str$(c31s) + " ok=" + Str$(c31ok)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' 6f-g klar: återställ selftest-miljö, vidare till fas12 (6f-h kedjas in senare)
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                For c31j = 0 To 10: enActive(c31j) = 0: Next c31j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c31j = 0 To PR_MAX: prActive(c31j) = 0: Next c31j
+                For c31j = 0 To WP_COUNT - 1: wpOwned(c31j) = 0: Next c31j
                 wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
