@@ -379,7 +379,7 @@ DIM etMortarT!(ET_COUNT), etSplashR!(ET_COUNT), etSplashDmg(ET_COUNT)       ' mo
 DIM etScale!(ET_COUNT), etMinWave(ET_COUNT)                                 ' sprite scale + spawn gating wave
 DIM etAspect!(ET_COUNT)                                                       ' 6E FIX B: kropp:bredd/höjd (F 0.667, G 0.8 — bred general)
 DIM enAnimF(10), enAnimT!(10), enLastAX(10), enLastAY(10)                                                 ' 6E FIX A: gång-animationsframe per fiende (4 Hz toggle vid rörelse)
-' 6E FIX A: fiende-sprite-buffer per typ x 2 gång-frames (procedur-ritade, zoner A-D enligt doc/SPRITE-BRIEF.md)
+' 6E FIX A: fiende-sprite-buffer per typ x 2 gång-frames (procedur-ritade, zoner A-D enligt docs/SPRITE-BRIEF.md)
 Const ESW = 48
 Const ESH = 72
 DIM enBuf&(ET_COUNT, 1)
@@ -3062,7 +3062,7 @@ InitEnemyTypes:
     etAspect!(ET_GENERAL) = 0.8
     Return
 
-' InitEnemyPalette (6E FIX A): färgpaletten från doc/SPRITE-BRIEF.md §3 — EN
+' InitEnemyPalette (6E FIX A): färgpaletten från docs/SPRITE-BRIEF.md §3 — EN
 ' källa i kod (kan ej vara Const då _RGB32() är ett funktionsanrop).
 ' Selftest 6e-s1 speglar dessa mot briefens värden.
 InitEnemyPalette:
@@ -8682,11 +8682,11 @@ SelftestDrive:
                         If _FileExists("schleswig/README.md") Then c23f$ = "schleswig/README.md"
                     End If
                     If Not _FileExists(c23f$) Then
-                        If _FileExists("doc/README.md") Then c23f$ = "doc/README.md"
+                        If _FileExists("docs/README.md") Then c23f$ = "docs/README.md"
                     End If
                     If Not _FileExists(c23f$) Then
-                        If _FileExists("schleswig/doc/README.md") Then c23f$ = "schleswig/doc/README.md"
-                    End If   ' 6E: doksen ligger i doc/ efter flytten
+                        If _FileExists("schleswig/docs/README.md") Then c23f$ = "schleswig/docs/README.md"
+                    End If   ' 6G doc-konsolidering: doksen ligger i docs/
                     If _FileExists(c23f$) Then
                         c23h& = FreeFile
                         Open c23f$ For Input As #c23h&
