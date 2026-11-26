@@ -263,7 +263,8 @@ Const strFatalQuit$ = "Press Q to quit"            ' Fas 5A-hotfix2: fatal map-l
 Const strFps$ = "FPS:"                             ' debug line + window title
 Const strDmgDebug$ = "-5 HP"                       ' debug key G
 Const strMedkit$ = "+25 HP"                        ' medkit pickup
-Const strAmmoPick$ = "+10 AMMO"                    ' 5E: ammo pickup amount (was +5)
+' 6L: strAmmoPick$ ("+10 AMMO") borttagen — ammo-pickup-meddelandet byggs per-typ
+' vid pickup (hpMsg$ = "+" + amPickup(at2) + " " + AmmoTypeName$(at2) + " AMMO")
 Const strQtd$ = "QUANTUM MODE ENGAGED — danskarnas osäkerhetsprincip är DIN"   ' 6A QTD easter egg (permanent)
 Const strScore$ = "SCORE:"                         ' death screen/HUD: score line
 Const strBest$ = "BEST:"                           ' death/result screen: best score
@@ -1663,7 +1664,8 @@ Do
                 at2 = amT(i): If at2 < 1 Or at2 > AMMO_N Then at2 = 1
                 ammoN(at2) = ammoN(at2) + amPickup(at2)   ' 6H: per-typ (var delad +10)
                 If ammoN(at2) > capAmmo(at2) Then ammoN(at2) = capAmmo(at2)  ' per-typ cap (överskott försvinner)
-                hpMsg$ = strAmmoPick$
+                ' 6L: meddelandet är per-typ — alltid pickupens belopp (cap-truncering påverkar INTE texten)
+                hpMsg$ = "+" + LTrim$(Str$(amPickup(at2))) + " " + AmmoTypeName$(at2) + " AMMO"
                 hpMsgTime = Timer
                 PlaySound SND_PICKUP
             End If
@@ -3158,7 +3160,7 @@ Do
         Next i
         replayLogF = FreeFile
         Open "/tmp/schleswig_replay.log" For Append As #replayLogF
-        Print #replayLogF, "fr=" + LTrim$(Str$(replayClk&)) + " st=" + state$ + " px=" + LTrim$(Str$(Int(px * 100) / 100)) + " py=" + LTrim$(Str$(Int(py * 100) / 100)) + " ang=" + LTrim$(Str$(Int(angle * 100) / 100)) + " mv=" + LTrim$(Str$(mvF)) + LTrim$(Str$(mvL)) + LTrim$(Str$(mvB)) + LTrim$(Str$(mvR)) + " pv=" + LTrim$(Str$(Int(pvx * 100) / 100)) + "," + LTrim$(Str$(Int(pvy * 100) / 100)) + " spd=" + LTrim$(Str$(spdMul)) + " stam=" + LTrim$(Str$(Int(stamina!))) + " lock=" + LTrim$(Str$(sprintLock)) + " ksW=" + LTrim$(Str$(keySim%(87))) + " ev87=" + LTrim$(Str$(keyEv%(87))) + " ksSH=" + LTrim$(Str$(keySimShift)) + " ammo=" + LTrim$(Str$(ammoN(1))) + "," + LTrim$(Str$(ammoN(2))) + "," + LTrim$(Str$(ammoN(3))) + "," + LTrim$(Str$(ammoN(4))) + " wp=" + LTrim$(Str$(wpCur)) + " mag=" + LTrim$(Str$(wpMagNow(wpCur))) + "/" + LTrim$(Str$(wpMag(wpCur))) + " rlt=" + LTrim$(Str$(Int(wpRlT!(wpCur) * 100) / 100)) + " shots=" + LTrim$(Str$(shotsFired)) + " alive=" + LTrim$(Str$(enAliveN)) + " enHP=" + LTrim$(Str$(enHPTot))   ' 6G ammo-replay + 6H reload/audit: pool per typ, valt vapen, magasin, reload-timer, skott, fiender
+        Print #replayLogF, "fr=" + LTrim$(Str$(replayClk&)) + " st=" + state$ + " px=" + LTrim$(Str$(Int(px * 100) / 100)) + " py=" + LTrim$(Str$(Int(py * 100) / 100)) + " ang=" + LTrim$(Str$(Int(angle * 100) / 100)) + " mv=" + LTrim$(Str$(mvF)) + LTrim$(Str$(mvL)) + LTrim$(Str$(mvB)) + LTrim$(Str$(mvR)) + " pv=" + LTrim$(Str$(Int(pvx * 100) / 100)) + "," + LTrim$(Str$(Int(pvy * 100) / 100)) + " spd=" + LTrim$(Str$(spdMul)) + " stam=" + LTrim$(Str$(Int(stamina!))) + " lock=" + LTrim$(Str$(sprintLock)) + " ksW=" + LTrim$(Str$(keySim%(87))) + " ev87=" + LTrim$(Str$(keyEv%(87))) + " ksSH=" + LTrim$(Str$(keySimShift)) + " ammo=" + LTrim$(Str$(ammoN(1))) + "," + LTrim$(Str$(ammoN(2))) + "," + LTrim$(Str$(ammoN(3))) + "," + LTrim$(Str$(ammoN(4))) + " wp=" + LTrim$(Str$(wpCur)) + " mag=" + LTrim$(Str$(wpMagNow(wpCur))) + "/" + LTrim$(Str$(wpMag(wpCur))) + " rlt=" + LTrim$(Str$(Int(wpRlT!(wpCur) * 100) / 100)) + " shots=" + LTrim$(Str$(shotsFired)) + " alive=" + LTrim$(Str$(enAliveN)) + " enHP=" + LTrim$(Str$(enHPTot)) + " msg=" + hpMsg$   ' 6G ammo-replay + 6H reload/audit + 6L: msg= sist (innehåller mellanslag)
         Close #replayLogF
     End If
     If replayMode And Not selftest And state$ = "playing" And replayClk& Mod 120 = 0 Then _SaveImage "/tmp/schleswig_replay.bmp", display&
@@ -3621,6 +3623,18 @@ Function KeyNorm& (c&)
     Else
         KeyNorm& = c&
     End If
+End Function
+
+' 6L: AmmoTypeName$ — ammo-typ -> vapennamn via wpAmmoT/wpName$ (samma källa
+' som HUD:s ammo-panel, så namnen aldrig divergerar)
+Function AmmoTypeName$ (at%)
+    For atwi = 0 To WP_COUNT - 1
+        If wpAmmoT(atwi) = at% Then
+            AmmoTypeName$ = wpName$(atwi)
+            Exit Function
+        End If
+    Next atwi
+    AmmoTypeName$ = wpName$(WP_MUSKET)
 End Function
 
 ' KeyName$ for keylog: readable name of a normalized code

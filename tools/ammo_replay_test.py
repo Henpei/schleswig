@@ -26,6 +26,7 @@ MAP = "/tmp/schleswig_ammo_map.map"
 CAPS = {1: 40, 2: 16, 3: 48, 4: 12}         # 6H capAmmo per type (musket/blunder/MG/cannon; B 12->16, D 8->12)
 PICKUP = {1: 10, 2: 4, 3: 12, 4: 2}         # 6H amPickup(AMMO_N) per type (was single Const +10)
 CHARS = {1: "A", 2: "B", 3: "C", 4: "D"}     # map char per ammo type
+WPNAME = {1: "MUSKET", 2: "BLUNDERBUSS", 3: "MACHINE MUSKET", 4: "MINI CANNON"}   # 6L: wpName$ per ammo-typ
 PX = {1: 3.5, 2: 4.5, 3: 5.5, 4: 6.5}        # pickup cell centers on row 29
 PY = 29.5
 
@@ -113,11 +114,12 @@ for l in lines:
     if fr < P or d.get("st") != "playing":
         continue
     pools = [int(x) for x in d["ammo"].split(",")]
+    msg = l.split(" msg=", 1)[1].strip() if " msg=" in l else ""   # 6L: hpMsg$ (innehåller mellanslag, sist i raden)
     if prev is not None:
         for t in (1, 2, 3, 4):
             if pools[t - 1] != prev[t - 1] and events[t] is None:
                 events[t] = {"fr": fr, "px": float(d["px"]), "py": float(d["py"]),
-                             "before": prev[t - 1], "after": pools[t - 1]}
+                             "before": prev[t - 1], "after": pools[t - 1], "msg": msg}
     prev = pools
 
 print()
@@ -137,6 +139,10 @@ for t in (1, 2, 3, 4):
         "(%.2f,%.2f)" % (ev["px"], ev["py"]), "PASS" if ok else "FAIL"))
     check("ammo type %s: pool %d->%d (delta +%d, at pickup cell)" % (CHARS[t], ev["before"], ev["after"], delta),
           ok, "expected +%d at (%.1f,%.1f)" % (exp, PX[t], PY))
+    # 6L: hpMsg$ per typ — "+<amPickup> <vapennamn> AMMO"
+    exp_msg = "+%d %s AMMO" % (PICKUP[t], WPNAME[t])
+    check("6L msg type %s: hpMsg$='%s'" % (CHARS[t], exp_msg), ev["msg"] == exp_msg,
+          "got '%s'" % ev["msg"])
 
 print()
 if fails:
