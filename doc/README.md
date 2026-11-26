@@ -19,6 +19,20 @@ different "layers" (directory vs file), so no name collision can occur.
     ./schleswig/schleswig campaign   # campaign from maps/levels.lst, level 1 (no menu)
     ./schleswig/schleswig --level N  # campaign starting at levels.lst position N (dev tool)
     ./schleswig/schleswig selftest   # scripted self-test, log: /tmp/schleswig_selftest.log
+    ./schleswig/schleswig replay [map.map]
+                                     # replay mode: NORMAL binary + real app flow (menu ->
+                                     # StartRun -> fade -> playing), OS key events simulated
+                                     # from /tmp/schleswig_replay.scr, telemetry ->
+                                     # /tmp/schleswig_replay.log (6G; see tools/replay_test.py)
+
+## Real-input integration test (6G)
+
+    python3 tools/replay_test.py path/to/schleswig
+
+runs the normal binary headless (`replay` arg, SDL dummy drivers) through the
+real menu->playing path and asserts movement/sticky/sprint from the telemetry
+log. Keyboard tests must go through this real app path — the selftest's
+injected variables do NOT cover the real `_KeyDown` pipeline (6G regression).
 
 ## Running from the QB64 IDE
 

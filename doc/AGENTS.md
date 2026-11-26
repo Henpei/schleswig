@@ -497,6 +497,26 @@ c25j=1 (otherwise the c25j=2 reset branch is dead code and the bot stalls on
 the 2nd result screen), and fas12 zeroes shotsFired/dmgTaken at entry (the
 score assertion measures the current round only).
 
+## SCHLESWIG 6G — real-input regression (känntest) + test-library rule
+Root cause of "WASD dead in real play" (6G FIX 1, commit 5fbd34d): QB64-PE's
+_KeyDown reports letters as UPPERCASE (65..90) only while Shift/CapsLock is
+held and lowercase (97..122) otherwise (libqb keyboard.cpp TranslateLetter /
+keydown_unicode; key-up removes whichever code the release maps to). 6F FIX A
+polled only Asc("W") -> unshifted WASD dead, Shift+W moved and could stick.
+Shift itself is VK+QBVK_LSHIFT/RSHIFT = 100304/100303 — NOT 42/54 (those are
+numpad codes), so the old sprint check never fired in real play. Fix:
+KeyDown2% polls BOTH letter cases (plus the replay keySim% table).
+LESSON (rule): keyboard tests must go through the real app path
+(menu->start->playing), not direct state manipulation — 6g regression.
+The sandbox cannot deliver real OS key events headless, so 6G added
+`replay` mode (arg "replay [map]"): the NORMAL binary runs the NORMAL state
+machine; a script /tmp/schleswig_replay.scr ("<frame> <token>", token "x" =
+one-frame InKey$ tap, "X+"/"X-" = held keySim%, "SH+"/"SH-" = Shift) feeds the
+SAME KeyDown2% polling predicate real _KeyDown feeds; telemetry ->
+/tmp/schleswig_replay.log. External driver: tools/replay_test.py (asserts
+W/A/S/D move, release stops within 1 frame, Shift+W sprints x1.5 + drains
+stamina). Selftest phase 33 (6g-a) covers the same pipeline in-app.
+
 ## Viewmodel design note (5A-hotfix2)
 The viewmodel sits deliberately ~half a gun-width RIGHT of center
 (Const vmOffsetX! = 0.06) — Wolfenstein/Quake design. DO NOT "fix" it to
