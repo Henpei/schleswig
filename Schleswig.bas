@@ -401,6 +401,7 @@ DIM SHARED injMvF, injMvB, injMvL, injMvR, injTurnL, injTurnR   ' 6F FIX A: herm
 ' 6G FIX 1/2: replay-mode — simulerade OS-tangenter som matas in i SAMMA polling-pipeline som riktiga
 DIM SHARED replayMode, keySim%(0 To 127), keySimShift, keySimFire   ' keySim% indexeras med VERSAL ascii (65..90); keySimShift = båda Shift; keySimFire = avfyra (6H reload-test)
 DIM SHARED auditMode, auLogF, auMsg$, auLvl, auStarted, auT0, auEnN, auEnHP, auShots0, auShots, auStarveN, auStarveWas, auAlive, auBi, auBd, auD, auI, auJ, auT, auWat, auCx, auCy, auNx, auNy, auNx2, auNy2, auBest, auFire, auTx, auTy, auPd, auF2, auWpN, auWhy$, auFr, auUseE, auHasRanged, auCh$, auPk(0 To 4), auMin(0 To 4)   ' 6H STEG 5 audit-bot
+DIM SHARED keyEv%(0 To 255), keyLogOn, keyLogF, khi, khits$   ' 6I: event-driven key-state overlay (1=down, -1=up, 0=unknown) + SCHLESWIG_KEYLOG capture
 DIM SHARED enAliveN, enHPTot   ' 6H audit: aktiva fiender + deras total-HP (replay-telemetry)
 DIM SHARED replayAt&(0 To 2000), replayTok$(0 To 2000), replayN, replayCnt, replayLogF, replayClk&, replayPlayFr&   ' replayAt/replayTok = script /tmp/schleswig_replay.scr ("pN" = N frames efter state=playing); replayClk& = monoton frame-räknare (frames nollställs varje sekund för FPS)
 Const stamMax! = 100
@@ -493,6 +494,9 @@ If cmdArg$ = "selftest" Then selftest = 1
 ' fiendeantal+HP, skott, pickups per typ, pool-minimum, svält-tillfällen.
 ' Logg: terminal + /tmp/schleswig_audit.log. Körs headless (SDL dummy).
 If cmdArg$ = "audit" Then auditMode = 1
+' 6I: SCHLESWIG_KEYLOG=1 aktiverar per-frame key/mouse-logg (se loop-toppen)
+keyLogOn = 0
+If LCase$(Environ$("SCHLESWIG_KEYLOG")) = "1" Then keyLogOn = 1
 ' 6G FIX 1/2: "replay" = NORMAL binary + NORMAL app flow (menu->pick->StartRun->fade->playing),
 ' but OS key events are simulated from /tmp/schleswig_replay.scr (the sandbox cannot deliver
 ' real key events headless). keySim% feeds the SAME polling predicate (KeyDown2%) that real
@@ -675,6 +679,31 @@ Do
 
     k$ = InKey$
     If k$ = Chr$(0) Then k$ = Chr$(0) + InKey$
+    ' 6I: drain _KeyHit every frame into the event-driven key-state overlay.
+    ' _KeyHit = positive on key-down, NEGATIVE on key-release (libqb pushes -x
+    ' from keyboard_keyup). keyEv%: 1=down, -1=up, 0=unknown. KeyDown2% lets an
+    ' event-level "up" override _KeyDown, so a release that libqb's keyheld
+    ' buffer missed can never hold movement sticky. (Note: this QB64-PE build
+    ' does not expose _HasFocus, so a release dropped while unfocused is caught
+    ' via SCHLESWIG_KEYLOG instead — see keylog block below.)
+    khits$ = ""
+    khi = _KeyHit
+    While khi <> 0
+        If khi < 0 Then
+            If -khi <= 255 Then keyEv%(-khi) = -1
+        Else
+            If khi <= 255 Then keyEv%(khi) = 1
+        End If
+        If keyLogOn Then khits$ = khits$ + LTrim$(Str$(khi)) + " "
+        khi = _KeyHit
+    Wend
+    ' 6I STEG 2: SCHLESWIG_KEYLOG=1 -> per-frame key/mouse capture to /tmp/schleswig_keylog.txt
+    If keyLogOn Then
+        keyLogF = FreeFile
+        Open "/tmp/schleswig_keylog.txt" For Append As #keyLogF
+        Print #keyLogF, "fr=" + LTrim$(Str$(frames)) + " st=" + state$ + " kd87=" + LTrim$(Str$(_KeyDown(87))) + " kd119=" + LTrim$(Str$(_KeyDown(119))) + " ev87=" + LTrim$(Str$(keyEv%(87))) + " ev119=" + LTrim$(Str$(keyEv%(119))) + " hits=" + khits$ + " mb=" + LTrim$(Str$(_MouseButton(1)))
+        Close #keyLogF
+    End If
     ' selftest fas12d: meny-nav via tangent — ner-pil (navStep 0->1), upp-pil (2->3)
     If selftest And testPhase = 12 And testFlag = 5 And navStep = 0 Then k$ = Chr$(0) + "P": navStep = 1
     If selftest And testPhase = 12 And testFlag = 5 And navStep = 2 Then k$ = Chr$(0) + "H": navStep = 3
@@ -3058,7 +3087,7 @@ Do
     End If
     ' 6G FIX 1/2: replay-telemetry — var 5:e frame till /tmp/schleswig_replay.log (extern driver
     ' asserar rörelse/sticky/sprint där); var 120:e frame en skärmdump för HUD-pixelkontroll
-    If replayMode And Not selftest And frames Mod 5 = 0 Then
+    If replayMode And Not selftest And frames Mod 1 = 0 Then   ' 6I: every frame (1-frame sticky asserts in combat replay test; was Mod 5)
         enAliveN = 0: enHPTot = 0
         For i = 0 To 10
             If enActive(i) Then enAliveN = enAliveN + 1: enHPTot = enHPTot + enHP(i)
@@ -3514,21 +3543,30 @@ End Function
 ' W dead and could leave a stuck uppercase entry after Shift+W. Check BOTH cases; in replay
 ' mode the simulated key table keySim% (indexed by UPPERCASE code) feeds the same predicate.
 Function KeyDown2% (c%)
+    ' 6I: event-driven overlay first. _KeyHit delivers key-down as positive and
+    ' key-release as NEGATIVE codes; keyEv% tracks that per code. A release that
+    ' libqb drops (e.g. window unfocused at release time) leaves _KeyDown stuck,
+    ' so an event-level "up" (keyEv%=-1) must OVERRIDE _KeyDown. In replay mode
+    ' the keySim% table is authoritative instead (headless has no real keys).
+    If replayMode And c% >= 0 And c% <= 127 And keySim%(c%) Then
+        KeyDown2% = -1
+        Exit Function
+    End If
+    If c% >= 0 And c% <= 255 Then
+        If keyEv%(c%) = 1 Then
+            KeyDown2% = -1
+            Exit Function
+        End If
+        If keyEv%(c%) = -1 And Not replayMode Then
+            Exit Function   ' event says released — overrides a stuck _KeyDown
+        End If
+    End If
     If _KeyDown(c%) Then
         KeyDown2% = -1
         Exit Function
     End If
     If c% >= 65 And c% <= 90 Then
         If _KeyDown(c% + 32) Then
-            KeyDown2% = -1
-            Exit Function
-        End If
-        If replayMode And keySim%(c%) Then
-            KeyDown2% = -1
-            Exit Function
-        End If
-    ElseIf replayMode Then
-        If keySim%(c%) Then
             KeyDown2% = -1
             Exit Function
         End If

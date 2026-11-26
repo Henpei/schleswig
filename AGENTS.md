@@ -531,6 +531,22 @@ SAME KeyDown2% polling predicate real _KeyDown feeds; telemetry ->
 W/A/S/D move, release stops within 1 frame, Shift+W sprints x1.5 + drains
 stamina). Selftest phase 33 (6g-a) covers the same pipeline in-app.
 
+## SCHLESWIG 6I — sticky-W under mouse-spam (real play)
+Symptom: after releasing W mid click-spam, the player kept walking (W "stuck" in
+the engine's eyes; W+S = net zero). Replay repro (tools/combat_replay_test.py)
+proved the GAME logic clean (W- honored within 1 frame even mid-spam), so the
+root cause is at the libqb/GLFW event level: a key RELEASE delivered while the
+window is unfocused is dropped before keyheld_remove()
+(GLUT_KEYBOARD_BUTTON_FUNC returns early when !WindowIsFocused), leaving
+_KeyDown stuck; _KeyClear does NOT clear keyheld_buffer. Fix (6I): an
+event-driven overlay keyEv%(0..255) drained from _KeyHit every frame at loop
+top (_KeyHit = positive on down, NEGATIVE on release); KeyDown2% lets an
+event-level "up" (keyEv%=-1) override a stuck _KeyDown (replayMode keeps keySim%
+authoritative). Debug capture: run with SCHLESWIG_KEYLOG=1 -> per-frame
+_KeyDown/_KeyHit/mouse log at /tmp/schleswig_keylog.txt. NOTE: this QB64-PE
+build (V4.7.0-GLFW) does NOT expose _HasFocus to BASIC ("Invalid variable
+name") — func__hasfocus exists in window-gui.cpp but is not registered.
+
 ## Viewmodel design note (5A-hotfix2)
 The viewmodel sits deliberately ~half a gun-width RIGHT of center
 (Const vmOffsetX! = 0.06) — Wolfenstein/Quake design. DO NOT "fix" it to
