@@ -98,6 +98,8 @@ DIM c26key$, c26map$, c26i, c26j, c26k, c26t, c26ok, c26bad, c26f$, c26ln$, c26h
 DIM c27arm, c27pass, c27done, c27i, c27j, c27t, c27ok, c27bad, c27n, c27x, c27y, c27c&, c27bx, c27by, c27type, c27ex0, c27ex1, c27ey0, c27ey1, c27eyeN, c27eyeBad, c27eyeL, c27eyeR, c27eyeType, c27ballN, c27ballW, c27coreN, c27oldW, c27scX0, c27scX1, c27faceX0, c27faceX1, c27zoneY0, c27zoneY1, c27eco&, c27bdist!, c27eh!, c27ew!, c27base!, c27s0&, c27s1&, c27s2&, c27s3&, c27s4&, c27s5&, c27s6&, c27s7&, c27good, c27fx, c27fy, c27fc&, c27fb&, c27op, c27ox, c27oy, c27tx, c27ty, c27want   ' Fas 27 (6F-LITE) selftest vars
 DIM c28k, c28s, c28n, c28ok, c28bad, c28pxR, c28pyR, c28px0, c28py0, c28sawVel, c28moved!, c28mvF, c28mvB, c28mvL, c28mvR, c28dx!, c28dy!, c28fwd!, c28j, c28t   ' Fas 28 (6F-FULL 6f-d) input-pipeline selftest vars
 DIM c28msg$   ' 6f-d: per-tangent diagnostiksträng
+DIM c29i, c29j, c29ok, c29pr0, c29hp0, c29t, c29dz!, c29h!   ' Fas 29 (6F-FULL 6f-e) pitch-aim selftest vars
+DIM c29msg$   ' 6f-e: diagnostiksträng
 DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
@@ -223,7 +225,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "7eb4124"
+Const strBuild$ = "bfcb8fe"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -345,6 +347,7 @@ flashDist = 99
 ' hp (3 träffar), skada, hastighet + AI-tillstånd. Startlägen i SpawnEnemies.
 ' enState: 0=PATROLL, 1=JAKT, 2=ANFALL. bfsD = BFS-avståndskarta (flödesfält).
 DIM enX(10), enY(10), enActive(10), enHP(10), enDmg(10), enSpd(10), enLastHit(10)
+DIM enZ(10)                                               ' 6F FIX B: fiendens höjd över golvet (0 = står på golvet; kulträff kräver |prZ-(enZ+0.5)|<0.5)
 DIM enState(10), enSeen(10), enTx(10), enTy(10), enPatrolT(10), enLastSeen(10)
 DIM enLx(10), enLy(10), enCalmT(10), bfsD(MAP_MAX - 1, MAP_MAX - 1), qx(MAP_MAX * MAP_MAX - 1), qy(MAP_MAX * MAP_MAX - 1)
 ' Fas 4A: data-driven enemy-type register ("the Danish regiment"). Per type:
@@ -420,14 +423,17 @@ Const enBallScale! = 0.6
 Const enBallPxMin = 5
 Const enBallPxMax = 9
 DIM prX(PR_MAX), prY(PR_MAX), prDX(PR_MAX), prDY(PR_MAX), prActive(PR_MAX)
+DIM prZ(PR_MAX), prDZ(PR_MAX)                                 ' 6F FIX B: projektilens höjd z + vertikal riktning — kulor följer sikte (yaw+pitch)
 DIM prSpd!(PR_MAX), prOwner(PR_MAX), prDmg(PR_MAX), prType(PR_MAX), prSrcType(PR_MAX)
 DIM prTX(PR_MAX), prTY(PR_MAX), prLandT(PR_MAX)
 DIM prBornT(PR_MAX)                                       ' 6A: födelsetid per projektil (fiende-kulor självdör vid livslängd)
 DIM projSpawned, projEnemySpawned                         ' diagnostics/selftest counters (enemy-owned projectiles)
-DIM SHARED prLastDX!, prLastDY!, prLastSpd!, prLastOwner, prLastType   ' 6D 6d-a: senast spawnade projektilens riktning (oberoende av livslängd)
+DIM SHARED prLastDX!, prLastDY!, prLastDZ!, prLastSpd!, prLastOwner, prLastType   ' 6D 6d-a + 6F 6f-e: senast spawnade projektilens riktning (oberoende av livslängd)
 DIM pvx, pvy                                              ' player velocity (cells/s) — mortar lead
+DIM aimPitch!                                             ' 6F FIX B: siktets pitch-vinkel (rad) — EN källa: tan(aimPitch!) = pitch/RH
 ' SpawnProjectile caller params (globals, gosub-style):
-DIM spX, spY, spDX, spDY, spSpd!, spOwner, spDmg, spType, spSrcType, spTX, spTY, spLandT, spSlot
+DIM spX, spY, spDX, spDY, spSpd!, spOwner, spDmg, spType, spSrcType, spTX, spTY, spLandT, spSlot, spZ, spDZ   ' 6F FIX B: spZ/spDZ = projektilens z-start + vertikal riktning
+spZ = 0.5: spDZ = 0   ' 6F FIX B: default projektil-z (spel-öga 0.5, plant) — alla spawn-ställen utom spelarens kulor lämnar dessa
 DIM hitE, hitDmg                                          ' EnemyTakeHit params
 ' ======== LJUD (Fas 4): procedurell PCM via _SNDOPENRAW/_SNDRAWBATCH =========
 ' Data-drivet register: id -> vågform/frekvenssvep/längd/volym (InitSounds).
@@ -1442,6 +1448,10 @@ Do
     pitch = pitch - mdy * pitchSens
     If pitch > RH * 0.9 Then pitch = RH * 0.9
     If pitch < -RH * 0.9 Then pitch = -RH * 0.9
+    ' 6F FIX B: siktets pitch-vinkel — EN källa för projektilriktning. Samma
+    ' projektion som väggarnas y-shear (rad = midY+pitch-(z-0.5)*RH/d) ger
+    ' tan(aimPitch) = pitch/RH; pitch>0 = titta upp.
+    aimPitch! = _ATan2(pitch, RH)
 
     ' pickup-kollision: avstånd < 0.5 tiles
     For i = 0 To 10
@@ -1712,7 +1722,7 @@ Do
                     ad = Sqr(adx * adx + ady * ady): If ad < 0.01 Then adx = 1: ady = 0: ad = 1
                     spr! = (AiRnd# - 0.5) * 0.12   ' small seeded spread
                     ca = Cos(spr!): sa = Sin(spr!)
-                    spX = enX(i): spY = enY(i)
+                    spX = enX(i): spY = enY(i): spZ = enZ(i) + 0.5: spDZ = 0   ' 6F FIX B: fienden skjuter plant från sin egen höjd
                     spDX = (adx * ca - ady * sa) / ad: spDY = (adx * sa + ady * ca) / ad
                     spSpd! = etProjSpd!(enType(i)): spOwner = 1
                     spDmg = etProjDmg(enType(i)): spType = PR_BALL
@@ -1728,7 +1738,7 @@ Do
                     If mty < 0 Then mty = 0
                     If mty > mapH - 1 Then mty = mapH - 1
                     If Solid%(mtx, mty) Then mtx = Int(px): mty = Int(py)
-                    spX = enX(i): spY = enY(i): spDX = 0: spDY = 0: spSpd! = 0
+                    spX = enX(i): spY = enY(i): spZ = 0.5: spDX = 0: spDY = 0: spDZ = 0: spSpd! = 0   ' 6F FIX B
                     spOwner = 1: spDmg = 0: spType = PR_MORTAR
                     spSrcType = enType(i): spTX = mtx: spTY = mty
                     spLandT = Timer + ft!
@@ -1818,7 +1828,7 @@ Do
                     ' 6A/6B MINI-KANON: mörserbåge — mål = träffpunkten där crosshair pekar
                     ' (CannonAim = samma målcell som live-markören), prOwner=0, splash vid nedslag
                     Gosub CannonAim
-                    spX = px: spY = py: spDX = dirX: spDY = dirY
+                    spX = px: spY = py: spZ = 0.5: spDX = dirX: spDY = dirY: spDZ = 0   ' 6F FIX B: mörser lobbas (z används ej), mål = siktes-cell
                     spSpd! = 0: spOwner = 0: spDmg = wpSplashDmg(wpn): spType = PR_MORTAR
                     spSrcType = -1: spTX = mtx2: spTY = mty2: spLandT = Timer + 1.2
                     Gosub SpawnProjectile
@@ -1827,13 +1837,15 @@ Do
                     ' maskingevär = spread växer med avståndet
                     wsp2! = wpSpread!(wpn)
                     If wpn = WP_MG Then wsp2! = wsp2! + hitDist * 0.015   ' MG: spread vid längre avstånd
+                    apC! = Cos(aimPitch!): apS! = Sin(aimPitch!)   ' 6F FIX B: full 3D-riktning (yaw+pitch) från kamerans framåt-vektor
                     For pel = 1 To wpPellets(wpn)
                         If wpPellets(wpn) > 1 Then
                             pang = angle + (pel - (wpPellets(wpn) + 1) / 2) * wsp2!
                         Else
                             pang = angle
                         End If
-                        spX = px: spY = py: spDX = Cos(pang): spDY = Sin(pang)
+                        spX = px: spY = py: spZ = 0.5
+                        spDX = Cos(pang) * apC!: spDY = Sin(pang) * apC!: spDZ = apS!
                         spSpd! = wpBallSpd!(wpn): spOwner = 0: spDmg = wpDmg(wpn): spType = PR_BALL
                         spSrcType = -1: spTX = 0: spTY = 0: spLandT = 0
                         Gosub SpawnProjectile
@@ -2200,7 +2212,7 @@ Do
                     et2 = enType(i)
                     eh = RH / edist * 0.9 * etScale!(et2)                  ' höjd px (står på golvet; G 1.4x)
                     ew = RW / edist * 0.9 * etAspect!(et2) * etScale!(et2) ' 6E FIX B: bredd via aspekt (F 0.667, G 0.8)
-                    ebase = midY + RH / (2 * edist) + pitch   ' golvlinje vid edist
+                    ebase = midY + RH / (2 * edist) + pitch - enZ(i) * RH / edist   ' golvlinje vid edist (6F FIX B: - fiendens egen höjd)
                     ey0 = ebase - eh
                     ey1 = ebase
                     If ey0 < 0 Then ey0 = 0
@@ -2330,7 +2342,8 @@ Do
                             If ballPx > ballPxMax Then ballPx = ballPxMax
                         End If
                         bx0 = Int(bcx2 - ballPx / 2): bx1 = bx0 + ballPx - 1
-                        by0 = Int(midY + pitch - ballPx / 2): by1 = by0 + ballPx - 1
+                        bzp! = bdistP: If bzp! < 0.2 Then bzp! = 0.2   ' 6F FIX B: projektionsavstånd för kulans egen höjd
+                        by0 = Int(midY + pitch - (prZ(i) - 0.5) * (RH / bzp!) - ballPx / 2): by1 = by0 + ballPx - 1   ' 6F FIX B: kulans z projiceras
                         ' 5D FIX: clamps on SEPARATE lines — a single-line
                         ' "If a<0 Then a=0: If b>RW Then b=..." would skip the
                         ' b-clamp whenever a>=0 -> wallDist(b) subscript OOB
@@ -2853,7 +2866,7 @@ Do
         fs = Int(RW * 300 / 1920 / flashDist)
         If fs < 4 Then fs = 4
         If fs > 60 Then fs = 60
-        Line (RW \ 2 - fs, RH \ 2 + pitch - fs)-(RW \ 2 + fs, RH \ 2 + pitch + fs), _RGB32(255, 220, 80), BF
+        Line (RW \ 2 - fs, RH \ 2 - fs)-(RW \ 2 + fs, RH \ 2 + fs), _RGB32(255, 220, 80), BF   ' 6F FIX B: crosshair FAST i skärmens mitt — pitch flyttar världen, inte siktet
     End If
     ' fade-in: svart overlay över spelet, FÖRE _Display (ritordningsregeln)
     If fading = 2 Then
@@ -3185,6 +3198,7 @@ SpawnEnemies:
         enZigX(i) = 0: enZigY(i) = 0: enZigT(i) = 0: enZigS(i) = 1
         enFireT(i) = 0      ' Fas 4B: ranged fire timer
         enAnimF(i) = 0: enAnimT!(i) = -99: enLastAX(i) = 0: enLastAY(i) = 0   ' 6E FIX A: gång-animationsframe
+        enZ(i) = 0       ' 6F FIX B: fiende på golvet
     Next i
     For i = 0 To PR_MAX: prActive(i) = 0: Next i   ' Fas 4B: clear projectile pool on wave start
     bfsForX = -1: bfsForY = -1
@@ -4206,12 +4220,12 @@ SpawnProjectile:
     If spSlot = -1 Then Return
     prActive(spSlot) = 1
     prX(spSlot) = spX: prY(spSlot) = spY
-    prDX(spSlot) = spDX: prDY(spSlot) = spDY
+    prDX(spSlot) = spDX: prDY(spSlot) = spDY: prDZ(spSlot) = spDZ: prZ(spSlot) = spZ   ' 6F FIX B: 3D-riktning + höjd
     prSpd!(spSlot) = spSpd!: prOwner(spSlot) = spOwner
     prDmg(spSlot) = spDmg: prType(spSlot) = spType: prSrcType(spSlot) = spSrcType
     prTX(spSlot) = spTX: prTY(spSlot) = spTY: prLandT(spSlot) = spLandT
     prBornT(spSlot) = Timer   ' 6A: fiende-kulor får kort livslängd (självdör)
-    prLastDX! = spDX: prLastDY! = spDY: prLastSpd! = spSpd!: prLastOwner = spOwner: prLastType = spType   ' 6D 6d-a selftest-probe
+    prLastDX! = spDX: prLastDY! = spDY: prLastDZ! = spDZ: prLastSpd! = spSpd!: prLastOwner = spOwner: prLastType = spType   ' 6D 6d-a + 6F 6f-e selftest-probe
     projSpawned = projSpawned + 1
     If spOwner = 1 And spType = PR_BALL Then projEnemySpawned = projEnemySpawned + 1   ' 6A selftest 6a-i
     Return
@@ -4267,11 +4281,17 @@ UpdateProjectiles:
                 For s = 1 To steps
                     nx = prX(pi) + prDX(pi) * stp!
                     ny = prY(pi) + prDY(pi) * stp!
+                    nz = prZ(pi) + prDZ(pi) * stp!
                     If nx < 0 Or nx >= mapW Or ny < 0 Or ny >= mapH Then dead = 1: s = steps
                     If dead = 0 Then
-                        If Solid%(Int(nx), Int(ny)) Then dead = 1: s = steps
+                        ' 6F FIX B: 3D-kollision — golvet (z<0) dödar kulen; väggar är
+                        ' 1 cell höga, så en kula över z>=1 passerar över dem
+                        If nz < 0 Then dead = 1: s = steps
+                        If dead = 0 Then
+                            If Solid%(Int(nx), Int(ny)) And nz < 1 Then dead = 1: s = steps
+                        End If
                     End If
-                    If dead = 0 Then prX(pi) = nx: prY(pi) = ny
+                    If dead = 0 Then prX(pi) = nx: prY(pi) = ny: prZ(pi) = nz
                 Next s
                 If dead Then prActive(pi) = 0
                 If prActive(pi) Then
@@ -4279,7 +4299,7 @@ UpdateProjectiles:
                         ' player ball vs enemies
                         For j = 0 To 10
                             If enActive(j) And prActive(pi) Then
-                                If Sqr((enX(j) - prX(pi)) ^ 2 + (enY(j) - prY(pi)) ^ 2) < 0.35 Then
+                                If Sqr((enX(j) - prX(pi)) ^ 2 + (enY(j) - prY(pi)) ^ 2) < 0.35 And Abs(prZ(pi) - (enZ(j) + 0.5)) < 0.5 Then   ' 6F FIX B: träff även i höjdled
                                     hitE = j: hitDmg = prDmg(pi)
                                     Gosub EnemyTakeHit
                                     prActive(pi) = 0
@@ -4288,7 +4308,7 @@ UpdateProjectiles:
                         Next j
                     Else
                         ' enemy ball vs player
-                        If Sqr((px - prX(pi)) ^ 2 + (py - prY(pi)) ^ 2) < 0.35 Then
+                        If Sqr((px - prX(pi)) ^ 2 + (py - prY(pi)) ^ 2) < 0.35 And Abs(prZ(pi) - 0.5) < 0.5 Then   ' 6F FIX B: träff även i höjdled
                             hp = hp - prDmg(pi)
                             If hp < 0 Then hp = 0
                             dmgTaken = dmgTaken + prDmg(pi)   ' highscore: projektil-skada
@@ -4991,7 +5011,7 @@ SelftestDrive:
                 enTx(0) = 11: enTy(0) = 4: enPatrolT(0) = Timer
                 bfsForX = -1: bfsForY = -1
                 projSpawned = 0
-                spX = px: spY = py: spDX = 1: spDY = 0: spSpd! = plrBallSpd!: spOwner = 0: spDmg = plrBallDmg: spType = PR_BALL
+                spX = px: spY = py: spZ = 0.5: spDX = 1: spDY = 0: spDZ = 0: spSpd! = plrBallSpd!: spOwner = 0: spDmg = plrBallDmg: spType = PR_BALL
                 spSrcType = -1: spTX = 0: spTY = 0: spLandT = 0
                 Gosub SpawnProjectile
                 testFlag = 1: testT0 = Timer
@@ -5011,7 +5031,7 @@ SelftestDrive:
                     End If
                     ' second ball: no enemy -> must fly to the wall (cell 15) and die there
                     enActive(0) = 0
-                    spX = px: spY = py: spDX = 1: spDY = 0: spSpd! = plrBallSpd!: spOwner = 0: spDmg = plrBallDmg: spType = PR_BALL
+                    spX = px: spY = py: spZ = 0.5: spDX = 1: spDY = 0: spDZ = 0: spSpd! = plrBallSpd!: spOwner = 0: spDmg = plrBallDmg: spType = PR_BALL
                     spSrcType = -1: spTX = 0: spTY = 0: spLandT = 0
                     Gosub SpawnProjectile
                     testFlag = 2: testT0 = Timer
@@ -5126,7 +5146,7 @@ SelftestDrive:
                     End If
                     ' manual mortar at dist 1.0 from player AND from en1 -> falloff + friendly fire
                     hpBefore = hp: en1HPBefore = enHP(1)
-                    spX = enX(0): spY = enY(0): spDX = 0: spDY = 0: spSpd! = 0: spOwner = 1: spDmg = 0: spType = PR_MORTAR
+                    spX = enX(0): spY = enY(0): spZ = 0.5: spDX = 0: spDY = 0: spDZ = 0: spSpd! = 0: spOwner = 1: spDmg = 0: spType = PR_MORTAR
                     spSrcType = ET_GENERAL: spTX = 9: spTY = 4: spLandT = Timer + 0.3
                     Gosub SpawnProjectile
                     testFlag = 6: testT0 = Timer
@@ -5347,7 +5367,7 @@ SelftestDrive:
                     fireBtn = 0
                 End If
                 If alive15 > 0 And alive15 <= 2 And mortar15 = 0 And bi >= 0 Then
-                    spX = enX(bi): spY = enY(bi): spDX = 0: spDY = 0: spSpd! = 0
+                    spX = enX(bi): spY = enY(bi): spZ = 0.5: spDX = 0: spDY = 0: spDZ = 0: spSpd! = 0
                     spOwner = 1: spDmg = 0: spType = PR_MORTAR: spSrcType = ET_GENERAL
                     spTX = Int(enX(bi)): spTY = Int(enY(bi)): spLandT = Timer + 0.3
                     Gosub SpawnProjectile
@@ -6811,7 +6831,7 @@ SelftestDrive:
                         spX = px + Cos(angle + 0.62) * 2.5: spY = py + Sin(angle + 0.62) * 2.5
                         If spX < 1 Then spX = 1: If spX > mapW - 2 Then spX = mapW - 2
                         If spY < 1 Then spY = 1: If spY > mapH - 2 Then spY = mapH - 2
-                        spDX = 0: spDY = 0: spSpd! = 0   ' stationary: renders every frame
+                        spDX = 0: spDY = 0: spDZ = 0: spSpd! = 0   ' stationary: renders every frame
                         spOwner = 0: spDmg = 1: spType = PR_BALL: spSrcType = -1: spTX = 0: spTY = 0: spLandT = 0
                         Gosub SpawnProjectile
                         c21edgePc = RW / 2 * (1 + Tan(0.62) / planeDist)   ' > RW: would crash old code
@@ -6828,7 +6848,7 @@ SelftestDrive:
                     ' corner-cell MORTAR (target (0,0)) — splash at the corner, no OOB
                     If c21mortar = 0 And Timer - testT0 >= 4 Then
                         c21mortar = 1
-                        spX = px: spY = py: spDX = 0: spDY = 0: spSpd! = 0
+                        spX = px: spY = py: spZ = 0.5: spDX = 0: spDY = 0: spDZ = 0: spSpd! = 0
                         spOwner = 1: spDmg = 0: spType = PR_MORTAR: spSrcType = ET_GENERAL
                         spTX = 0: spTY = 0: spLandT = Timer + 0.3
                         Gosub SpawnProjectile
@@ -9793,7 +9813,7 @@ SelftestDrive:
                     c26ok = 0
                     If hp = 100 And dmgTaken = 0 And projEnemySpawned = c26pr0 Then c26ok = 1
                     ' manuell fiende-kula genom stängda dörren: ska stoppas av Solid%
-                    spX = 13.5: spY = 8.5: spDX = -1: spDY = 0: spSpd! = 7: spOwner = 1: spDmg = 10: spType = PR_BALL: spSrcType = ET_MUSKETEER: spTX = 0: spTY = 0: spLandT = 0
+                    spX = 13.5: spY = 8.5: spZ = 0.5: spDX = -1: spDY = 0: spDZ = 0: spSpd! = 7: spOwner = 1: spDmg = 10: spType = PR_BALL: spSrcType = ET_MUSKETEER: spTX = 0: spTY = 0: spLandT = 0
                     Gosub SpawnProjectile
                     c26i = 2: c26t = Timer
                     If c26ok = 0 Then
@@ -10334,6 +10354,124 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c28j = 0 To PR_MAX: prActive(c28j) = 0: Next c28j
                 For c28j = 0 To WP_COUNT - 1: wpOwned(c28j) = 0: Next c28j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
+                testPhase = 29: testT0 = Timer: testFlag = 0   ' 6F-FULL: vidare till 6f-e (pitch-sikte)
+            End If
+        Case 29  ' 6F-FULL 6f-e: projektiler följer sikte (yaw+pitch) — spawn använder
+                 ' kamerans faktiska framåt-vektor. (1) pitch=+30° -> vertikal komponent
+                 ' >= sin(30°); (2) pitch=0 -> plant som förr; (3) fiende på upphöjd
+                 ' position (enZ=1) 3 celler bort träffas vid korrekt sikte.
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                px = 8.5: py = 4.5: angle = 0: pitch = 0: hp = 100
+                For c29j = 0 To 10: enActive(c29j) = 0: Next c29j
+                enActive(0) = 1: Gosub DummyFar: enType(0) = ET_FOOT: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99   ' dummy håller win-triggern borta
+                For c29j = 0 To PR_MAX: prActive(c29j) = 0: Next c29j
+                For c29j = 0 To WP_COUNT - 1: wpOwned(c29j) = 1: Next c29j
+                wpCur = WP_MUSKET: ammoN(1) = 40: lastShotTime = -99
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                state$ = "playing"
+                c29i = 0: c29ok = 0: c29pr0 = 0: c29hp0 = 0: c29msg$ = ""
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                If c29i = 0 Then
+                    ' (1) pitch = +30 grader
+                    pitch = RH * Tan(0.5235987756)
+                    c29pr0 = projSpawned
+                    fireBtn = 1
+                    c29i = 1: c29t = Timer
+                ElseIf c29i = 1 Then
+                    fireBtn = 0
+                    If projSpawned > c29pr0 And prLastOwner = 0 And prLastType = PR_BALL Then
+                        c29dz! = prLastDZ!: c29h! = Sqr(prLastDX! ^ 2 + prLastDY! ^ 2)
+                        c29msg$ = "p30[dz=" + LTrim$(Str$(Int(c29dz! * 1000) / 1000)) + " plan=" + LTrim$(Str$(Int(c29h! * 1000) / 1000)) + "]"
+                        If c29dz! >= Sin(0.5235987756) - 0.01 And Abs(c29h! - Cos(0.5235987756)) < 0.01 Then c29ok = c29ok + 1
+                        ' (2) pitch = 0 -> plant skott som före
+                        pitch = 0: lastShotTime = -99: c29pr0 = projSpawned: fireBtn = 1
+                        c29i = 2: c29t = Timer
+                    ElseIf Timer - c29t > 2 Then
+                        stMsg$ = "FAIL 6f-e-timeout1 projSpawned=" + Str$(projSpawned) + " pr0=" + Str$(c29pr0) + " owner=" + Str$(prLastOwner)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c29i = 2 Then
+                    fireBtn = 0
+                    If projSpawned > c29pr0 And prLastOwner = 0 And prLastType = PR_BALL Then
+                        c29msg$ = c29msg$ + " p0[dz=" + LTrim$(Str$(Int(prLastDZ! * 1000) / 1000)) + " dx=" + LTrim$(Str$(Int(prLastDX! * 1000) / 1000)) + " dy=" + LTrim$(Str$(Int(prLastDY! * 1000) / 1000)) + "]"
+                        If Abs(prLastDZ!) < 0.001 And Abs(prLastDX! - 1) < 0.01 And Abs(prLastDY!) < 0.01 Then c29ok = c29ok + 1
+                        ' (3) upphöjd fiende enZ=1, 3 celler bort längs rad 4; sikta upp mot dess mitt (z=1.5)
+                        For c29j = 0 To 10: enActive(c29j) = 0: Next c29j
+                        enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = ET_FOOT: enHP(0) = etHP(ET_FOOT): enZ(0) = 1: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                        c29hp0 = enHP(0)
+                        pitch = RH * Tan(_ATan2(1, 3))
+                        lastShotTime = -99: c29pr0 = projSpawned: fireBtn = 1
+                        c29i = 3: c29t = Timer
+                    ElseIf Timer - c29t > 2 Then
+                        stMsg$ = "FAIL 6f-e-timeout2 projSpawned=" + Str$(projSpawned) + " pr0=" + Str$(c29pr0)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c29i = 3 Then
+                    fireBtn = 0
+                    If enHP(0) < c29hp0 Or enActive(0) = 0 Then
+                        c29ok = c29ok + 1
+                        c29msg$ = c29msg$ + " elev[hp " + Str$(c29hp0) + "->" + Str$(enHP(0)) + "]"
+                        c29i = 4
+                    ElseIf Timer - c29t > 3 Then
+                        stMsg$ = "FAIL 6f-e-elevated-hit enHP=" + Str$(enHP(0)) + " (upphojd fiende ej traffad)"
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c29i = 4 Then
+                    If c29ok = 3 Then
+                        stMsg$ = "PASS 6f-e-pitch-aim (" + c29msg$ + " — pitch=+30deg ger dz>=sin30/plan=cos30; pitch=0 ger dz=0, plan (1,0); upphojd fiende (enZ=1) 3 celler bort traffad vid korrekt sikte hp " + Str$(c29hp0) + "->" + Str$(enHP(0)) + ")"
+                        Gosub STLog
+                        testFlag = 2: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL 6f-e ok=" + Str$(c29ok) + "/3 msg=" + c29msg$
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+                If Timer - testT0 > 25 Then
+                    stMsg$ = "FAIL 6f-e-timeout c29i=" + Str$(c29i) + " ok=" + Str$(c29ok)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' 6f-e klar: återställ miljö, vidare till fas12 (6f-f kedjas in senare)
+                fireBtn = 0
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                For c29j = 0 To 10: enActive(c29j) = 0: Next c29j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c29j = 0 To PR_MAX: prActive(c29j) = 0: Next c29j
+                For c29j = 0 To WP_COUNT - 1: wpOwned(c29j) = 0: Next c29j
                 wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
