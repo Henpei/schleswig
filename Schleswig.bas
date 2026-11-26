@@ -312,14 +312,14 @@ hpMsgTime = 0
 ' Fas 2: ammo + skjutning (ingen HP-regen; samma array-pool-mönster som medkit)
 Const maxAmmo = 40         ' ammo-cap TYP 1 (musköt) — 6E FIX E: 20->40 (minst dubbel); samma konstant används av HUD-streckantalet
 Const startAmmo = 15       ' 5E ammo-balans: start-ammo 5 -> 15 (~3x, André dog of ammoN(1) before level 3)
-Const ammoPickup = 10      ' 5E ammo-balans: per A-pickup +5 -> +10
+' 6H: den gamla delade pickup-konstanten är borttagen — per-typ amPickup(AMMO_N) i InitWeapons (10/4/12/2)
 Const dbgCellScan = 0      ' 5E: 1 = HUD debug-rad med antal kvarblivna (icke-normaliserade) celltecken (mapBadN, ska vara 0)
 Const dbgEnemyBox = 0      ' 6F FIX A: 1 = DEBUG ONLY — semi-transparent overlay over the whole enemy sprite rect (the "ghost box"); OFF by default, all enemy debug drawing sits behind this flag
 DIM amX(10), amY(10), amActive(10), amT(10)   ' amT = ammoN(1)-typ per pickup (A=1,B=2,C=3,D=4)
 ' 6A: ammo delas per AMMO-TYP (1=musköt, 2=blunderbuss, 3=maskingevär, 4=mini-kanon).
 ' ammoN(1) är samma pool som gamla 'ammo' (musköten). capAmmo per typ.
 ' (Const AMMO_N/WP_* ligger före gun-DIM-raden; se kommentar där.)
-DIM SHARED ammoN(AMMO_N), capAmmo(AMMO_N), segAmmoN(AMMO_N)   ' segAmmoN = per-level-segment snapshot (RESTART LEVEL); SHARED: läses i HUD-Function
+DIM SHARED ammoN(AMMO_N), capAmmo(AMMO_N), segAmmoN(AMMO_N), amPickup(AMMO_N)   ' segAmmoN = per-level-segment snapshot; amPickup = 6H per-typ pickup-belopp (fylls i InitWeapons)
 DIM SHARED ammoHud$   ' 6D FIX B + 6G FIX 4: ammo-paneltext med VAPENNAMN "AMMO MUSKET:12 BLUNDERBUSS:2 MACHINE MUSKET:0 MINI CANNON:4" — byggs av BuildAmmoHud, visas i HUD + på result/victory/dead
 DIM SHARED amCol&(AMMO_N)   ' 6D FIX C: ammo-pickup färg per typ (A/B/C/D), fylls i InitWeapons
 
@@ -399,7 +399,8 @@ DIM SHARED renEH!, renEW!, renType, wmin!
 DIM SHARED stamina!, sprintLock, spdMul, sprintInj, sprintOn, stamPauseUntil!   ' sprintInj = selftest-injektion (hermetiskt); stamPauseUntil! = 6F FIX E: när regen-pulsen börjar igen efter tömning
 DIM SHARED injMvF, injMvB, injMvL, injMvR, injTurnL, injTurnR   ' 6F FIX A: hermetisk rörelse-injektion för selftest (i riktigt spel läses rörelse ENBART via _KEYDOWN-polling)
 ' 6G FIX 1/2: replay-mode — simulerade OS-tangenter som matas in i SAMMA polling-pipeline som riktiga
-DIM SHARED replayMode, keySim%(0 To 127), keySimShift   ' keySim% indexeras med VERSAL ascii (65..90); keySimShift = båda Shift
+DIM SHARED replayMode, keySim%(0 To 127), keySimShift, keySimFire   ' keySim% indexeras med VERSAL ascii (65..90); keySimShift = båda Shift; keySimFire = avfyra (6H reload-test)
+DIM SHARED enAliveN, enHPTot   ' 6H audit: aktiva fiender + deras total-HP (replay-telemetry)
 DIM SHARED replayAt&(0 To 2000), replayTok$(0 To 2000), replayN, replayCnt, replayLogF, replayClk&, replayPlayFr&   ' replayAt/replayTok = script /tmp/schleswig_replay.scr ("pN" = N frames efter state=playing); replayClk& = monoton frame-räknare (frames nollställs varje sekund för FPS)
 Const stamMax! = 100
 Const stamDrain! = 20      ' stamina/s vid sprint
@@ -696,9 +697,11 @@ Do
             rtok$ = replayTok$(replayN)
             rlen = Len(rtok$)
             If rlen >= 2 And Right$(rtok$, 1) = "+" Then
-                If rtok$ = "SH+" Then keySimShift = 1 Else keySim%(Asc(UCase$(Left$(rtok$, 1)))) = 1
+                If rtok$ = "SH+" Then keySimShift = 1
+                If rtok$ = "F+" Then keySimFire = 1 Else keySim%(Asc(UCase$(Left$(rtok$, 1)))) = 1
             ElseIf rlen >= 2 And Right$(rtok$, 1) = "-" Then
-                If rtok$ = "SH-" Then keySimShift = 0 Else keySim%(Asc(UCase$(Left$(rtok$, 1)))) = 0
+                If rtok$ = "SH-" Then keySimShift = 0
+                If rtok$ = "F-" Then keySimFire = 0 Else keySim%(Asc(UCase$(Left$(rtok$, 1)))) = 0
             ElseIf rlen = 1 Then
                 k$ = rtok$   ' tap: one-frame InKey$ event (real menu/select path)
             End If
@@ -1390,6 +1393,7 @@ Do
         If k$ >= "1" And k$ <= "5" Then
             wk = Val(k$) - 1
             If wpOwned(wk) And wk <> wpCur Then
+                wpRlT!(wpCur) = 0   ' 6H: vapenbyte avbryter pågående reload (mag oförändrat)
                 wpCur = wk: wpSwitchT! = wpSwitchDur!
                 PlaySoundVol SND_HIT, 0.4
             End If
@@ -1403,8 +1407,18 @@ Do
                 If wpOwned(wk) Then wj = 99
             Next wj
             If wpOwned(wk) And wk <> wpCur Then
+                wpRlT!(wpCur) = 0   ' 6H: vapenbyte avbryter pågående reload (mag oförändrat)
                 wpCur = wk: wpSwitchT! = wpSwitchDur!
                 PlaySoundVol SND_HIT, 0.4
+            End If
+        End If
+        ' 6H: R = manuell reload (KeyDown2% — versal+gemen; i replay/selftest även k$-tap).
+        ' Startar wpRlT om magasinet inte är fullt och poolen har ammo. Auto-reload kvar.
+        If KeyDown2%(Asc("R")) Or (replayMode And (k$ = "r" Or k$ = "R")) Or (selftest And (k$ = "r" Or k$ = "R")) Then
+            wpnR = wpCur
+            If wpMag(wpnR) > 0 And wpMagNow(wpnR) < wpMag(wpnR) And wpRlT!(wpnR) <= 0 And ammoN(wpAmmoT(wpnR)) > 0 Then
+                wpRlT!(wpnR) = wpReload!(wpnR)
+                hpMsg$ = "RELOADING": hpMsgTime = Timer
             End If
         End If
     End If
@@ -1472,6 +1486,7 @@ Do
         mmy = mdy
         If Abs(mmx) > 300 Then mmx = 0
         fireBtn = _MouseButton(1)
+        If replayMode And keySimFire Then fireBtn = 1   ' 6H: replay-token F+ avfyrar
         If fireBtn Then lockHint = 0   ' första klicket i rundan
     End If
     angle = angle + mmx * mouseSens * speed
@@ -1545,13 +1560,13 @@ Do
         End If
     Next i
 
-    ' ammo-pickups: avstånd < 0.5 tiles ger +ammoPickup ammo av pickupens TYP (6A: A/B/C/D)
+    ' ammo-pickups: avstånd < 0.5 tiles ger +amPickup(typ) ammo av pickupens TYP (6A: A/B/C/D; 6H: per-typ belopp 10/4/12/2)
     For i = 0 To 10
         If amActive(i) Then
             If Sqr((amX(i) - px) ^ 2 + (amY(i) - py) ^ 2) < 0.5 Then
                 amActive(i) = 0
                 at2 = amT(i): If at2 < 1 Or at2 > AMMO_N Then at2 = 1
-                ammoN(at2) = ammoN(at2) + ammoPickup     ' 5E: +10 per pickup (was +5)
+                ammoN(at2) = ammoN(at2) + amPickup(at2)   ' 6H: per-typ (var delad +10)
                 If ammoN(at2) > capAmmo(at2) Then ammoN(at2) = capAmmo(at2)  ' per-typ cap (överskott försvinner)
                 hpMsg$ = strAmmoPick$
                 hpMsgTime = Timer
@@ -1573,6 +1588,8 @@ Do
                         ammoN(wat) = ammoN(wat) + 4
                         If ammoN(wat) > capAmmo(wat) Then ammoN(wat) = capAmmo(wat)
                     End If
+                    wpMagNow(wt2) = wpMag(wt2)   ' 6H: fullt magasin direkt vid vapen-pickup
+                    wpRlT!(wt2) = 0
                     hpMsg$ = "GOT " + wpName$(wt2)
                     hpMsgTime = Timer
                     PlaySound SND_PICKUP
@@ -3025,9 +3042,13 @@ Do
     ' 6G FIX 1/2: replay-telemetry — var 5:e frame till /tmp/schleswig_replay.log (extern driver
     ' asserar rörelse/sticky/sprint där); var 120:e frame en skärmdump för HUD-pixelkontroll
     If replayMode And Not selftest And frames Mod 5 = 0 Then
+        enAliveN = 0: enHPTot = 0
+        For i = 0 To 10
+            If enActive(i) Then enAliveN = enAliveN + 1: enHPTot = enHPTot + enHP(i)
+        Next i
         replayLogF = FreeFile
         Open "/tmp/schleswig_replay.log" For Append As #replayLogF
-        Print #replayLogF, "fr=" + LTrim$(Str$(replayClk&)) + " st=" + state$ + " px=" + LTrim$(Str$(Int(px * 100) / 100)) + " py=" + LTrim$(Str$(Int(py * 100) / 100)) + " ang=" + LTrim$(Str$(Int(angle * 100) / 100)) + " mv=" + LTrim$(Str$(mvF)) + LTrim$(Str$(mvL)) + LTrim$(Str$(mvB)) + LTrim$(Str$(mvR)) + " pv=" + LTrim$(Str$(Int(pvx * 100) / 100)) + "," + LTrim$(Str$(Int(pvy * 100) / 100)) + " spd=" + LTrim$(Str$(spdMul)) + " stam=" + LTrim$(Str$(Int(stamina!))) + " lock=" + LTrim$(Str$(sprintLock)) + " ksW=" + LTrim$(Str$(keySim%(87))) + " ksSH=" + LTrim$(Str$(keySimShift)) + " ammo=" + LTrim$(Str$(ammoN(1))) + "," + LTrim$(Str$(ammoN(2))) + "," + LTrim$(Str$(ammoN(3))) + "," + LTrim$(Str$(ammoN(4)))   ' 6G ammo-replay: pool per ammo-typ (A/B/C/D = 1/2/3/4)
+        Print #replayLogF, "fr=" + LTrim$(Str$(replayClk&)) + " st=" + state$ + " px=" + LTrim$(Str$(Int(px * 100) / 100)) + " py=" + LTrim$(Str$(Int(py * 100) / 100)) + " ang=" + LTrim$(Str$(Int(angle * 100) / 100)) + " mv=" + LTrim$(Str$(mvF)) + LTrim$(Str$(mvL)) + LTrim$(Str$(mvB)) + LTrim$(Str$(mvR)) + " pv=" + LTrim$(Str$(Int(pvx * 100) / 100)) + "," + LTrim$(Str$(Int(pvy * 100) / 100)) + " spd=" + LTrim$(Str$(spdMul)) + " stam=" + LTrim$(Str$(Int(stamina!))) + " lock=" + LTrim$(Str$(sprintLock)) + " ksW=" + LTrim$(Str$(keySim%(87))) + " ksSH=" + LTrim$(Str$(keySimShift)) + " ammo=" + LTrim$(Str$(ammoN(1))) + "," + LTrim$(Str$(ammoN(2))) + "," + LTrim$(Str$(ammoN(3))) + "," + LTrim$(Str$(ammoN(4))) + " wp=" + LTrim$(Str$(wpCur)) + " mag=" + LTrim$(Str$(wpMagNow(wpCur))) + "/" + LTrim$(Str$(wpMag(wpCur))) + " rlt=" + LTrim$(Str$(Int(wpRlT!(wpCur) * 100) / 100)) + " shots=" + LTrim$(Str$(shotsFired)) + " alive=" + LTrim$(Str$(enAliveN)) + " enHP=" + LTrim$(Str$(enHPTot))   ' 6G ammo-replay + 6H reload/audit: pool per typ, valt vapen, magasin, reload-timer, skott, fiender
         Close #replayLogF
     End If
     If replayMode And Not selftest And state$ = "playing" And replayClk& Mod 120 = 0 Then _SaveImage "/tmp/schleswig_replay.bmp", display&
@@ -3222,12 +3243,14 @@ End Sub
 ' svagare per kula på håll via spridning). Dokumenterat i AGENTS.md.
 InitWeapons:
     wpName$(WP_AXE) = "AXE":          wpDmg(WP_AXE) = 3:  wpCool!(WP_AXE) = 1.2: wpRecoil!(WP_AXE) = 10: wpShake!(WP_AXE) = 1: wpSpread!(WP_AXE) = 0:    wpPellets(WP_AXE) = 1: wpAmmoT(WP_AXE) = 0: wpMag(WP_AXE) = 0: wpReload!(WP_AXE) = 0:    wpMelee(WP_AXE) = 1: wpArc(WP_AXE) = 0: wpBallSpd!(WP_AXE) = 0:  wpCol&(WP_AXE) = _RGB32(150, 110, 60):  wpSplashR!(WP_AXE) = 0:    wpSplashDmg(WP_AXE) = 0   ' 6D FIX E: cd 0.7->1.2 (musköt vinner på >=2 celler); 6B-KOMPLETT: dmg 8->3 (foot HP4 överlever ett hugg)
-    wpName$(WP_MUSKET) = "MUSKET":     wpDmg(WP_MUSKET) = plrBallDmg: wpCool!(WP_MUSKET) = 0.3: wpRecoil!(WP_MUSKET) = gunRecoil: wpShake!(WP_MUSKET) = gunShakeFrames: wpSpread!(WP_MUSKET) = 0: wpPellets(WP_MUSKET) = 1: wpAmmoT(WP_MUSKET) = 1: wpMag(WP_MUSKET) = 0: wpReload!(WP_MUSKET) = 0: wpMelee(WP_MUSKET) = 0: wpArc(WP_MUSKET) = 0: wpBallSpd!(WP_MUSKET) = plrBallSpd!: wpCol&(WP_MUSKET) = _RGB32(45, 45, 52): wpSplashR!(WP_MUSKET) = 0: wpSplashDmg(WP_MUSKET) = 0
+    wpName$(WP_MUSKET) = "MUSKET":     wpDmg(WP_MUSKET) = plrBallDmg: wpCool!(WP_MUSKET) = 0.3: wpRecoil!(WP_MUSKET) = gunRecoil: wpShake!(WP_MUSKET) = gunShakeFrames: wpSpread!(WP_MUSKET) = 0: wpPellets(WP_MUSKET) = 1: wpAmmoT(WP_MUSKET) = 1: wpMag(WP_MUSKET) = 1: wpReload!(WP_MUSKET) = 1.8: wpMelee(WP_MUSKET) = 0: wpArc(WP_MUSKET) = 0: wpBallSpd!(WP_MUSKET) = plrBallSpd!: wpCol&(WP_MUSKET) = _RGB32(45, 45, 52): wpSplashR!(WP_MUSKET) = 0: wpSplashDmg(WP_MUSKET) = 0   ' 6H: magasin 1 + reload 1.8 s
     wpName$(WP_BLUNDER) = "BLUNDERBUSS": wpDmg(WP_BLUNDER) = 2: wpCool!(WP_BLUNDER) = 0.9: wpRecoil!(WP_BLUNDER) = 30: wpShake!(WP_BLUNDER) = 5: wpSpread!(WP_BLUNDER) = 0.18: wpPellets(WP_BLUNDER) = 6: wpAmmoT(WP_BLUNDER) = 2: wpMag(WP_BLUNDER) = 2: wpReload!(WP_BLUNDER) = 1.2: wpMelee(WP_BLUNDER) = 0: wpArc(WP_BLUNDER) = 0: wpBallSpd!(WP_BLUNDER) = plrBallSpd!: wpCol&(WP_BLUNDER) = _RGB32(40, 36, 34): wpSplashR!(WP_BLUNDER) = 0: wpSplashDmg(WP_BLUNDER) = 0   ' 6B-KOMPLETT (iii) kombo: 6 kulor x dmg 2 i tätare kon (0.18 rad) — full träff <2 celler = >=4 dmg dödar foot (HP4); spridningen ger naturlig falloff på avstånd
-    wpName$(WP_MG) = "MACHINE MUSKET": wpDmg(WP_MG) = 1:  wpCool!(WP_MG) = 0.08: wpRecoil!(WP_MG) = 7:  wpShake!(WP_MG) = 2: wpSpread!(WP_MG) = 0.05: wpPellets(WP_MG) = 1: wpAmmoT(WP_MG) = 3: wpMag(WP_MG) = 0: wpReload!(WP_MG) = 0:    wpMelee(WP_MG) = 0: wpArc(WP_MG) = 0: wpBallSpd!(WP_MG) = 16:  wpCol&(WP_MG) = _RGB32(60, 60, 66):  wpSplashR!(WP_MG) = 0:    wpSplashDmg(WP_MG) = 0   ' 6D FIX D: MG ball 10->16 (musket now 12); 6B-KOMPLETT FIX G: namnbyte
-    wpName$(WP_CANNON) = "MINI CANNON": wpDmg(WP_CANNON) = 0: wpCool!(WP_CANNON) = 1.5: wpRecoil!(WP_CANNON) = 40: wpShake!(WP_CANNON) = 8: wpSpread!(WP_CANNON) = 0: wpPellets(WP_CANNON) = 1: wpAmmoT(WP_CANNON) = 4: wpMag(WP_CANNON) = 0: wpReload!(WP_CANNON) = 0: wpMelee(WP_CANNON) = 0: wpArc(WP_CANNON) = 1: wpBallSpd!(WP_CANNON) = 0: wpCol&(WP_CANNON) = _RGB32(110, 80, 40): wpSplashR!(WP_CANNON) = 2.0: wpSplashDmg(WP_CANNON) = 40   ' 6E FIX F: dmg 25->40; 6B-KOMPLETT FIX C: splashR 1.5->2.0
+    wpName$(WP_MG) = "MACHINE MUSKET": wpDmg(WP_MG) = 1:  wpCool!(WP_MG) = 0.08: wpRecoil!(WP_MG) = 7:  wpShake!(WP_MG) = 2: wpSpread!(WP_MG) = 0.05: wpPellets(WP_MG) = 1: wpAmmoT(WP_MG) = 3: wpMag(WP_MG) = 8: wpReload!(WP_MG) = 2.5: wpMelee(WP_MG) = 0: wpArc(WP_MG) = 0: wpBallSpd!(WP_MG) = 16:  wpCol&(WP_MG) = _RGB32(60, 60, 66):  wpSplashR!(WP_MG) = 0:    wpSplashDmg(WP_MG) = 0   ' 6D FIX D: MG ball 10->16; 6H: magasin 8 + reload 2.5 s
+    wpName$(WP_CANNON) = "MINI CANNON": wpDmg(WP_CANNON) = 0: wpCool!(WP_CANNON) = 1.5: wpRecoil!(WP_CANNON) = 40: wpShake!(WP_CANNON) = 8: wpSpread!(WP_CANNON) = 0: wpPellets(WP_CANNON) = 1: wpAmmoT(WP_CANNON) = 4: wpMag(WP_CANNON) = 1: wpReload!(WP_CANNON) = 2.2: wpMelee(WP_CANNON) = 0: wpArc(WP_CANNON) = 1: wpBallSpd!(WP_CANNON) = 0: wpCol&(WP_CANNON) = _RGB32(110, 80, 40): wpSplashR!(WP_CANNON) = 2.0: wpSplashDmg(WP_CANNON) = 40   ' 6E FIX F: dmg 25->40; 6B FIX C: splashR 2.0; 6H: magasin 1 + reload 2.2 s
     ' ammo-caps per typ (typ 1 = maxAmmo ärvt från 5E)
-    capAmmo(1) = maxAmmo: capAmmo(2) = 12: capAmmo(3) = 48: capAmmo(4) = 8   ' 6E FIX E: 20/6/24/4 -> 40/12/48/8 (minst dubbelt)
+    capAmmo(1) = maxAmmo: capAmmo(2) = 16: capAmmo(3) = 48: capAmmo(4) = 12   ' 6E FIX E: 40/12/48/8; 6H: B 12->16, D 8->12 (per-engagemangs-ekonomi med magasin)
+    ' 6H: per-typ pickup-belopp (ersätter den gamla delade konstanten): A=10, B=4, C=12, D=2
+    amPickup(1) = 10: amPickup(2) = 4: amPickup(3) = 12: amPickup(4) = 2
     ' 6D FIX C: ammo-pickup FÄRGER — fyra tydligt olika, EN per typ (legend i README):
     ' A=typ1 gul, B=typ2 orange, C=typ3 LJUSBLÅ (6G eye-dom: var cyan — kontrast mot orange B + mörk värld), D=typ4 magenta (+ formdiff i render)
     amCol&(1) = _RGB32(255, 220, 0)
@@ -7573,7 +7596,7 @@ SelftestDrive:
                 ammoN(1) = startAmmo   ' 6A: LoadLevel nollställer INTE ammo längre — simulera fresh round här
                 Gosub LoadLevel
                 c22ammo0 = ammoN(1)
-                stMsg$ = "5e-d: ammoN(1)-bot levels 1->3, startAmmo=" + Str$(ammoN(1)) + " pickup=+" + Str$(ammoPickup) + " cap=" + Str$(maxAmmo)
+                stMsg$ = "5e-d: ammoN(1)-bot levels 1->3, startAmmo=" + Str$(ammoN(1)) + " pickup=+" + Str$(amPickup(1)) + " cap=" + Str$(maxAmmo)
                 Gosub STLog
                 testFlag = 8: testT0 = Timer
             End If
@@ -7601,7 +7624,7 @@ SelftestDrive:
                             c22lvl = c22lvl + 1
                             If c22lvl > 3 Then
                                 If c22min >= 1 And c22ammo0 = startAmmo Then
-                                    stMsg$ = "PASS 5e-d-ammoN(1)-bot-levels-1-3 (cleared levels 1->3, ammoN(1) NEVER reached 0: min ammoN(1)=" + Str$(c22min) + " (startAmmo=" + Str$(startAmmo) + ", pickup=+" + Str$(ammoPickup) + ", cap=" + Str$(maxAmmo) + "), shots fired=" + Str$(c22shots) + ")"
+                                    stMsg$ = "PASS 5e-d-ammoN(1)-bot-levels-1-3 (cleared levels 1->3, ammoN(1) NEVER reached 0: min ammoN(1)=" + Str$(c22min) + " (startAmmo=" + Str$(startAmmo) + ", pickup=+" + Str$(amPickup(1)) + ", cap=" + Str$(maxAmmo) + "), shots fired=" + Str$(c22shots) + ")"
                                     Gosub STLog
                                 Else
                                     stMsg$ = "FAIL 5e-d minAmmo=" + Str$(c22min) + " ammo0=" + Str$(c22ammo0)
@@ -7968,6 +7991,7 @@ SelftestDrive:
                     enX(1) = px + 1: enY(1) = py: enActive(1) = 1: enHP(1) = 100: enSpd(1) = 0: enState(1) = 2: enType(1) = ET_FOOT: enFireT(1) = Timer + 99: enZigT(1) = Timer + 99
                     enDmg(1) = 0
                     For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 1: Next c23j
+                    For c2Xj = 0 To WP_COUNT - 1: wpMagNow(c2Xj) = wpMag(c2Xj): wpRlT!(c2Xj) = 0: Next c2Xj   ' 6H: fullt magasin i selftest-setup
                     wpCur = WP_AXE
                     dodgeSeed& = 1   ' DodgeRnd# ~0.51 > etDodgeMelee -> ingen dodge
                     bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
@@ -8038,6 +8062,7 @@ SelftestDrive:
                     enX(1) = 14.5: enY(1) = 5.5: enActive(1) = 1: enHP(1) = 3: enSpd(1) = 0: enState(1) = 1: enType(1) = ET_FOOT: enFireT(1) = Timer + 99: enZigT(1) = Timer + 99
                     enX(2) = 14.5: enY(2) = 5.7: enActive(2) = 1: enHP(2) = 3: enSpd(2) = 0: enState(2) = 1: enType(2) = ET_FOOT: enFireT(2) = Timer + 99: enZigT(2) = Timer + 99
                     For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 1: Next c23j
+                    For c2Xj = 0 To WP_COUNT - 1: wpMagNow(c2Xj) = wpMag(c2Xj): wpRlT!(c2Xj) = 0: Next c2Xj   ' 6H: fullt magasin i selftest-setup
                     wpCur = WP_CANNON: ammoN(4) = 4
                     lastShotTime = -1   ' kanon-cooldown 1.5 s — se till att första skottet går direkt
                     c23kills0 = killsTotal: c23hp0 = hp
@@ -8132,6 +8157,7 @@ SelftestDrive:
                     For c23j = 0 To 10: enActive(c23j) = 0: Next c23j
                     enX(1) = 10.5: enY(1) = 5.5: enActive(1) = 1: enHP(1) = 100: enSpd(1) = 0: enState(1) = 1: enType(1) = ET_FOOT: enFireT(1) = Timer + 99: enZigT(1) = Timer + 99
                     For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 1: Next c23j
+                    For c2Xj = 0 To WP_COUNT - 1: wpMagNow(c2Xj) = wpMag(c2Xj): wpRlT!(c2Xj) = 0: Next c2Xj   ' 6H: fullt magasin i selftest-setup
                     wpCur = WP_MUSKET: ammoN(1) = 20
                     dodgeSeed& = 2   ' DodgeRnd# ~0.028 < etDodge!(FOOT)=0.3 -> dodge triggas
                     bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
@@ -8307,7 +8333,7 @@ SelftestDrive:
                         enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                         For c23j = 0 To PR_MAX: prActive(c23j) = 0: Next c23j
                         For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 0: Next c23j
-                        wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                        wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                         bfsForX = -1: bfsForY = -1
                         winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                         runT0 = Timer - 3
@@ -8333,6 +8359,7 @@ SelftestDrive:
                     enActive(0) = 1: Gosub DummyFar: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                     For c23j = 0 To PR_MAX: prActive(c23j) = 0: Next c23j
                     For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 1: Next c23j
+                    For c2Xj = 0 To WP_COUNT - 1: wpMagNow(c2Xj) = wpMag(c2Xj): wpRlT!(c2Xj) = 0: Next c2Xj   ' 6H: fullt magasin i selftest-setup
                     wpCur = WP_CANNON: ammoN(4) = 5
                     lastShotTime = -1
                     bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
@@ -8399,6 +8426,8 @@ SelftestDrive:
                     enActive(0) = 1: Gosub DummyFar: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                     For c23j = 0 To PR_MAX: prActive(c23j) = 0: Next c23j
                     For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 1: Next c23j
+                    For c2Xj = 0 To WP_COUNT - 1: wpMagNow(c2Xj) = wpMag(c2Xj): wpRlT!(c2Xj) = 0: Next c2Xj   ' 6H: fullt magasin i selftest-setup
+                    For c23j = 0 To WP_COUNT - 1: wpMagNow(c23j) = wpMag(c23j): wpRlT!(c23j) = 0: Next c23j   ' 6H: fullt magasin i test-setup
                     ammoN(1) = 10: ammoN(2) = 2: ammoN(3) = 10: ammoN(4) = 1
                     wpCur = WP_MUSKET: lastShotTime = -1
                     bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
@@ -8406,9 +8435,10 @@ SelftestDrive:
                     c23ok = 0: c23i = 1: c23t = Timer
                     fireBtn = 1
                 ElseIf c23i = 1 Then
+                    ' 6H: magasin-vapen — skott drar från magasinet, pool rörs först vid reload
                     fireBtn = 0
                     If Timer - c23t >= 0.12 Then
-                        If ammoN(1) = 9 And ammoN(2) = 2 And ammoN(3) = 10 And ammoN(4) = 1 Then c23ok = c23ok + 1
+                        If wpMagNow(WP_MUSKET) = 0 And ammoN(1) = 10 And ammoN(2) = 2 And ammoN(3) = 10 And ammoN(4) = 1 Then c23ok = c23ok + 1   ' fire: mag 1->0, pool1 oförändrad
                         wpCur = WP_MG: lastShotTime = -1
                         c23i = 2: c23t = Timer
                         fireBtn = 1
@@ -8416,15 +8446,27 @@ SelftestDrive:
                 ElseIf c23i = 2 Then
                     fireBtn = 0
                     If Timer - c23t >= 0.12 Then
-                        If ammoN(3) = 9 And ammoN(1) = 9 And ammoN(2) = 2 And ammoN(4) = 1 Then c23ok = c23ok + 1
+                        If wpMagNow(WP_MG) = 7 And ammoN(3) = 10 And ammoN(1) = 10 And ammoN(2) = 2 And ammoN(4) = 1 Then c23ok = c23ok + 1   ' MG fire: mag 8->7, pool3 oförändrad
+                        c23i = 21: c23t = Timer   ' vänta på båda reloads (musket 1.8 s, MG 2.5 s)
+                    End If
+                ElseIf c23i = 21 Then
+                    If wpRlT!(WP_MUSKET) = 0 And wpRlT!(WP_MG) = 0 And Timer - c23t >= 0.2 Then
+                        If ammoN(1) = 9 And wpMagNow(WP_MUSKET) = 1 And ammoN(3) = 9 And wpMagNow(WP_MG) = 8 And ammoN(2) = 2 And ammoN(4) = 1 Then c23ok = c23ok + 1   ' reload: pool1 10->9, pool3 10->9, mag fyllda
                         For c23j = 0 To 10: amActive(c23j) = 0: Next c23j
                         amActive(0) = 1: amX(0) = px: amY(0) = py: amT(0) = 1
                         amActive(1) = 1: amX(1) = px: amY(1) = py: amT(1) = 3
                         c23i = 3: c23t = Timer
+                    ElseIf Timer - c23t >= 5 Then
+                        stMsg$ = "FAIL 6b-e-timeout-reload ammo=" + Str$(ammoN(1)) + "/" + Str$(ammoN(2)) + "/" + Str$(ammoN(3)) + "/" + Str$(ammoN(4)) + " mag=" + Str$(wpMagNow(WP_MUSKET)) + "/" + Str$(wpMagNow(WP_MG))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
                     End If
                 ElseIf c23i = 3 Then
                     If Timer - c23t >= 0.5 Then
-                        If ammoN(1) = 19 And ammoN(3) = 19 And ammoN(2) = 2 And ammoN(4) = 1 Then c23ok = c23ok + 1
+                        If ammoN(1) = 19 And ammoN(3) = 21 And ammoN(2) = 2 And ammoN(4) = 1 Then c23ok = c23ok + 1   ' pickup A +10->19, C +12->21, ENBART egen pool
                         amActive(0) = 1: amX(0) = px: amY(0) = py: amT(0) = 2
                         amActive(1) = 1: amX(1) = px: amY(1) = py: amT(1) = 4
                         c23i = 4: c23t = Timer
@@ -8438,9 +8480,9 @@ SelftestDrive:
                     End If
                 ElseIf c23i = 4 Then
                     If Timer - c23t >= 0.5 Then
-                        If ammoN(2) = capAmmo(2) And ammoN(4) = capAmmo(4) And ammoN(1) = 19 And ammoN(3) = 19 Then c23ok = c23ok + 1
+                        If ammoN(2) = 6 And ammoN(4) = 3 And ammoN(1) = 19 And ammoN(3) = 21 Then c23ok = c23ok + 1   ' 6H per-typ: B 2+4=6, D 1+2=3 (cap 16/12 ej nådd)
                         If c23ok = 4 Then
-                            stMsg$ = "PASS 6b-e-ammo-isolation (musköt: A 10->9, B/C/D kvar; MACHINE MUSKET: C 10->9, A kvar 9; pickup A laddar ENBART pool1 9->19, C ENBART pool3 9->19; B/D-paritet: B 2->cap " + Str$(capAmmo(2)) + ", D 1->cap " + Str$(capAmmo(4)) + ")"
+                            stMsg$ = "PASS 6b-e-ammo-isolation (6H magasin: fire drar mag (musket 1->0, MG 8->7) utan pooländring; reload fyller mag från EGEN pool (pool1 10->9, pool3 10->9); pickup A laddar ENBART pool1 9->19 (+10), C ENBART pool3 9->21 (+12); B 2->6 (+4), D 1->3 (+2))"
                             Gosub STLog
                             testFlag = 13: testT0 = Timer: c23i = 0: c23t = Timer: c23ok = 0: c23msg$ = ""
                         Else
@@ -8517,7 +8559,7 @@ SelftestDrive:
                         enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                         For c23j = 0 To PR_MAX: prActive(c23j) = 0: Next c23j
                         For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 0: Next c23j
-                        wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                        wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                         bfsForX = -1: bfsForY = -1
                         winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                         runT0 = Timer - 3
@@ -8550,7 +8592,7 @@ SelftestDrive:
                     enX(1) = px + Cos(0.35) * 3: enY(1) = py + Sin(0.35) * 3: enActive(1) = 1: enType(1) = ET_FOOT: enHP(1) = etHP(ET_FOOT): enSpd(1) = 0: enState(1) = 1: enFireT(1) = Timer + 99: enZigT(1) = Timer + 99
                     For c23j = 0 To PR_MAX: prActive(c23j) = 0: Next c23j
                     For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 0: Next c23j
-                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET: ammoN(1) = 5
+                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET: ammoN(1) = 5 : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                     lastShotTime = -1
                     prLastOwner = -1: prLastType = -1
                     bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
@@ -8610,6 +8652,8 @@ SelftestDrive:
                     For c23j = 0 To 10: enActive(c23j) = 0: Next c23j
                     enActive(0) = 1: Gosub DummyFar: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                     For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 1: Next c23j
+                    For c2Xj = 0 To WP_COUNT - 1: wpMagNow(c2Xj) = wpMag(c2Xj): wpRlT!(c2Xj) = 0: Next c2Xj   ' 6H: fullt magasin i selftest-setup
+                    For c23j = 0 To WP_COUNT - 1: wpMagNow(c23j) = wpMag(c23j): wpRlT!(c23j) = 0: Next c23j   ' 6H: fullt magasin i setup
                     wpCur = WP_MUSKET
                     ammoN(1) = 12: ammoN(2) = 2: ammoN(3) = 0: ammoN(4) = 4
                     bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
@@ -8618,8 +8662,7 @@ SelftestDrive:
                 ElseIf c23i = 1 Then
                     If Timer - c23t >= 0.3 Then
                         Gosub BuildAmmoHud
-                        If ammoHud$ = "AMMO  MUSKET:12  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" And InStr(wpHud$, "MUSKET*12") > 0 Then c23ok = c23ok + 1
-                        ' avfyra musköt -> A 12->11, panel uppdateras
+                        If ammoHud$ = "AMMO  MUSKET:12  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" And InStr(wpHud$, "MUSKET*1/1") > 0 Then c23ok = c23ok + 1   ' 6H: vapenrad visar magasin n/m för magasin-vapen
                         lastShotTime = -1
                         c23i = 2: c23t = Timer
                         fireBtn = 1
@@ -8628,17 +8671,29 @@ SelftestDrive:
                     fireBtn = 0
                     If Timer - c23t >= 0.15 Then
                         Gosub BuildAmmoHud
-                        If ammoN(1) = 11 And ammoHud$ = "AMMO  MUSKET:11  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" And InStr(wpHud$, "MUSKET*11") > 0 Then c23ok = c23ok + 1
-                        ' pickup typ A på spelaren -> A 11+10=21 (cap 40 efter 6E FIX E)
+                        If wpMagNow(WP_MUSKET) = 0 And ammoN(1) = 12 And ammoHud$ = "AMMO  MUSKET:12  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" And InStr(wpHud$, "MUSKET*0/1") > 0 Then c23ok = c23ok + 1   ' 6H: fire drar mag 1->0, pool kvar 12
+                        c23i = 21: c23t = Timer
+                    End If
+                ElseIf c23i = 21 Then
+                    If wpRlT!(WP_MUSKET) = 0 And Timer - c23t >= 0.2 Then
+                        Gosub BuildAmmoHud
+                        If ammoN(1) = 11 And wpMagNow(WP_MUSKET) = 1 And ammoHud$ = "AMMO  MUSKET:11  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" And InStr(wpHud$, "MUSKET*1/1") > 0 Then c23ok = c23ok + 1   ' 6H: reload från pool: A 12->11, mag 1
                         For c23j = 0 To 10: amActive(c23j) = 0: Next c23j
                         amActive(0) = 1: amX(0) = px: amY(0) = py: amT(0) = 1
                         c23i = 3: c23t = Timer
+                    ElseIf Timer - c23t >= 4 Then
+                        stMsg$ = "FAIL 6d-b-timeout-reload ammoN1=" + Str$(ammoN(1)) + " mag=" + Str$(wpMagNow(WP_MUSKET))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
                     End If
                 ElseIf c23i = 3 Then
                     If Timer - c23t >= 0.5 Then
                         Gosub BuildAmmoHud
-                        If ammoN(1) = 21 And ammoHud$ = "AMMO  MUSKET:21  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" And InStr(wpHud$, "MUSKET*21") > 0 And c23ok = 2 Then
-                            stMsg$ = "PASS 6d-b-hud-ammo-panel (panel '" + ammoHud$ + "' alltid alla fyra; musköt fire A 12->11; pickup A 11+10->21 (cap 40); vapenlistan 'MUSKET*21')"
+                        If ammoN(1) = 21 And ammoHud$ = "AMMO  MUSKET:21  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" And InStr(wpHud$, "MUSKET*1/1") > 0 And c23ok = 3 Then
+                            stMsg$ = "PASS 6d-b-hud-ammo-panel (panel '" + ammoHud$ + "' alltid alla fyra pooler; 6H magasin: vapenrad 'MUSKET*1/1'->'MUSKET*0/1' vid fire, reload fyller mag från pool A 12->11; pickup A 11+10->21 (cap 40))"
                             Gosub STLog
                             testFlag = 16: testT0 = Timer: c23i = 0: c23t = Timer: c23ok = 0
                         Else
@@ -8721,7 +8776,7 @@ SelftestDrive:
                     enActive(0) = 1: Gosub DummyFar: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                     For c23j = 0 To PR_MAX: prActive(c23j) = 0: Next c23j
                     For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 0: Next c23j
-                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET: ammoN(1) = 5
+                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET: ammoN(1) = 5 : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                     lastShotTime = -1
                     prLastOwner = -1: prLastType = -1
                     bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
@@ -8748,7 +8803,7 @@ SelftestDrive:
                             enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                             For c23j = 0 To PR_MAX: prActive(c23j) = 0: Next c23j
                             For c23j = 0 To WP_COUNT - 1: wpOwned(c23j) = 0: Next c23j
-                            wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                            wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                             bfsForX = -1: bfsForY = -1
                             winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                             runT0 = Timer - 3
@@ -9055,7 +9110,7 @@ SelftestDrive:
                     enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                     For c24j = 0 To PR_MAX: prActive(c24j) = 0: Next c24j
                     For c24j = 0 To WP_COUNT - 1: wpOwned(c24j) = 0: Next c24j
-                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                     bfsForX = -1: bfsForY = -1
                     winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                     runT0 = Timer - 3
@@ -9324,7 +9379,7 @@ SelftestDrive:
                     lvlIdx = 0
                     ammoN(1) = startAmmo
                     For c25i = 0 To WP_COUNT - 1: wpOwned(c25i) = 0: Next c25i
-                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                     For c25i = 0 To ET_COUNT - 1: etDodge!(c25i) = 0: Next c25i
                     c25msave = moveStep: moveStep = 0.08
                     c25lvl = 1: c25min = 999: c25assist = 0: c25bot = 0: c25sh0 = shotsFired
@@ -9480,7 +9535,7 @@ SelftestDrive:
                     enActive(0) = 1: Gosub DummyFar: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                     For c25i = 0 To PR_MAX: prActive(c25i) = 0: Next c25i
                     For c25i = 0 To WP_COUNT - 1: wpOwned(c25i) = 0: Next c25i
-                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                     bfsForX = -1: bfsForY = -1
                     winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                     runT0 = Timer - 3
@@ -9590,7 +9645,7 @@ SelftestDrive:
                     shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: killsTotal = 0
                     ammoN(1) = startAmmo
                     For c25i = 0 To WP_COUNT - 1: wpOwned(c25i) = 0: Next c25i
-                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                     For c25i = 0 To ET_COUNT - 1: etDodge!(c25i) = 0: Next c25i
                     Gosub LoadLevel
                     c25j = 1: c25t = Timer: c25lvl = 0: c25ok = 0
@@ -9635,7 +9690,7 @@ SelftestDrive:
                     enActive(0) = 1: Gosub DummyFar: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                     For c25i = 0 To PR_MAX: prActive(c25i) = 0: Next c25i
                     For c25i = 0 To WP_COUNT - 1: wpOwned(c25i) = 0: Next c25i
-                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                     bfsForX = -1: bfsForY = -1
                     winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                     runT0 = Timer - 3
@@ -10254,7 +10309,7 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
                 For c26j = 0 To WP_COUNT - 1: wpOwned(c26j) = 0: Next c26j
-                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3
@@ -10444,7 +10499,7 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c27j = 0 To PR_MAX: prActive(c27j) = 0: Next c27j
                 For c27j = 0 To WP_COUNT - 1: wpOwned(c27j) = 0: Next c27j
-                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3
@@ -10567,7 +10622,7 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c28j = 0 To PR_MAX: prActive(c28j) = 0: Next c28j
                 For c28j = 0 To WP_COUNT - 1: wpOwned(c28j) = 0: Next c28j
-                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3
@@ -10585,6 +10640,7 @@ SelftestDrive:
                 enActive(0) = 1: Gosub DummyFar: enType(0) = ET_FOOT: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99   ' dummy håller win-triggern borta
                 For c29j = 0 To PR_MAX: prActive(c29j) = 0: Next c29j
                 For c29j = 0 To WP_COUNT - 1: wpOwned(c29j) = 1: Next c29j
+                    For c2Xj = 0 To WP_COUNT - 1: wpMagNow(c2Xj) = wpMag(c2Xj): wpRlT!(c2Xj) = 0: Next c2Xj   ' 6H: fullt magasin i selftest-setup
                 wpCur = WP_MUSKET: ammoN(1) = 40: lastShotTime = -99
                 bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
                 state$ = "playing"
@@ -10685,14 +10741,14 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c29j = 0 To PR_MAX: prActive(c29j) = 0: Next c29j
                 For c29j = 0 To WP_COUNT - 1: wpOwned(c29j) = 0: Next c29j
-                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3
                 state$ = "playing"
                 testPhase = 30: testT0 = Timer: testFlag = 0   ' 6F-FULL: vidare till 6f-f (ammo-pickups)
             End If
-        Case 30  ' 6F-FULL 6f-f: ammo-pickups — gå över kart-spawnade A/B/C/D ger +ammoPickup
+        Case 30  ' 6F-FULL 6f-f: ammo-pickups — gå över kart-spawnade A/B/C/D ger +amPickup(typ)
                  ' per TYP; överlappande multi-pickups samma frame; 0-ammo edge; cap-edge
                  ' (inget överskott); förrådet PERSISTERAR över LoadLevel (nivåsektioner);
                  ' HUD-panelen uppdateras.
@@ -10728,16 +10784,16 @@ SelftestDrive:
                     Next c30j
                     If c30act = 0 Or Timer - c30t > 8 Then
                         injMvF = 0
-                        ' (a) gå-över-grant per typ: ammoN(t) = min(0+10, capAmmo(t)) (cap 40/12/48/8)
+                        ' (a) gå-över-grant per typ: ammoN(t) = min(0+amPickup(t), capAmmo(t)) (6H: 10/4/12/2, cap 40/16/48/12)
                         c30ok = 0
                         For c30j = 1 To AMMO_N
-                            c30exp = ammoPickup: If c30exp > capAmmo(c30j) Then c30exp = capAmmo(c30j)
+                            c30exp = amPickup(c30j): If c30exp > capAmmo(c30j) Then c30exp = capAmmo(c30j)
                             If ammoN(c30j) = c30exp Then c30ok = c30ok + 1
                             c30msg$ = c30msg$ + " t" + Str$(c30j) + "=" + Str$(ammoN(c30j)) + "/" + Str$(c30exp)
                         Next c30j
-                        ' (b) HUD-uppdatering: ammoHud$ ska visa aktuella värden (A:10 B:10 C:10 D:8 — D capas vid 8)
+                        ' (b) HUD-uppdatering: ammoHud$ ska visa aktuella värden (6H per-typ: A:10 B:4 C:12 D:2)
                         Gosub BuildAmmoHud
-                        If ammoHud$ = "AMMO  MUSKET:10  BLUNDERBUSS:10  MACHINE MUSKET:10  MINI CANNON:8" Then c30ok = c30ok + 1
+                        If ammoHud$ = "AMMO  MUSKET:10  BLUNDERBUSS:4  MACHINE MUSKET:12  MINI CANNON:2" Then c30ok = c30ok + 1
                         c30i = 2: c30t = Timer
                     End If
                 ElseIf c30i = 2 Then
@@ -10751,10 +10807,10 @@ SelftestDrive:
                     End If
                 ElseIf c30i = 3 Then
                     If Timer - c30t >= 0.3 Then
-                        c30exp = c30a0(2) + ammoPickup: If c30exp > capAmmo(2) Then c30exp = capAmmo(2)
-                        If ammoN(1) = c30a0(1) + ammoPickup And ammoN(2) = c30exp And amActive(0) = 0 And amActive(1) = 0 Then c30ok = c30ok + 1
+                        c30exp = c30a0(2) + amPickup(2): If c30exp > capAmmo(2) Then c30exp = capAmmo(2)
+                        If ammoN(1) = c30a0(1) + amPickup(1) And ammoN(2) = c30exp And amActive(0) = 0 And amActive(1) = 0 Then c30ok = c30ok + 1
                         c30msg$ = c30msg$ + " overlap[1:" + Str$(c30a0(1)) + "->" + Str$(ammoN(1)) + " 2:" + Str$(c30a0(2)) + "->" + Str$(ammoN(2)) + "/" + Str$(c30exp) + "]"
-                        ' (d) 0-ammo edge: C-pickup vid 0 ger exakt +10
+                        ' (d) 0-ammo edge: C-pickup vid 0 ger exakt +amPickup(3)=12
                         ammoN(3) = 0
                         For c30j = 0 To 10: amActive(c30j) = 0: Next c30j
                         amActive(0) = 1: amX(0) = px: amY(0) = py: amT(0) = 3
@@ -10762,7 +10818,7 @@ SelftestDrive:
                     End If
                 ElseIf c30i = 4 Then
                     If Timer - c30t >= 0.3 Then
-                        If ammoN(3) = 10 Then c30ok = c30ok + 1
+                        If ammoN(3) = 12 Then c30ok = c30ok + 1
                         ' cap-edge: B-pickup vid cap ger inget överskott
                         ammoN(2) = capAmmo(2)
                         For c30j = 0 To 10: amActive(c30j) = 0: Next c30j
@@ -10782,7 +10838,7 @@ SelftestDrive:
                     End If
                 ElseIf c30i = 6 Then
                     If c30ok = 9 Then
-                        stMsg$ = "PASS 6f-f-ammo-pickups (gå över A/B/C/D ger +10 per typ, capad: A/B/C 0->10, D 0->8=cap; HUD-panel MUSKET:10 BLUNDERBUSS:10 MACHINE MUSKET:10 MINI CANNON:8; överlappande multi-pickups samma frame; 0-ammo edge +10; cap-edge utan overflow; ammoN persisterar över LoadLevel) " + c30msg$
+                        stMsg$ = "PASS 6f-f-ammo-pickups (gå över A/B/C/D ger +amPickup per typ (6H: 10/4/12/2), capad 40/16/48/12: A 0->10, B 0->4, C 0->12, D 0->2; HUD-panel MUSKET:10 BLUNDERBUSS:4 MACHINE MUSKET:12 MINI CANNON:2; överlappande multi-pickups samma frame; 0-ammo edge +12; cap-edge utan overflow; ammoN persisterar över LoadLevel) " + c30msg$
                         Gosub STLog
                         testFlag = 2: testT0 = Timer
                     Else
@@ -10816,7 +10872,7 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c30j = 0 To PR_MAX: prActive(c30j) = 0: Next c30j
                 For c30j = 0 To WP_COUNT - 1: wpOwned(c30j) = 0: Next c30j
-                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3
@@ -10889,7 +10945,7 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c31j = 0 To PR_MAX: prActive(c31j) = 0: Next c31j
                 For c31j = 0 To WP_COUNT - 1: wpOwned(c31j) = 0: Next c31j
-                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3
@@ -10976,7 +11032,7 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c32j = 0 To PR_MAX: prActive(c32j) = 0: Next c32j
                 For c32j = 0 To WP_COUNT - 1: wpOwned(c32j) = 0: Next c32j
-                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3
@@ -11090,7 +11146,7 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c33j = 0 To PR_MAX: prActive(c33j) = 0: Next c33j
                 For c33j = 0 To WP_COUNT - 1: wpOwned(c33j) = 0: Next c33j
-                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3
@@ -11166,7 +11222,7 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c33j = 0 To PR_MAX: prActive(c33j) = 0: Next c33j
                 For c33j = 0 To WP_COUNT - 1: wpOwned(c33j) = 0: Next c33j
-                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3
@@ -11207,7 +11263,7 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c33j = 0 To PR_MAX: prActive(c33j) = 0: Next c33j
                 For c33j = 0 To WP_COUNT - 1: wpOwned(c33j) = 0: Next c33j
-                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3
@@ -11280,7 +11336,7 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c33j = 0 To PR_MAX: prActive(c33j) = 0: Next c33j
                 For c33j = 0 To WP_COUNT - 1: wpOwned(c33j) = 0: Next c33j
-                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3

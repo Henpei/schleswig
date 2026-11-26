@@ -80,12 +80,27 @@ data) — see AGENTS.md.
 - Mouse: look around. NOTE (Wayland): pointer lock engages on the first mouse
   click in game (the protocol requires a user gesture)
 - Left mouse button: attack / shoot (per weapon)
-- Digit keys 1-5: select owned weapon (unowned = nothing happens); [ and ]: previous/next owned weapon
-- Weapons: start with the AXE (melee, no ammo). Pickups in the maps:
-  `y` axe, `m` musket, `f` blunderbuss (double barrel, 2-shot magazine),
-  `k` machine musket, `c` mini cannon (arcing grenade, splash damage).
-  Ammo pickups per type: `A` musket, `B` blunderbuss, `C` machine musket, `D` mini cannon
-  (HUD ammo panel shows the WEAPON NAMES, not the letters:
+- Digit keys 1-5: select owned weapon (unowned = nothing happens); [ and ]: previous/next owned weapon.
+  Switching weapons CANCELS an ongoing reload (magazine stays as it is).
+- R: manual reload (6H) — starts a reload if the current weapon's magazine isn't full
+  and its ammo pool > 0. Firing with an empty magazine also auto-starts a reload.
+  When the reload finishes the magazine is filled FROM the ammo pool.
+- Weapons (6H magazine system): start with the AXE (melee, no ammo). Pickups in the maps:
+  `y` axe, `m` musket, `f` blunderbuss, `k` machine musket, `c` mini cannon
+  (arcing grenade, splash damage). A weapon pickup grants the weapon with a FULL magazine.
+
+  | Weapon | Magazine | Reload | Pool cap |
+  |---|---|---|---|
+  | AXE (`y`) | — (melee) | — | — |
+  | MUSKET (`m`) | 1 | 1.8 s | 40 |
+  | BLUNDERBUSS (`f`) | 2 | 1.2 s | 16 |
+  | MACHINE MUSKET (`k`) | 8 | 2.5 s | 48 |
+  | MINI CANNON (`c`) | 1 | 2.2 s | 12 |
+
+  Ammo pickups per type (6H per-type amounts): `A` musket **+10**, `B` blunderbuss **+4**,
+  `C` machine musket **+12**, `D` mini cannon **+2**
+  (HUD ammo panel shows the WEAPON NAMES with pools, and the weapon line shows
+  `NAME mag/magCap` for magazine weapons:
   `AMMO  MUSKET:n  BLUNDERBUSS:n  MACHINE MUSKET:n  MINI CANNON:n`).
   Weapons and ammo carry over between campaign levels (only a fresh round resets them;
   RESTART LEVEL keeps weapons and restores ammo to the level-segment start).
@@ -167,9 +182,10 @@ can tell them apart at a distance:
 - Keys `b`/`s`/`g`: bronze / silver / gold colored keys
 - Weapon pickups `y`/`m`/`f`/`k`/`c`: keep their own weapon color with a glint
 
-The HUD ammo panel always shows all four pools (`AMMO  A:n  B:n  C:n  D:n`,
-zeros visible), and each owned weapon in the weapon list shows its own pool
-(e.g. `2:MUSKET*12`). The same panel is printed on the result, victory and
+The HUD ammo panel always shows all four pools by WEAPON NAME
+(`AMMO  MUSKET:n  BLUNDERBUSS:n  MACHINE MUSKET:n  MINI CANNON:n`, zeros visible),
+and each owned magazine weapon in the weapon list shows `mag/magCap`
+(e.g. `2:MUSKET*1/1`). The same panel is printed on the result, victory and
 death screens.
 
 ### Projectile colors (6F)

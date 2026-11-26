@@ -4,7 +4,7 @@ headless (SDL dummy drivers) through the REAL app flow menu -> StartRun ->
 fade -> playing, walks the player over one ammo pickup of EACH type
 (A/B/C/D) and asserts from the game's own telemetry log
 (/tmp/schleswig_replay.log, "ammo=n1,n2,n3,n4" per frame) that every pool
-grows by the pickup amount (+10, capped per type) exactly when the player
+grows by the per-type pickup amount (6H amPickup 10/4/12/2, capped per type) exactly when the player
 passes over the pickup cell.
 
 Fixture map is generated in /tmp (the real maps/*.map are NOT touched).
@@ -23,8 +23,8 @@ SCR = "/tmp/schleswig_replay.scr"
 LOG = "/tmp/schleswig_replay.log"
 MAP = "/tmp/schleswig_ammo_map.map"
 
-CAPS = {1: 40, 2: 12, 3: 48, 4: 8}          # capAmmo per type (musket/blunder/MG/cannon)
-PICKUP = 10                                  # Const ammoPickup
+CAPS = {1: 40, 2: 16, 3: 48, 4: 12}         # 6H capAmmo per type (musket/blunder/MG/cannon; B 12->16, D 8->12)
+PICKUP = {1: 10, 2: 4, 3: 12, 4: 2}         # 6H amPickup(AMMO_N) per type (was single Const +10)
 CHARS = {1: "A", 2: "B", 3: "C", 4: "D"}     # map char per ammo type
 PX = {1: 3.5, 2: 4.5, 3: 5.5, 4: 6.5}        # pickup cell centers on row 29
 PY = 29.5
@@ -124,7 +124,7 @@ print()
 print("%-6s %-14s %-14s %-6s %s" % ("typ", "pool före->efter", "forvantad delta", "pos", "verdict"))
 for t in (1, 2, 3, 4):
     ev = events[t]
-    exp = min(PICKUP, CAPS[t] - (ev["before"] if ev else 0))
+    exp = min(PICKUP[t], CAPS[t] - (ev["before"] if ev else 0))
     if ev is None:
         print("%-6s %-14s %-14s %-6s %s" % (CHARS[t], "-", "-", "-", "FAIL (ingen pickup)"))
         check("ammo type %s (%s) picked up" % (CHARS[t], t), False, "no pool change in telemetry")
@@ -143,4 +143,4 @@ if fails:
     print("AMMO REPLAY TEST FAIL:", fails)
     sys.exit(1)
 print("AMMO REPLAY TEST OK — all four ammo pickups PROVEN in real flow (menu->playing, walked over):")
-print("  A(musket) B(blunderbuss) C(machine musket) D(mini cannon) each grant their pool +10 (capped)")
+print("  A(musket)+10 B(blunderbuss)+4 C(machine musket)+12 D(mini cannon)+2 (6H per-typ amPickup, capped)")
