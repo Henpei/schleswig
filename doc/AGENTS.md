@@ -371,7 +371,8 @@ FIX B (HUD ammo panel): BuildAmmoHud builds `ammoHud$ = "AMMO  A:n  B:n  C:n
   pool (`2:MUSKET*12`, axe `--`, magazine `n/m`). Selftest 6d-b asserts the
   panel text across fire/pickup.
 FIX C (pickup readability): amCol&(1..4) — A yellow (255,220,0), B orange
-  (255,120,0), C cyan (0,220,255), D magenta (255,0,200) — each ammo box is
+  (255,120,0), C light blue (110,170,255) (6G eye-dom: was cyan 0,220,255),
+  D magenta (255,0,200) — each ammo box is
   drawn in its type color plus a shape mark (A dot, B horizontal bar, C
   vertical bar, D cross); medkit stays red+cross, keys bronze/silver/gold,
   weapon pickups keep wpCol& + glint. README has the color legend table.

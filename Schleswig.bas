@@ -2126,6 +2126,9 @@ Do
                     ' pbase = golvlinjen vid avståndet pdist: horisont + halva
                     ' vägghöjden där (samma perspectiv som väggarna), + pitch.
                     pbase = midY + RH / (2 * pdist) + pitch
+                    ' 6G eye-dom: medkit-boxen blir FYRKANTIG (sida = ph, centrerad på pcx)
+                    ' så den skiljer sig från de rektangulära ammo-boxarna (Danska flaggan-effekten)
+                    pw = ph
                     x0 = Int(pcx - pw / 2): x1 = Int(pcx + pw / 2)
                     If x0 < 0 Then x0 = 0
                     If x1 > RW - 1 Then x1 = RW - 1
@@ -2139,12 +2142,11 @@ Do
                     If cx < 0 Then cx = 0
                     If cx > RW - 1 Then cx = RW - 1
                     If x0 <= x1 Then
-                        ' 6G pickup-visualitet: vitt kors KRAFTIGARE — stapelbredd pmt skalad med
-                        ' sprite-höjden (ph/8, 2..6 px) så korset är tydligt på spelavstånd
-                        ' (vid ~9 celler är boxen ~53x30 px och korset ~3 px tjockt)
-                        pmt = Int(ph / 8)
+                        ' 6G pickup-visualitet: vitt kors i stapelbredd pmt skalad med sprite-höjden
+                        ' (ph/12, 2..4 px = 5..9 px tjocklek; 6G eye-dom: 5 px vid ~9 celler "lagom")
+                        pmt = Int(ph / 12)
                         If pmt < 2 Then pmt = 2
-                        If pmt > 6 Then pmt = 6
+                        If pmt > 4 Then pmt = 4
                         pmid = Int(pbase - ph / 2)
                         For sx = cx - pmt To cx + pmt   ' lodrätt stapel
                             If sx >= 0 And sx <= RW - 1 Then
@@ -2193,12 +2195,12 @@ Do
                     If cx < 0 Then cx = 0
                     If cx > RW - 1 Then cx = RW - 1
                     If x0 <= x1 Then
-                        ' 6G pickup-visualitet: formdiff per typ i TJOCK vit (pmt = ph/8, 2..6 px,
-                        ' skalad med sprite-storleken — vid ~9 celler är boxen ~53x30 px och
-                        ' märket ~3 px tjockt). A: STOR prick med mörk kontring runt vit kärna.
-                        pmt = Int(ph / 8)
+                        ' 6G pickup-visualitet: formdiff per typ i TJOCK vit (pmt = ph/12, 2..4 px
+                        ' = 5..9 px tjocklek, vid ~9 celler 5 px — eye-dom "lagom").
+                        ' A: STOR prick med mörk kontring runt vit kärna.
+                        pmt = Int(ph / 12)
                         If pmt < 2 Then pmt = 2
-                        If pmt > 6 Then pmt = 6
+                        If pmt > 4 Then pmt = 4
                         pmid = Int(pbase - ph / 2)
                         If amTi = 1 Then
                             ' stor prick: mörk ring (svart) + vit kärna
@@ -3227,10 +3229,10 @@ InitWeapons:
     ' ammo-caps per typ (typ 1 = maxAmmo ärvt från 5E)
     capAmmo(1) = maxAmmo: capAmmo(2) = 12: capAmmo(3) = 48: capAmmo(4) = 8   ' 6E FIX E: 20/6/24/4 -> 40/12/48/8 (minst dubbelt)
     ' 6D FIX C: ammo-pickup FÄRGER — fyra tydligt olika, EN per typ (legend i README):
-    ' A=typ1 gul, B=typ2 orange, C=typ3 cyan, D=typ4 magenta (+ formdiff i render)
+    ' A=typ1 gul, B=typ2 orange, C=typ3 LJUSBLÅ (6G eye-dom: var cyan — kontrast mot orange B + mörk värld), D=typ4 magenta (+ formdiff i render)
     amCol&(1) = _RGB32(255, 220, 0)
     amCol&(2) = _RGB32(255, 120, 0)
-    amCol&(3) = _RGB32(0, 220, 255)
+    amCol&(3) = _RGB32(110, 170, 255)
     amCol&(4) = _RGB32(255, 0, 200)
     Return
 
@@ -8694,10 +8696,10 @@ SelftestDrive:
                             c23txt$ = c23txt$ + LCase$(c23ln$) + Chr$(10)
                         Wend
                         Close #c23h&
-                        If InStr(c23txt$, "legend") > 0 And InStr(c23txt$, "yellow") > 0 And InStr(c23txt$, "orange") > 0 And InStr(c23txt$, "cyan") > 0 And InStr(c23txt$, "magenta") > 0 Then c23ok = c23ok + 1
+                        If InStr(c23txt$, "legend") > 0 And InStr(c23txt$, "yellow") > 0 And InStr(c23txt$, "orange") > 0 And InStr(c23txt$, "light blue") > 0 And InStr(c23txt$, "magenta") > 0 Then c23ok = c23ok + 1   ' 6G: C = light blue (var cyan)
                     End If
                     If c23ok = 2 Then
-                        stMsg$ = "PASS 6d-c-pickup-colors (A/B/C/D parvis unika + skiljer sig från medkit/nycklar; README-legend med yellow/orange/cyan/magenta matchar Const-tabellen)"
+                        stMsg$ = "PASS 6d-c-pickup-colors (A/B/C/D parvis unika + skiljer sig från medkit/nycklar; README-legend med yellow/orange/light blue/magenta matchar Const-tabellen)"
                         Gosub STLog
                         testFlag = 17: testT0 = Timer: c23i = 0: c23t = Timer: c23ok = 0
                     Else

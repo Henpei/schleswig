@@ -160,9 +160,10 @@ can tell them apart at a distance:
 
 - Ammo `A` (musket): **yellow** box, dot mark
 - Ammo `B` (blunderbuss): **orange** box, horizontal bar mark
-- Ammo `C` (machine musket): **cyan** box, vertical bar mark
+- Ammo `C` (machine musket): **light blue** (RGB 110,170,255) box, vertical bar mark
 - Ammo `D` (mini cannon): **magenta** box, cross mark
-- Medkit `M`: red box with a white cross
+- Medkit `M`: red **square** box with a centered white cross (square = distinct
+  from the rectangular ammo boxes)
 - Keys `b`/`s`/`g`: bronze / silver / gold colored keys
 - Weapon pickups `y`/`m`/`f`/`k`/`c`: keep their own weapon color with a glint
 
