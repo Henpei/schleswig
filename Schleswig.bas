@@ -107,6 +107,7 @@ DIM c31msg$   ' 6f-g: diagnostiksträng
 DIM c32s, c32ok, c32neg, c32over, c32pauseBad, c32mathBad, c32j, c32t0, c32lockT, c32lockSt, c32lockSpd, c32unlockT, c32unlockSt, c32fullT, c32spdMax!, c32stPrev, c32msg$   ' Fas 32 (6F-FULL 6f-h) sprint/stamina selftest vars
 DIM c33k, c33s, c33f, c33ok, c33badK, c33sawMv, c33j, c33t, c33keys(3), c33px0, c33py0, c33pxR, c33pyR, c33moved!, c33spdSaw!, c33st0, c33drained   ' Fas 33 (6G 6g-a) KeyDown2%-polling rörelse selftest vars
 DIM c33msg$   ' 6g-a: diagnostiksträng
+DIM c34s, c34ok, c34done, c34fill&, c34tail&   ' Fas 34 (6G 6g-c) stamina-HUD pixel-probe selftest vars
 DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
@@ -2811,8 +2812,9 @@ Do
     ' (muslås-hint borttagen — Wayland låser vid första klicket, ingen text behövs)
 
     ' HP-ruta nertill vänster: bar-längd + siffra (tydligt även utan färgseende)
-    ' HUD-koordinaterna är RELATIVA RW/RH (hudY = RH-28 osv; vid 1920x1080 samma värden som tidigare)
-    hudY = RH - 28
+    ' HUD-koordinaterna är RELATIVA RW/RH (hudY = RH-42 — 6G FIX 3: hela HUD-blocket flyttas upp
+    ' 14px så stamina-boxen får plats ovanför nedre skärmkanten; vid 1920x1080 HP-box på y=1038)
+    hudY = RH - 42
     hpX0 = 8: hpW = Int(RW * 208 / 1920): hpX1 = hpX0 + hpW
     Line (hpX0, hudY)-(hpX1, hudY + 20), _RGB32(40, 40, 40), BF
     Line (hpX0, hudY)-(hpX1, hudY + 20), _RGB32(255, 255, 255), B
@@ -2827,9 +2829,11 @@ Do
     If hp > 0 Then Line (hpX0 + 2, hudY + 2)-(hpX0 + 2 + Int(hp * (hpW - 8) / 100), hudY + 18), barCol&, BF
     Color _RGB32(255, 255, 255)
     _PrintString (hpX1 + 8, hudY + 4), strHudHp$ + Str$(Int(hp))
-    ' 6E FIX G: stamina-bar — smal vågrät bar direkt UNDER HP-boxen (alltid synlig)
-    Line (hpX0, hudY + 23)-(hpX1, hudY + 26), _RGB32(40, 40, 40), BF
-    Line (hpX0, hudY + 23)-(hpX1, hudY + 26), _RGB32(160, 160, 160), B
+    ' 6E FIX G + 6G FIX 3: stamina-bar — EGEN box direkt under HP-boxen, samma stil som HP/ammo
+    ' (mörk botten + ljus kant + färgad fyllning + text "STA n" till höger). 6G: var en 4px tunn
+    ' rad längst ner på skärmen (hudY+23..26 med hudY=RH-28) — osynlig i praktiken.
+    Line (hpX0, hudY + 23)-(hpX1, hudY + 34), _RGB32(40, 40, 40), BF
+    Line (hpX0, hudY + 23)-(hpX1, hudY + 34), _RGB32(160, 160, 160), B
     If sprintLock Then
         stCol& = _RGB32(220, 60, 60)
     ElseIf stamina! > 50 Then
@@ -2837,7 +2841,15 @@ Do
     Else
         stCol& = _RGB32(230, 200, 0)
     End If
-    If stamina! > 0 Then Line (hpX0 + 1, hudY + 24)-(hpX0 + 1 + Int(stamina! * (hpW - 2) / stamMax!), hudY + 25), stCol&, BF
+    If stamina! > 0 Then Line (hpX0 + 2, hudY + 25)-(hpX0 + 2 + Int(stamina! * (hpW - 4) / stamMax!), hudY + 32), stCol&, BF
+    Color _RGB32(160, 160, 160)
+    _PrintString (hpX1 + 8, hudY + 27), "STA " + LTrim$(Str$(Int(stamina!)))
+    ' 6G FIX 3 6g-c: pixel-probe (selftest) — Point på display& EFTER HUD, före _Display
+    If selftest And testPhase = 34 And testFlag >= 1 Then
+        c34fill& = Point(hpX0 + 4, hudY + 28)
+        c34tail& = Point(hpX1 - 4, hudY + 28)
+        c34done = 1
+    End If
     ' ammoN(1)-ruta relativt HP-boxens bredd/högerkant (gul kant = ammoN(1)-pickups)
     amX0 = hpX1 + Int(RW * 104 / 1920): amW = Int(RW * 100 / 1920): amX1 = amX0 + amW
     Line (amX0, hudY)-(amX1, hudY + 20), _RGB32(40, 40, 40), BF
@@ -10980,6 +10992,82 @@ SelftestDrive:
                 ' 6g-a klar: stäng replay-läget, återställ selftest-miljö, vidare till fas12 (kedjans slut)
                 replayMode = 0: keySimShift = 0
                 For c33j = 0 To 127: keySim%(c33j) = 0: Next c33j
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
+                injMvF = 0: injMvB = 0: injMvL = 0: injMvR = 0: injTurnL = 0: injTurnR = 0
+                For c33j = 0 To 10: enActive(c33j) = 0: Next c33j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c33j = 0 To PR_MAX: prActive(c33j) = 0: Next c33j
+                For c33j = 0 To WP_COUNT - 1: wpOwned(c33j) = 0: Next c33j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
+                testPhase = 34: testT0 = Timer: testFlag = 0   ' 6G: vidare till 6g-c (stamina-HUD pixel-probe); kedjan ...->33->34->12
+            End If
+        Case 34  ' 6G FIX 3 6g-c: stamina-baren i playing-HUD — pixel-probe (Point på display& efter HUD):
+                 ' fyllning grön vid stamina>50, gul vid <=50, mörk vid lås+tom, och "bortom fyllningen" mörk
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                px = 2.5: py = 12.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo
+                stamina! = 80: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
+                For c33j = 0 To 10: enActive(c33j) = 0: Next c33j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99: enZ(0) = 0
+                For c33j = 0 To PR_MAX: prActive(c33j) = 0: Next c33j
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                state$ = "playing"
+                c34s = 0: c34ok = 0: c34done = 0
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                If c34s = 0 Then
+                    If c34done = 1 Then   ' probe från föregående frame: stamina=80 -> grön fyllning, mörk tail
+                        If _Red32(c34fill&) < 120 And _Green32(c34fill&) > 150 Then c34ok = c34ok + 1
+                        If _Red32(c34tail&) < 80 And _Green32(c34tail&) < 80 Then c34ok = c34ok + 1
+                        stamina! = 30: c34done = 0: c34s = 1
+                    End If
+                ElseIf c34s = 1 Then
+                    If c34done = 1 Then   ' stamina=30 -> gul fyllning (230,200,0)
+                        If _Red32(c34fill&) > 150 And _Green32(c34fill&) > 120 And _Blue32(c34fill&) < 80 Then c34ok = c34ok + 1
+                        sprintLock = 1: stamina! = 0: c34done = 0: c34s = 2
+                    End If
+                ElseIf c34s = 2 Then
+                    If c34done = 1 Then   ' låst + tom -> ingen fyllning, mörk box syns ändå
+                        If _Red32(c34fill&) < 80 And _Green32(c34fill&) < 80 Then c34ok = c34ok + 1
+                        c34s = 3
+                    End If
+                ElseIf c34s = 3 Then
+                    If c34ok = 4 Then
+                        stMsg$ = "PASS 6g-c-stamina-hud (stamina-box under HP-boxen: Point-probe ser grön fyllning vid stamina 80, gul vid 30, mörk vid lås+0; boxen alltid synlig i playing-HUD)"
+                        Gosub STLog
+                        testFlag = 2: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL 6g-c ok=" + Str$(c34ok) + "/4 fill=" + Str$(c34fill&) + " tail=" + Str$(c34tail&)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+                If Timer - testT0 > 20 Then
+                    stMsg$ = "FAIL 6g-c-timeout s=" + Str$(c34s) + " ok=" + Str$(c34ok)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' 6g-c klar: återställ, vidare till fas12 (kedjans slut)
+                sprintLock = 0: stamina! = stamMax!
                 gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
                 mapFile$ = selftestMap$
                 Gosub LoadMapAuto
