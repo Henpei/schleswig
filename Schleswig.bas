@@ -2139,10 +2139,23 @@ Do
                     If cx < 0 Then cx = 0
                     If cx > RW - 1 Then cx = RW - 1
                     If x0 <= x1 Then
-                        ' vitt kors: Bägge staplar per kolumn med vägg-ocklusion
-                        If pdistP < wallDist(cx) Then Line (cx, pbase - ph)-(cx, pbase), _RGB32(255, 255, 255)
+                        ' 6G pickup-visualitet: vitt kors KRAFTIGARE — stapelbredd pmt skalad med
+                        ' sprite-höjden (ph/8, 2..6 px) så korset är tydligt på spelavstånd
+                        ' (vid ~9 celler är boxen ~53x30 px och korset ~3 px tjockt)
+                        pmt = Int(ph / 8)
+                        If pmt < 2 Then pmt = 2
+                        If pmt > 6 Then pmt = 6
+                        pmid = Int(pbase - ph / 2)
+                        For sx = cx - pmt To cx + pmt   ' lodrätt stapel
+                            If sx >= 0 And sx <= RW - 1 Then
+                                If pdistP < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
+                            End If
+                        Next sx
+                        py0 = pmid - pmt: py1 = pmid + pmt   ' vågrät stapel
+                        If py0 < pbase - ph Then py0 = pbase - ph
+                        If py1 > pbase Then py1 = pbase
                         For sx = x0 To x1
-                            If pdistP < wallDist(sx) Then Line (sx, pbase - ph / 2)-(sx, pbase - ph / 2), _RGB32(255, 255, 255)
+                            If pdistP < wallDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
                         Next sx
                     End If
                 End If
@@ -2180,21 +2193,53 @@ Do
                     If cx < 0 Then cx = 0
                     If cx > RW - 1 Then cx = RW - 1
                     If x0 <= x1 Then
+                        ' 6G pickup-visualitet: formdiff per typ i TJOCK vit (pmt = ph/8, 2..6 px,
+                        ' skalad med sprite-storleken — vid ~9 celler är boxen ~53x30 px och
+                        ' märket ~3 px tjockt). A: STOR prick med mörk kontring runt vit kärna.
+                        pmt = Int(ph / 8)
+                        If pmt < 2 Then pmt = 2
+                        If pmt > 6 Then pmt = 6
+                        pmid = Int(pbase - ph / 2)
                         If amTi = 1 Then
-                            If pdistP < wallDist(cx) Then Line (cx, pbase - ph / 2)-(cx, pbase - ph / 2), _RGB32(255, 255, 255)
+                            ' stor prick: mörk ring (svart) + vit kärna
+                            pms = Int(ph / 4)
+                            If pms < 2 Then pms = 2
+                            For sx = cx - pms - 2 To cx + pms + 2
+                                If sx >= 0 And sx <= RW - 1 Then
+                                    If pdistP < wallDist(sx) Then Line (sx, pmid - pms - 2)-(sx, pmid + pms + 2), _RGB32(0, 0, 0)
+                                End If
+                            Next sx
+                            For sx = cx - pms To cx + pms
+                                If sx >= 0 And sx <= RW - 1 Then
+                                    If pdistP < wallDist(sx) Then Line (sx, pmid - pms)-(sx, pmid + pms), _RGB32(255, 255, 255)
+                                End If
+                            Next sx
                         End If
                         If amTi = 2 Then
+                            ' vågrätt streck, tjockt (B)
+                            py0 = pmid - pmt: py1 = pmid + pmt
                             For sx = x0 To x1
-                                If pdistP < wallDist(sx) Then Line (sx, pbase - ph / 2)-(sx, pbase - ph / 2), _RGB32(255, 255, 255)
+                                If pdistP < wallDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
                             Next sx
                         End If
                         If amTi = 3 Then
-                            If pdistP < wallDist(cx) Then Line (cx, pbase - ph)-(cx, pbase), _RGB32(255, 255, 255)
+                            ' lodrätt streck, tjockt (C)
+                            For sx = cx - pmt To cx + pmt
+                                If sx >= 0 And sx <= RW - 1 Then
+                                    If pdistP < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
+                                End If
+                            Next sx
                         End If
                         If amTi = 4 Then
-                            If pdistP < wallDist(cx) Then Line (cx, pbase - ph)-(cx, pbase), _RGB32(255, 255, 255)
+                            ' kryss, tjockt (D)
+                            For sx = cx - pmt To cx + pmt
+                                If sx >= 0 And sx <= RW - 1 Then
+                                    If pdistP < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
+                                End If
+                            Next sx
+                            py0 = pmid - pmt: py1 = pmid + pmt
                             For sx = x0 To x1
-                                If pdistP < wallDist(sx) Then Line (sx, pbase - ph / 2)-(sx, pbase - ph / 2), _RGB32(255, 255, 255)
+                                If pdistP < wallDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
                             Next sx
                         End If
                     End If
