@@ -302,6 +302,8 @@ floorCol& = _RGB32(70, 45, 25)
 ' px/py, så arrayer med samma namn skulle krocka med dem. wallDist(RW) behövs
 ' för att sprites ska kunna döljas bakom väggar (se RENDERING-sektionen).
 DIM wallDist(RW)
+DIM sprDist(RW)   ' 6K: per-kolumn sprite-zbuffer — initieras till wallDist efter väggloopen; varje ritad sprite-kolumn sänker sprDist(sx) till sitt eget avstånd, så närmare sprites alltid vinner över fjärre (även mellan olika spritetyper)
+DIM smX, smX0, smX1, smD!   ' 6K SprMark-parametrar
 DIM pkX(10), pkY(10), pkActive(10)
 hp = 100
 hpMsg$ = ""
@@ -2213,6 +2215,11 @@ Do
         End If
         Line (x, ys)-(x, ye), wcol&
     Next x
+    ' 6K: sprite-zbuffer startar från vägg-zbuffern — sprites occlusion-testas
+    ' mot sprDist (vägg + alla redan ritade sprites), inte bara wallDist
+    For sx = 0 To RW - 1
+        sprDist(sx) = wallDist(sx)
+    Next sx
 
     ' ======== SPRITES/PICKUPS: projektion + vägg-ocklusion ========
     ' pickups: små röda medkit-rutor med vitt kors, på golvet, med vägg-ocklusion
@@ -2244,7 +2251,7 @@ Do
                     If x0 < 0 Then x0 = 0
                     If x1 > RW - 1 Then x1 = RW - 1
                     For sx = x0 To x1
-                        If pdistP < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(200, 30, 30)
+                        If pdistP < sprDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(200, 30, 30)
                     Next sx
                     ' pcx kan hamna utanför skärmen när |pang| närmar sig
                     ' synfältet (0.66 rad) -> clampa innan wallDist-index,
@@ -2261,15 +2268,16 @@ Do
                         pmid = Int(pbase - ph / 2)
                         For sx = cx - pmt To cx + pmt   ' lodrätt stapel
                             If sx >= 0 And sx <= RW - 1 Then
-                                If pdistP < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
+                                If pdistP < sprDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
                             End If
                         Next sx
                         py0 = pmid - pmt: py1 = pmid + pmt   ' vågrät stapel
                         If py0 < pbase - ph Then py0 = pbase - ph
                         If py1 > pbase Then py1 = pbase
                         For sx = x0 To x1
-                            If pdistP < wallDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
+                            If pdistP < sprDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
                         Next sx
+                        smX0 = x0: smX1 = x1: smD! = pdistP: Gosub SprMark   ' 6K
                     End If
                 End If
             End If
@@ -2299,7 +2307,7 @@ Do
                     amTi = amT(i)
                     If amTi < 1 Or amTi > AMMO_N Then amTi = 1
                     For sx = x0 To x1
-                        If pdistP < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), amCol&(amTi)
+                        If pdistP < sprDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), amCol&(amTi)
                     Next sx
                     ' formdiff per typ (vit), centrerad på pcx
                     cx = Int(pcx)
@@ -2319,12 +2327,12 @@ Do
                             If pms < 2 Then pms = 2
                             For sx = cx - pms - 2 To cx + pms + 2
                                 If sx >= 0 And sx <= RW - 1 Then
-                                    If pdistP < wallDist(sx) Then Line (sx, pmid - pms - 2)-(sx, pmid + pms + 2), _RGB32(0, 0, 0)
+                                    If pdistP < sprDist(sx) Then Line (sx, pmid - pms - 2)-(sx, pmid + pms + 2), _RGB32(0, 0, 0)
                                 End If
                             Next sx
                             For sx = cx - pms To cx + pms
                                 If sx >= 0 And sx <= RW - 1 Then
-                                    If pdistP < wallDist(sx) Then Line (sx, pmid - pms)-(sx, pmid + pms), _RGB32(255, 255, 255)
+                                    If pdistP < sprDist(sx) Then Line (sx, pmid - pms)-(sx, pmid + pms), _RGB32(255, 255, 255)
                                 End If
                             Next sx
                         End If
@@ -2332,14 +2340,14 @@ Do
                             ' vågrätt streck, tjockt (B)
                             py0 = pmid - pmt: py1 = pmid + pmt
                             For sx = x0 To x1
-                                If pdistP < wallDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
+                                If pdistP < sprDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
                             Next sx
                         End If
                         If amTi = 3 Then
                             ' lodrätt streck, tjockt (C)
                             For sx = cx - pmt To cx + pmt
                                 If sx >= 0 And sx <= RW - 1 Then
-                                    If pdistP < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
+                                    If pdistP < sprDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
                                 End If
                             Next sx
                         End If
@@ -2347,14 +2355,15 @@ Do
                             ' kryss, tjockt (D)
                             For sx = cx - pmt To cx + pmt
                                 If sx >= 0 And sx <= RW - 1 Then
-                                    If pdistP < wallDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
+                                    If pdistP < sprDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
                                 End If
                             Next sx
                             py0 = pmid - pmt: py1 = pmid + pmt
                             For sx = x0 To x1
-                                If pdistP < wallDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
+                                If pdistP < sprDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
                             Next sx
                         End If
+                        smX0 = x0: smX1 = x1: smD! = pdistP: Gosub SprMark   ' 6K
                     End If
                 End If
             End If
@@ -2385,12 +2394,13 @@ Do
                     If keyType(i) = 2 Then keyCol& = _RGB32(200, 200, 215)
                     If keyType(i) = 3 Then keyCol& = _RGB32(255, 215, 0)
                     For sx = keyX0 To keyX1
-                        If keyDistP < wallDist(sx) Then Line (sx, keyBase - keyH)-(sx, keyBase), keyCol&
+                        If keyDistP < sprDist(sx) Then Line (sx, keyBase - keyH)-(sx, keyBase), keyCol&
                     Next sx
                     keyCx2 = Int(keyCx)
                     If keyCx2 < 0 Then keyCx2 = 0
                     If keyCx2 > RW - 1 Then keyCx2 = RW - 1
-                    If keyDistP < wallDist(keyCx2) Then Line (keyCx2, keyBase - keyH)-(keyCx2, keyBase), _RGB32(255, 255, 255)
+                    If keyDistP < sprDist(keyCx2) Then Line (keyCx2, keyBase - keyH)-(keyCx2, keyBase), _RGB32(255, 255, 255)
+                    smX0 = keyX0: smX1 = keyX1: smD! = keyDistP: Gosub SprMark   ' 6K
                 End If
             End If
         End If
@@ -2417,12 +2427,13 @@ Do
                     If wpx0 < 0 Then wpx0 = 0
                     If wpx1 > RW - 1 Then wpx1 = RW - 1
                     For sx = wpx0 To wpx1
-                        If wpdistP < wallDist(sx) Then Line (sx, wpbase - wph)-(sx, wpbase), wpCol&(wpT(i))
+                        If wpdistP < sprDist(sx) Then Line (sx, wpbase - wph)-(sx, wpbase), wpCol&(wpT(i))
                     Next sx
                     wpcx2 = Int(wpcx)
                     If wpcx2 < 0 Then wpcx2 = 0
                     If wpcx2 > RW - 1 Then wpcx2 = RW - 1
-                    If wpdistP < wallDist(wpcx2) Then Line (wpcx2, wpbase - wph)-(wpcx2, wpbase), _RGB32(255, 255, 255)
+                    If wpdistP < sprDist(wpcx2) Then Line (wpcx2, wpbase - wph)-(wpcx2, wpbase), _RGB32(255, 255, 255)
+                    smX0 = wpx0: smX1 = wpx1: smD! = wpdistP: Gosub SprMark   ' 6K
                 End If
             End If
         End If
@@ -2495,9 +2506,9 @@ Do
         If ebf& <> 0 And ex1 >= ex0 And ey1 > ey0 Then
             ' snabbväg: om HELA spriten ligger framför väggen (alla kolumner passerar
             ' wallDist) -> EN enda skalad blit; annars per-kolumn z-clip (partial occlusion)
-            wmin! = wallDist(ex0)
+            wmin! = sprDist(ex0)
             For sx = ex0 + 1 To ex1
-                If wallDist(sx) < wmin! Then wmin! = wallDist(sx)
+                If sprDist(sx) < wmin! Then wmin! = sprDist(sx)
             Next sx
             If edistP < wmin! Then
                 _PutImage (ex0, ey0)-(ex1, ey1), ebf&, buf&, (0, 0)-(ESW - 1, ESH - 1)
@@ -2507,7 +2518,7 @@ Do
                 If dbgEnemyBox And ealpha > 0 Then Line (ex0, ey0)-(ex1, ey1), _RGBA32(0, 0, 0, ealpha), BF
             Else
                 For sx = ex0 To ex1
-                    If edistP < wallDist(sx) Then
+                    If edistP < sprDist(sx) Then
                         srcX = Int((sx - ex0 + 0.5) / (ex1 - ex0 + 1) * ESW)
                         If srcX < 0 Then srcX = 0
                         If srcX > ESW - 1 Then srcX = ESW - 1
@@ -2532,7 +2543,7 @@ Do
                     If eScrY0 < 0 Then eScrY0 = 0
                     If eScrY1 > RH - 1 Then eScrY1 = RH - 1
                     For eex = eScrX0 To eScrX1
-                        If edistP < wallDist(eex) Then Line (eex, eScrY0)-(eex, eScrY1), eco&
+                        If edistP < sprDist(eex) Then Line (eex, eScrY0)-(eex, eScrY1), eco&
                     Next eex
                 End If
                 EnemyEyeRect eBufXR0, eBufY0, eBufXR1, eBufY1, ex0, ex1, ey0, ey1, eScrX0, eScrY0, eScrX1, eScrY1
@@ -2542,10 +2553,11 @@ Do
                     If eScrY0 < 0 Then eScrY0 = 0
                     If eScrY1 > RH - 1 Then eScrY1 = RH - 1
                     For eex = eScrX0 To eScrX1
-                        If edistP < wallDist(eex) Then Line (eex, eScrY0)-(eex, eScrY1), eco&
+                        If edistP < sprDist(eex) Then Line (eex, eScrY0)-(eex, eScrY1), eco&
                     Next eex
                 End If
             End If
+            smX0 = ex0: smX1 = ex1: smD! = edistP: Gosub SprMark   ' 6K: fienden registrerar sitt djup (efter blit+ögon)
         End If
     Next zi
 
@@ -2582,7 +2594,7 @@ Do
                         by0 = Int(midY + pitch - (prZ(i) - 0.5) * (RH / bzp!) - ballPx / 2): by1 = by0 + ballPx - 1   ' 6F FIX B: kulans z projiceras
                         ' 5D FIX: clamps on SEPARATE lines — a single-line
                         ' "If a<0 Then a=0: If b>RW Then b=..." would skip the
-                        ' b-clamp whenever a>=0 -> wallDist(b) subscript OOB
+                        ' b-clamp whenever a>=0 -> sprDist(b) subscript OOB
                         ' (the "subscript out of range" crash at a ball near the
                         ' right screen edge on the 64x64 arena).
                         If bx0 < 0 Then bx0 = 0
@@ -2601,20 +2613,21 @@ Do
                             If oby0 < 0 Then oby0 = 0
                             If oby1 > RH - 1 Then oby1 = RH - 1
                             For sx = obx0 To obx1
-                                If bdistP < wallDist(sx) Then
+                                If bdistP < sprDist(sx) Then
                                     Line (sx, oby0)-(sx, oby1), _RGB32(20, 20, 20)
                                 End If
                             Next sx
                             For sx = bx0 To bx1
-                                If bdistP < wallDist(sx) Then Line (sx, by0)-(sx, by1), bcol&
+                                If bdistP < sprDist(sx) Then Line (sx, by0)-(sx, by1), bcol&
                             Next sx
                             ' 6F FIX C: enemy-only white-hot core, inset 1 px inside the orange glow
                             If prOwner(i) = 1 And bx1 - 1 >= bx0 + 1 Then
                                 cbx0 = bx0 + 1: cbx1 = bx1 - 1: cby0 = by0 + 1: cby1 = by1 - 1
                                 For sx = cbx0 To cbx1
-                                    If bdistP < wallDist(sx) Then Line (sx, cby0)-(sx, cby1), enBallCore&
+                                    If bdistP < sprDist(sx) Then Line (sx, cby0)-(sx, cby1), enBallCore&
                                 Next sx
                             End If
+                            smX0 = bx0: smX1 = bx1: smD! = bdistP: Gosub SprMark   ' 6K
                         End If
                     End If
                 End If
@@ -2649,8 +2662,9 @@ Do
                         If mby1 > RH - 1 Then mby1 = RH - 1
                         If mby1 > mby0 And mbx1 >= mbx0 Then
                             For sx = mbx0 To mbx1
-                                If mdistP < wallDist(sx) Then Line (sx, mby0)-(sx, mby1), _RGB32(120, 20, 20)
+                                If mdistP < sprDist(sx) Then Line (sx, mby0)-(sx, mby1), _RGB32(120, 20, 20)
                             Next sx
+                            smX0 = mbx0: smX1 = mbx1: smD! = mdistP: Gosub SprMark   ' 6K
                         End If
                     End If
                 End If
@@ -2667,7 +2681,8 @@ Do
                             tdistP = tdist * Cos(tang)
                             tcx = Int(RW / 2 * (1 + Tan(tang) / planeDist))
                             If tcx >= 0 And tcx <= RW - 1 Then
-                                If tdistP < wallDist(tcx) Then
+                                If tdistP < sprDist(tcx) Then
+                                    sprDist(tcx) = tdistP   ' 6K
                                     tgy = midY + RH / (2 * tdistP) + pitch
                                     st2 = prSrcType(i): If st2 < 0 Or st2 > ET_COUNT - 1 Then st2 = 0   ' defensive clamp
                                     trr! = etSplashR!(st2)
@@ -2705,7 +2720,8 @@ Do
                 catdistP = catdist * Cos(caang)
                 catcx = Int(RW / 2 * (1 + Tan(caang) / planeDist))
                 If catcx >= 0 And catcx <= RW - 1 Then
-                    If catdistP < wallDist(catcx) Then
+                    If catdistP < sprDist(catcx) Then
+                        sprDist(catcx) = catdistP   ' 6K
                         catgy = midY + RH / (2 * catdistP) + pitch
                         catrp = RW / catdistP * wpSplashR!(WP_CANNON) * 0.5
                         If catrp < 8 Then catrp = 8
@@ -4418,6 +4434,15 @@ ApplyMapSpawns:
             doorOpen%(xx, yy) = 0
         Next xx
     Next yy
+    Return
+
+' 6K: SprMark — efter att EN sprite ritats klart, sänk sprDist för alla dess
+' kolumner där spriten är närmare än vad som redan finns (vägg eller tidigare
+' ritad sprite). Nästa sprite i samma kolumn ser då detta värde och occluderas.
+SprMark:
+    For smX = smX0 To smX1
+        If smD! < sprDist(smX) Then sprDist(smX) = smD!
+    Next smX
     Return
 
 ' ======== 6H STEG 5: AUDIT-BOT (cmd "audit") ================
