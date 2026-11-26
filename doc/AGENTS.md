@@ -23,12 +23,14 @@ weapons rendering).
   cd /home/andre/Dokument/Projekt/schleswig
   /home/andre/QB64pe/qb64pe -c Schleswig.bas -o schleswig -x
 - The compiler binary lives at /home/andre/QB64pe/qb64pe — that is the
-  COMPILER's home, NOT the project. The old build area
-  /home/andre/QB64pe/schleswig is André's manual playground: agents must
-  never read or write there.
+  COMPILER's home, NOT the project. Any build area next to the compiler
+  installation is André's manual playground: agents must never read or
+  write there.
 - MIGRATION LESSON (6G migration pass): NEVER assume a workdir — always read
   it from the task instructions or this AGENTS.md; the project can be moved
   by the user at any time.
+- BEFORE THE REPOSITORY BECOMES PUBLIC: generalize all machine-specific
+  paths (this section included) — absolute /home/ paths must not ship.
 - Requirement: exit code 0. Shell is FISH: check
   $status, not $?.
 - Compile errors land in internal/temp/compilelog.txt,

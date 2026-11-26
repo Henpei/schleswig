@@ -4,16 +4,14 @@ A Wolfenstein/Doom-like raycaster FPS written in BASIC for QB64-PE (Linux/Waylan
 
 ## Build
 
-From the canonical workdir (the repository root,
-`/home/andre/Dokument/Projekt/schleswig`) — the compiler binary lives at
-`/home/andre/QB64pe/qb64pe` (its own home, not the project):
+From the repository root, using your local QB64-PE installation (`qb64pe`):
 
-    cd /home/andre/Dokument/Projekt/schleswig
-    /home/andre/QB64pe/qb64pe -c Schleswig.bas -o schleswig -x
+    qb64pe -c Schleswig.bas -o schleswig -x
 
 The binary is always named `schleswig` (lowercase) at the repository root
 (gitignored). Never assume a workdir — always read it from the task
-instructions or doc/AGENTS.md; the project can be moved by the user.
+instructions or doc/AGENTS.md; the project can be moved by the user, so no
+absolute machine paths are hardcoded here.
 
 ## Run
 

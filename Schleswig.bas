@@ -10,8 +10,8 @@
 '      skott-träff, billboard-sprites (Fas 3 + 3.1).
 '
 ' BYGG-KONVENTION (stående regel, gäller alla sessioner):
-'   Bygg ALLTID från /home/andre/QB64pe med:
-'     ./qb64pe -c schleswig/Schleswig.bas -o schleswig/schleswig -x
+'   Bygg ALLTID från repo-roten med din QB64-PE-installation (qb64pe):
+'     qb64pe -c Schleswig.bas -o schleswig -x
 '   Projektkatalogen heter schleswig/ och binären heter ALLTID "schleswig"
 '   (liten s) - samma namn i olika "lager" (katalog vs fil) krockar aldrig,
 '   till skillnad från tidigare Raycaster/ vs Raycaster-bygge.
@@ -117,11 +117,9 @@ DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite re
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
 btnFontSize = Int(RH * 32 / 1080): If btnFontSize < 16 Then btnFontSize = 16
 btnFont& = 0
-fontCand$ = "schleswig/LiberationMono-Regular.ttf"     ' CWD = QB64pe-rot (dokumenterat körsätt)
-If Not _FileExists(fontCand$) Then fontCand$ = "LiberationMono-Regular.ttf"   ' CWD = repo-rot
-If Not _FileExists(fontCand$) Then fontCand$ = "/home/andre/QB64pe/schleswig/LiberationMono-Regular.ttf"
-If Not _FileExists(fontCand$) Then fontCand$ = "/home/andre/QB64pe/tests/compile_tests/font/LiberationMono-Regular.ttf"
-If Not _FileExists(fontCand$) Then fontCand$ = "/usr/share/fonts/TTF/DejaVuSansMono.ttf"
+fontCand$ = "LiberationMono-Regular.ttf"              ' CWD = exe-dir = repo-rot (kanoniskt läge — fonten ligger i repo-roten)
+If Not _FileExists(fontCand$) Then fontCand$ = "schleswig/LiberationMono-Regular.ttf"   ' legacy-layout: exe inuti schleswig/
+If Not _FileExists(fontCand$) Then fontCand$ = "/usr/share/fonts/TTF/DejaVuSansMono.ttf"   ' systemfont (ej maskinspecifik) — 6G-public: inga absoluta användarsökvägar
 If _FileExists(fontCand$) Then btnFont& = _LoadFont(fontCand$, btnFontSize, "MONOSPACE")
 ' pil-sprite för menyerna: buffer skapas EN gång i init (~40x40 vid 1080p,
 ' skalad med RH). Spetsig triangel: svart outline + amber kärna RGB(255,200,0).
@@ -6123,8 +6121,15 @@ SelftestDrive:
                 End If
             End If
             If testFlag = 1 Then
-                ' (d) test64 via TWO path forms (relative + absolute; game cwd is
-                ' the exe dir, so both resolve to the same file) -> identical grid
+                ' (d) test64 via TWO RELATIVE path forms (game cwd is the exe dir =
+                ' repo root, so both resolve to the same shipped file) -> identical
+                ' grid. 6G-public: no absolute machine paths; if the test map is not
+                ' shipped in this environment -> explicit SKIP line (not FAIL, not silent).
+                If Not _FileExists("maps/test64.map") Then
+                    stMsg$ = "SKIP fas18d/e-test64 (maps/test64.map not present in this environment — not a failure)"
+                    Gosub STLog
+                    testFlag = 3: testT0 = Timer
+                Else
                 mapFile$ = "maps/test64.map"
                 Gosub LoadMapAuto
                 If mapW = 64 And mapH = 64 And mapValid = 1 And loadFatal = 0 Then
@@ -6140,12 +6145,12 @@ SelftestDrive:
                     ShutdownSound
                     End
                 End If
-                mapFile$ = "/home/andre/QB64pe/schleswig/maps/test64.map"
+                mapFile$ = "./maps/test64.map"
                 Gosub LoadMapAuto
                 hash18b& = 0
                 For ej18 = 0 To 63: hash18b& = (hash18b& + Len(mapRow$(ej18)) * 31 + Asc(Left$(mapRow$(ej18), 1)) + Asc(Right$(mapRow$(ej18), 1))) And &H7FFFFFFF: Next ej18
-                If mapW = 64 And mapH = 64 And mapValid = 1 And loadFatal = 0 And hash18& = hash18b& And loadedMapFile$ = "/home/andre/QB64pe/schleswig/maps/test64.map" Then
-                    stMsg$ = "PASS fas18d-test64-path-forms (relative 'maps/test64.map' and absolute path -> same 64x64 grid, hash=" + Str$(hash18&) + ")"
+                If mapW = 64 And mapH = 64 And mapValid = 1 And loadFatal = 0 And hash18& = hash18b& And loadedMapFile$ = "./maps/test64.map" Then
+                    stMsg$ = "PASS fas18d-test64-path-forms (relative 'maps/test64.map' and './maps/test64.map' -> same 64x64 grid, hash=" + Str$(hash18&) + ")"
                     Gosub STLog
                 Else
                     stMsg$ = "FAIL fas18d hash " + Str$(hash18&) + " vs " + Str$(hash18b&) + " mapW=" + Str$(mapW) + " mapH=" + Str$(mapH) + " mapValid=" + Str$(mapValid) + " loadFatal=" + Str$(loadFatal) + " loaded=" + loadedMapFile$
@@ -6165,6 +6170,7 @@ SelftestDrive:
                 enActive(0) = 1: enX(0) = 1.5: enY(0) = mapH - 1.5: enSpd(0) = 0
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 testFlag = 2: testT0 = Timer
+                End If   ' stänger SKIP-Else:n (maps/test64.map saknas -> hoppa över d/e)
             End If
             If testFlag = 2 Then
                 If Timer - testT0 >= 0.4 Then
