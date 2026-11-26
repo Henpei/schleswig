@@ -401,7 +401,7 @@ DIM SHARED injMvF, injMvB, injMvL, injMvR, injTurnL, injTurnR   ' 6F FIX A: herm
 ' 6G FIX 1/2: replay-mode — simulerade OS-tangenter som matas in i SAMMA polling-pipeline som riktiga
 DIM SHARED replayMode, keySim%(0 To 127), keySimShift, keySimFire   ' keySim% indexeras med VERSAL ascii (65..90); keySimShift = båda Shift; keySimFire = avfyra (6H reload-test)
 DIM SHARED auditMode, auLogF, auMsg$, auLvl, auStarted, auT0, auEnN, auEnHP, auShots0, auShots, auStarveN, auStarveWas, auAlive, auBi, auBd, auD, auI, auJ, auT, auWat, auCx, auCy, auNx, auNy, auNx2, auNy2, auBest, auFire, auTx, auTy, auPd, auF2, auWpN, auWhy$, auFr, auUseE, auHasRanged, auCh$, auPk(0 To 4), auMin(0 To 4)   ' 6H STEG 5 audit-bot
-DIM SHARED keyEv%(0 To 255), keyLogOn, keyLogF, khi, khits$, klc, klLine$, keyLogLastSt$, keyLogAnom%(0 To 255)   ' 6I/6I-FU2: event-driven key-state overlay (1=down, -1=up, 0=unknown) + SCHLESWIG_KEYLOG capture
+DIM SHARED keyEv%(0 To 255), keyLogOn, keyLogF, khi, khits$, klc, klLine$, keyLogLastSt$, keyLogAnom%(0 To 255), lifeFr&, kcn&, evc   ' 6I/6I-FU2/FU3: event-driven key-state overlay (1=down, -1=up, 0=unknown) + SCHLESWIG_KEYLOG capture
 DIM SHARED enAliveN, enHPTot   ' 6H audit: aktiva fiender + deras total-HP (replay-telemetry)
 DIM SHARED replayAt&(0 To 2000), replayTok$(0 To 2000), replayN, replayCnt, replayLogF, replayClk&, replayPlayFr&   ' replayAt/replayTok = script /tmp/schleswig_replay.scr ("pN" = N frames efter state=playing); replayClk& = monoton frame-räknare (frames nollställs varje sekund för FPS)
 Const stamMax! = 100
@@ -686,15 +686,17 @@ Do
     ' buffer missed can never hold movement sticky. (Note: this QB64-PE build
     ' does not expose _HasFocus, so a release dropped while unfocused is caught
     ' via SCHLESWIG_KEYLOG instead — see keylog block below.)
+    lifeFr& = lifeFr& + 1   ' 6I-FU3: monotonic lifetime frame counter (frames resets each second for FPS)
     khits$ = ""
     khi = _KeyHit
     While khi <> 0
+        kcn& = KeyNorm&(Abs(khi))   ' 6I-FU3: normalize shift/case variants to one key id
         If khi < 0 Then
-            If -khi <= 255 Then keyEv%(-khi) = -1
+            If kcn& >= 0 And kcn& <= 255 Then keyEv%(kcn&) = -1
         Else
-            If khi <= 255 Then keyEv%(khi) = 1
+            If kcn& >= 0 And kcn& <= 255 Then keyEv%(kcn&) = 1
         End If
-        If keyLogOn Then khits$ = khits$ + LTrim$(Str$(khi)) + " "
+        If keyLogOn Then khits$ = khits$ + LTrim$(Str$(khi)) + ":" + KeyName$(kcn&) + " "
         khi = _KeyHit
     Wend
     ' 6I-FU2 STEG 5: SCHLESWIG_KEYLOG=1 -> /tmp/schleswig_keylog.txt, but ONLY on
@@ -702,21 +704,21 @@ Do
     ' + a heartbeat every 300 frames — NOT per frame (André's session was 10714 rows).
     If keyLogOn Then
         klLine$ = ""
-        If khits$ <> "" Then klLine$ = "fr=" + LTrim$(Str$(frames)) + " st=" + state$ + " hits=" + khits$ + " mb=" + LTrim$(Str$(_MouseButton(1)))
-        If klLine$ = "" And state$ <> keyLogLastSt$ Then klLine$ = "fr=" + LTrim$(Str$(frames)) + " STATE " + keyLogLastSt$ + "->" + state$
-        If klLine$ = "" And frames Mod 300 = 0 Then klLine$ = "fr=" + LTrim$(Str$(frames)) + " st=" + state$ + " hb kd87=" + LTrim$(Str$(_KeyDown(87))) + " kd119=" + LTrim$(Str$(_KeyDown(119))) + " ev87=" + LTrim$(Str$(keyEv%(87))) + " ev119=" + LTrim$(Str$(keyEv%(119)))
+        If khits$ <> "" Then klLine$ = "fr=" + LTrim$(Str$(lifeFr&)) + " st=" + state$ + " hits=" + khits$ + " mb=" + LTrim$(Str$(_MouseButton(1)))
+        If klLine$ = "" And state$ <> keyLogLastSt$ Then klLine$ = "fr=" + LTrim$(Str$(lifeFr&)) + " STATE " + keyLogLastSt$ + "->" + state$
+        If klLine$ = "" And lifeFr& Mod 300 = 0 Then klLine$ = "fr=" + LTrim$(Str$(lifeFr&)) + " st=" + state$ + " hb kd87=" + LTrim$(Str$(_KeyDown(87))) + " kd119=" + LTrim$(Str$(_KeyDown(119))) + " ev87=" + LTrim$(Str$(keyEv%(87)))
         ' anomaly scan over WASD (both letter cases): overlay/polling divergence
         For khi = 0 To 3
             klc = Asc(Mid$("WASD", khi + 1, 1))
             If keyEv%(klc) = 1 And _KeyDown(klc) = 0 And _KeyDown(klc + 32) = 0 Then
                 If keyLogAnom%(klc) = 0 Then
                     keyLogAnom%(klc) = 1
-                    klLine$ = "fr=" + LTrim$(Str$(frames)) + " OVERLAY-STALE key=" + LTrim$(Str$(klc)) + " ev=1 kd=0"
+                    klLine$ = "fr=" + LTrim$(Str$(lifeFr&)) + " OVERLAY-STALE key=" + LTrim$(Str$(klc)) + " ev=1 kd=0"
                 End If
             ElseIf _KeyDown(klc) Or _KeyDown(klc + 32) Then
                 If keyEv%(klc) = -1 And keyLogAnom%(klc) = 0 Then
                     keyLogAnom%(klc) = 1
-                    klLine$ = "fr=" + LTrim$(Str$(frames)) + " STICKY-OVERRIDE key=" + LTrim$(Str$(klc)) + " ev=-1 kd=1"
+                    klLine$ = "fr=" + LTrim$(Str$(lifeFr&)) + " STICKY-OVERRIDE key=" + LTrim$(Str$(klc)) + " ev=-1 kd=1"
                 End If
             Else
                 keyLogAnom%(klc) = 0
@@ -775,6 +777,16 @@ Do
                     keySimFire = 0
                 ElseIf rtok$ <> "SH-" Then
                     keySim%(Asc(UCase$(Left$(rtok$, 1)))) = 0
+                End If
+            ElseIf rlen >= 2 And UCase$(Left$(rtok$, 1)) = "E" And Val(Mid$(rtok$, 2)) <> 0 Then
+                ' 6I-FU3 test token: "E<code>" injects a RAW _KeyHit-style event into
+                ' the overlay (e.g. E87 = keydown W, E-119 = release W as lowercase,
+                ' E-100304 = release of Shift combo code) — exercises KeyNorm% +
+                ' the release-wins guard in replay
+                evc = Val(Mid$(rtok$, 2))
+                kcn& = KeyNorm&(Abs(evc))
+                If kcn& >= 0 And kcn& <= 255 Then
+                    If evc < 0 Then keyEv%(kcn&) = -1 Else keyEv%(kcn&) = 1
                 End If
             ElseIf rlen = 1 Then
                 k$ = rtok$   ' tap: one-frame InKey$ event (real menu/select path)
@@ -3130,7 +3142,7 @@ Do
         Next i
         replayLogF = FreeFile
         Open "/tmp/schleswig_replay.log" For Append As #replayLogF
-        Print #replayLogF, "fr=" + LTrim$(Str$(replayClk&)) + " st=" + state$ + " px=" + LTrim$(Str$(Int(px * 100) / 100)) + " py=" + LTrim$(Str$(Int(py * 100) / 100)) + " ang=" + LTrim$(Str$(Int(angle * 100) / 100)) + " mv=" + LTrim$(Str$(mvF)) + LTrim$(Str$(mvL)) + LTrim$(Str$(mvB)) + LTrim$(Str$(mvR)) + " pv=" + LTrim$(Str$(Int(pvx * 100) / 100)) + "," + LTrim$(Str$(Int(pvy * 100) / 100)) + " spd=" + LTrim$(Str$(spdMul)) + " stam=" + LTrim$(Str$(Int(stamina!))) + " lock=" + LTrim$(Str$(sprintLock)) + " ksW=" + LTrim$(Str$(keySim%(87))) + " ksSH=" + LTrim$(Str$(keySimShift)) + " ammo=" + LTrim$(Str$(ammoN(1))) + "," + LTrim$(Str$(ammoN(2))) + "," + LTrim$(Str$(ammoN(3))) + "," + LTrim$(Str$(ammoN(4))) + " wp=" + LTrim$(Str$(wpCur)) + " mag=" + LTrim$(Str$(wpMagNow(wpCur))) + "/" + LTrim$(Str$(wpMag(wpCur))) + " rlt=" + LTrim$(Str$(Int(wpRlT!(wpCur) * 100) / 100)) + " shots=" + LTrim$(Str$(shotsFired)) + " alive=" + LTrim$(Str$(enAliveN)) + " enHP=" + LTrim$(Str$(enHPTot))   ' 6G ammo-replay + 6H reload/audit: pool per typ, valt vapen, magasin, reload-timer, skott, fiender
+        Print #replayLogF, "fr=" + LTrim$(Str$(replayClk&)) + " st=" + state$ + " px=" + LTrim$(Str$(Int(px * 100) / 100)) + " py=" + LTrim$(Str$(Int(py * 100) / 100)) + " ang=" + LTrim$(Str$(Int(angle * 100) / 100)) + " mv=" + LTrim$(Str$(mvF)) + LTrim$(Str$(mvL)) + LTrim$(Str$(mvB)) + LTrim$(Str$(mvR)) + " pv=" + LTrim$(Str$(Int(pvx * 100) / 100)) + "," + LTrim$(Str$(Int(pvy * 100) / 100)) + " spd=" + LTrim$(Str$(spdMul)) + " stam=" + LTrim$(Str$(Int(stamina!))) + " lock=" + LTrim$(Str$(sprintLock)) + " ksW=" + LTrim$(Str$(keySim%(87))) + " ev87=" + LTrim$(Str$(keyEv%(87))) + " ksSH=" + LTrim$(Str$(keySimShift)) + " ammo=" + LTrim$(Str$(ammoN(1))) + "," + LTrim$(Str$(ammoN(2))) + "," + LTrim$(Str$(ammoN(3))) + "," + LTrim$(Str$(ammoN(4))) + " wp=" + LTrim$(Str$(wpCur)) + " mag=" + LTrim$(Str$(wpMagNow(wpCur))) + "/" + LTrim$(Str$(wpMag(wpCur))) + " rlt=" + LTrim$(Str$(Int(wpRlT!(wpCur) * 100) / 100)) + " shots=" + LTrim$(Str$(shotsFired)) + " alive=" + LTrim$(Str$(enAliveN)) + " enHP=" + LTrim$(Str$(enHPTot))   ' 6G ammo-replay + 6H reload/audit: pool per typ, valt vapen, magasin, reload-timer, skott, fiender
         Close #replayLogF
     End If
     If replayMode And Not selftest And state$ = "playing" And replayClk& Mod 120 = 0 Then _SaveImage "/tmp/schleswig_replay.bmp", display&
@@ -3578,29 +3590,54 @@ End Function
 ' removes whichever code the release event maps to — so polling ONLY Asc("W") left unshifted
 ' W dead and could leave a stuck uppercase entry after Shift+W. Check BOTH cases; in replay
 ' mode the simulated key table keySim% (indexed by UPPERCASE code) feeds the same predicate.
-Function KeyDown2% (c%)
-    ' 6I-FU2: RELEASE ALWAYS WINS, both directions. Two key-state sources exist:
-    '  - polling _KeyDown (libqb keyheld vector, updated synchronously in
-    '    keyboard_keydown/keyup — reliable)
-    '  - event overlay keyEv% (drained from _KeyHit; _KeyHit buffer is a
-    '    RingBuffer<8192, OverwriteOnFull=true> that EVICTS the oldest event under
-    '    spam, and _KeyClear clears it WITHOUT clearing keyheld — so the overlay
-    '    can go stale in BOTH directions: ev=1 while keyheld=up (André's 6I-FU2
-    '    log: kd87=-1, ev87=1 for 40+ frames), or ev=-1 while keyheld stuck down
-    '    (release dropped while unfocused). Rule: any source saying UP wins;
-    '    DOWN requires polling-down AND overlay-not-up.
-    ' Replay mode: keySim% table is authoritative (headless has no real keys).
-    If replayMode And c% >= 0 And c% <= 127 And keySim%(c%) Then
-        KeyDown2% = -1
-        Exit Function
+' 6I-FU3: KeyNorm% maps EVERY code variant of one physical key to ONE id.
+' libqb's _KeyHit for a letter is 65..90 (upper, Shift/CapsLock) or 97..122
+' (lower) depending on modifiers AT EVENT TIME, and press/release can be
+' translated with DIFFERENT modifier states (asymmetric: down=87, release=-119)
+' — with keyheld stuck under one code and the release event under the other.
+' Folding 97..122 -> 65..90 makes overlay and polling share one slot per
+' physical letter key. Extended codes (VK=100000+..., e.g. 100304=VK+LSHIFT)
+' pass through unchanged; keyEv% only tracks 0..255 (letters/digits), which is
+' all KeyDown2% ever queries.
+Function KeyNorm& (c&)
+    If c& >= 97 And c& <= 122 Then
+        KeyNorm& = c& - 32
+    Else
+        KeyNorm& = c&
     End If
+End Function
+
+' KeyName$ for keylog: readable name of a normalized code
+Function KeyName$ (c&)
+    If c& >= 65 And c& <= 90 Then
+        KeyName$ = Chr$(c&)
+    ElseIf c& >= 100000 Then
+        KeyName$ = "VK+" + LTrim$(Str$(c& - 100000))
+    Else
+        KeyName$ = LTrim$(Str$(c&))
+    End If
+End Function
+
+Function KeyDown2% (c%)
+    ' 6I-FU3: RELEASE ALWAYS WINS, both directions, on NORMALIZED key ids.
+    '  - polling _KeyDown (libqb keyheld vector, updated synchronously in
+    '    keyboard_keydown/keyup); in replay mode the keySim% table simulates it
+    '  - event overlay keyEv% (drained from _KeyHit each frame, normalized via
+    '    KeyNorm%; the _KeyHit RingBuffer<8192,OverwriteOnFull> can evict events
+    '    under spam and _KeyClear clears it without clearing keyheld, so the
+    '    overlay can go stale in BOTH directions).
+    ' Rule: any source saying UP wins; DOWN requires polling-down AND
+    ' overlay-not-up. This can never kill a real held key (polling is
+    ' synchronous with keyheld) and never honors a stale overlay state.
+    kcn& = KeyNorm&(c%)
     polD = 0
+    If replayMode And c% >= 0 And c% <= 127 And keySim%(c%) Then polD = 1
     If _KeyDown(c%) Then polD = 1
     If c% >= 65 And c% <= 90 Then
         If _KeyDown(c% + 32) Then polD = 1
     End If
-    If polD = 0 Then Exit Function   ' 6I-FU2 guard: polling says UP -> not down, even if a stale keyEv%=1 says down
-    If c% >= 0 And c% <= 255 And keyEv%(c%) = -1 And Not replayMode Then Exit Function   ' 6I: event release overrides a stuck _KeyDown
+    If polD = 0 Then Exit Function   ' polling says UP -> not down, even if a stale keyEv%=1 says down
+    If kcn& >= 0 And kcn& <= 255 And keyEv%(kcn&) = -1 Then Exit Function   ' event release (any code variant) overrides stuck keyheld
     KeyDown2% = -1
 End Function
 

@@ -555,6 +555,17 @@ into a single-line If-Else and also set keySim%(Asc("S"))=1 (Shift pressed S);
 use multi-line If/ElseIf for token parsing. NOTE: this QB64-PE build (V4.7.0-GLFW)
 does NOT expose _HasFocus to BASIC ("Invalid variable name") — func__hasfocus
 exists in window-gui.cpp but is not registered.
+6I-FU3 (dead/stuttery keys under sprint): _KeyHit reports a letter as 65..90
+(upper, Shift/CapsLock) OR 97..122 (lower) depending on modifiers at event
+time, and press/release can be translated with DIFFERENT modifier states
+(asymmetric: down=87, release=-119; Shift itself = VK+QBVK_LSHIFT=100304).
+Fix: KeyNorm& folds 97..122 -> 65..90 so every code variant of one physical
+key maps to ONE overlay slot (keyEv%); KeyDown2% = release-always-wins on
+normalized ids (DOWN requires _KeyDown-polling down AND keyEv%<>-1). Trap
+learned: QB64 % is 16-bit — passing 100304 through a % parameter overflows;
+use & for key codes (kcn&). Replay test tokens "E<code>" inject raw overlay
+events (combat_replay_test.py scenario "e"). Keylog uses monotonic lifeFr&
+(frames resets each second for FPS).
 
 ## Viewmodel design note (5A-hotfix2)
 The viewmodel sits deliberately ~half a gun-width RIGHT of center
