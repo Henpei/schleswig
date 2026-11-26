@@ -105,6 +105,8 @@ DIM c30msg$   ' 6f-f: diagnostiksträng
 DIM c31k, c31s, c31t, c31ok, c31pr0, c31j, c31types(4)   ' Fas 31 (6F-FULL 6f-g) fiende-eldgivning selftest vars
 DIM c31msg$   ' 6f-g: diagnostiksträng
 DIM c32s, c32ok, c32neg, c32over, c32pauseBad, c32mathBad, c32j, c32t0, c32lockT, c32lockSt, c32lockSpd, c32unlockT, c32unlockSt, c32fullT, c32spdMax!, c32stPrev, c32msg$   ' Fas 32 (6F-FULL 6f-h) sprint/stamina selftest vars
+DIM c33k, c33s, c33f, c33ok, c33badK, c33sawMv, c33j, c33t, c33keys(3), c33px0, c33py0, c33pxR, c33pyR, c33moved!, c33spdSaw!, c33st0, c33drained   ' Fas 33 (6G 6g-a) KeyDown2%-polling rörelse selftest vars
+DIM c33msg$   ' 6g-a: diagnostiksträng
 DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
@@ -394,6 +396,9 @@ DIM SHARED renEH!, renEW!, renType, wmin!
 ' 6E FIX G: sprint + stamina
 DIM SHARED stamina!, sprintLock, spdMul, sprintInj, sprintOn, stamPauseUntil!   ' sprintInj = selftest-injektion (hermetiskt); stamPauseUntil! = 6F FIX E: när regen-pulsen börjar igen efter tömning
 DIM SHARED injMvF, injMvB, injMvL, injMvR, injTurnL, injTurnR   ' 6F FIX A: hermetisk rörelse-injektion för selftest (i riktigt spel läses rörelse ENBART via _KEYDOWN-polling)
+' 6G FIX 1/2: replay-mode — simulerade OS-tangenter som matas in i SAMMA polling-pipeline som riktiga
+DIM SHARED replayMode, keySim%(0 To 127), keySimShift   ' keySim% indexeras med VERSAL ascii (65..90); keySimShift = båda Shift
+DIM SHARED replayAt&(0 To 2000), replayTok$(0 To 2000), replayN, replayCnt, replayLogF, replayClk&   ' replayAt/replayTok = script /tmp/schleswig_replay.scr; replayClk& = monoton frame-räknare (frames nollställs varje sekund för FPS)
 Const stamMax! = 100
 Const stamDrain! = 20      ' stamina/s vid sprint
 Const stamRegen! = 12      ' stamina/s vid vila/gång (6F FIX E: var 10 gång / 20 stillastående)
@@ -479,6 +484,15 @@ DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
 selftest = 0
 cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, bara LTrim$/RTrim$
 If cmdArg$ = "selftest" Then selftest = 1
+' 6G FIX 1/2: "replay" = NORMAL binary + NORMAL app flow (menu->pick->StartRun->fade->playing),
+' but OS key events are simulated from /tmp/schleswig_replay.scr (the sandbox cannot deliver
+' real key events headless). keySim% feeds the SAME polling predicate (KeyDown2%) that real
+' _KeyDown feeds; k$-taps drive the real menu/weapon event path. Telemetry -> /tmp/schleswig_replay.log.
+replayMode = 0
+If Left$(cmdArg$, 6) = "replay" Then   ' "replay" = no-arg menu; "replay <file.map>" = single mode with that map
+    replayMode = 1
+    cmdArg$ = LTrim$(RTrim$(Mid$(cmdArg$, 7)))
+End If
 ' Fas 5A-hotfix2 + 5C: command line -> game mode (see AGENTS.md argument table):
 '   no arg        -> "arena"    maps/default.map TEST ARENA (HUD: ARENA)
 '   selftest      -> "selftest" scripted self-test (single 16x16 test map)
@@ -519,6 +533,32 @@ Else
     px = plStartX + 0.5: py = plStartY + 0.5   ' Fas 5A: player start from map ('S')
 End If
 If selftest Then Randomize 987654: dodgeSeed& = 987654: aiSeed& = 13579   ' Fas 4A/4B: seeded RNG in selftest -> deterministic zigzag/dodge/spread tests
+' 6G FIX 1/2: replay-mode init — load script /tmp/schleswig_replay.scr ("<frame> <token>" per
+' line; token "x" = k$-tap one frame, "X+"/"X-" = keySim% hold/release, "SH+"/"SH-" = Shift)
+' and open the telemetry log. Gated on replayMode only — normal play and selftest never touch this.
+replayN = 0: replayCnt = 0
+If replayMode Then
+    If _FileExists("/tmp/schleswig_replay.scr") Then
+        rf = FreeFile
+        Open "/tmp/schleswig_replay.scr" For Input As #rf
+        While Not Eof(rf) And replayCnt <= 2000
+            Line Input #rf, rln$
+            rln$ = LTrim$(RTrim$(rln$))
+            If Len(rln$) > 0 And Left$(rln$, 1) <> "'" Then
+                rsp = InStr(rln$, " ")
+                If rsp > 1 Then
+                    replayAt&(replayCnt) = Val(Left$(rln$, rsp - 1))
+                    replayTok$(replayCnt) = LTrim$(Mid$(rln$, rsp + 1))
+                    replayCnt = replayCnt + 1
+                End If
+            End If
+        Wend
+        Close #rf
+    End If
+    replayLogF = FreeFile
+    Open "/tmp/schleswig_replay.log" For Output As #replayLogF
+    Close #replayLogF
+End If
 testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFlag = 0
 Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 ' Highscore: nollställ counters, ladda bästa score från lokal fil (.schleswig_scores.txt)
@@ -635,6 +675,23 @@ Do
     If selftest And (testPhase = 24 Or testPhase = 25) And c24key$ <> "" Then k$ = c24key$
     ' 6E fas26: key injection (w för sprint-testet)
     If selftest And testPhase = 26 And c26key$ <> "" Then k$ = c26key$
+    ' 6G FIX 1/2: replay-mode — apply due script tokens THIS frame (same place the selftest
+    ' injects k$, so menus/weapon-keys use the real event path and movement uses KeyDown2%)
+    If replayMode Then
+        replayClk& = replayClk& + 1
+        While replayN < replayCnt And replayAt&(replayN) <= replayClk&
+            rtok$ = replayTok$(replayN)
+            rlen = Len(rtok$)
+            If rlen >= 2 And Right$(rtok$, 1) = "+" Then
+                If rtok$ = "SH+" Then keySimShift = 1 Else keySim%(Asc(UCase$(Left$(rtok$, 1)))) = 1
+            ElseIf rlen >= 2 And Right$(rtok$, 1) = "-" Then
+                If rtok$ = "SH-" Then keySimShift = 0 Else keySim%(Asc(UCase$(Left$(rtok$, 1)))) = 0
+            ElseIf rlen = 1 Then
+                k$ = rtok$   ' tap: one-frame InKey$ event (real menu/select path)
+            End If
+            replayN = replayN + 1
+        Wend
+    End If
 
     ' ======== STATE-MACHINE: menu <-> playing (SPACE startar, ESC avslutar) ========
     If selftest And (state$ = "menu" Or state$ = "result" Or state$ = "paused" Or state$ = "victory") Then Gosub SelftestDrive   ' fas12/13 kör även utanför playing (5C: även victory)
@@ -1262,10 +1319,14 @@ Do
     ' är den enda injektionsvägen. Flaggor nollställs fortfarande vid ALLA
     ' state-övergångar (StartRun + reset-blocken).
     mvF = 0: mvB = 0: mvL = 0: mvR = 0: turnL = 0: turnR = 0
-    If _KeyDown(Asc("W")) Or (selftest And (k$ = "w" Or k$ = "W" Or injMvF)) Then mvF = 1
-    If _KeyDown(Asc("S")) Or (selftest And (k$ = "s" Or k$ = "S" Or injMvB)) Then mvB = 1
-    If _KeyDown(Asc("A")) Or (selftest And (k$ = "a" Or k$ = "A" Or injMvL)) Then mvL = 1
-    If _KeyDown(Asc("D")) Or (selftest And (k$ = "d" Or k$ = "D" Or injMvR)) Then mvR = 1
+    ' 6G FIX 1: KeyDown2% — QB64-PE rapporterar bokstäver som VERSAL (65..90) när Shift/CapsLock
+    ' hålls och gemen (97..122) annars (libqb TranslateLetter), och key-up tas bort med den kod
+    ' som gällde vid release. 6F FIX A polled bara VERSAL -> oskiftad WASD var DÖD och ett
+    ' shiftat W kunde fastna (sticky). KeyDown2% pollar BÅDA fallen + replay-tabellen.
+    If KeyDown2%(Asc("W")) Or (selftest And (k$ = "w" Or k$ = "W" Or injMvF)) Then mvF = 1
+    If KeyDown2%(Asc("S")) Or (selftest And (k$ = "s" Or k$ = "S" Or injMvB)) Then mvB = 1
+    If KeyDown2%(Asc("A")) Or (selftest And (k$ = "a" Or k$ = "A" Or injMvL)) Then mvL = 1
+    If KeyDown2%(Asc("D")) Or (selftest And (k$ = "d" Or k$ = "D" Or injMvR)) Then mvR = 1
     If _KeyDown(19200) Or (selftest And (k$ = Chr$(0) + "K" Or injTurnL)) Then turnL = 1
     If _KeyDown(19712) Or (selftest And (k$ = Chr$(0) + "M" Or injTurnR)) Then turnR = 1
     anglePrev = angle   ' Fas 4C: captured before turn input -> turnDelta covers keys+mouse
@@ -1278,7 +1339,9 @@ Do
     ' spdMul används av rörelseblocken nedan.
     spdMul = 1
     sprintOn = 0
-    If state$ = "playing" And (_KeyDown(42) Or _KeyDown(54) Or sprintInj) Then
+    ' 6G FIX 1: Shift-tangenterna är VK+QBVK_LSHIFT/RSHIFT = 100304/100303 i denna QB64-PE
+    ' (42/54 är numpadtecken där och matchade ALDRIG riktig Shift -> sprint var död i riktigt spel)
+    If state$ = "playing" And (_KeyDown(100304) Or _KeyDown(100303) Or sprintInj Or (replayMode And keySimShift)) Then
         If sprintLock = 0 And stamina! > 0 And (mvF Or mvB) Then sprintOn = 1
     End If
     If sprintOn Then
@@ -2888,6 +2951,15 @@ Do
         stMsg$ = "alive phase=" + Str$(testPhase) + " state=" + state$ + " hp=" + Str$(Int(hp)) + " en0=(" + LTrim$(Str$(Int(enX(0) * 10) / 10)) + "," + LTrim$(Str$(Int(enY(0) * 10) / 10)) + ") st=" + Str$(enState(0)) + " act=" + Str$(enActive(0)) + " en1act=" + Str$(enActive(1)) + " winP=" + Str$(winPending) + " frz=" + Str$(runTimeFrozen)
         Gosub STLog
     End If
+    ' 6G FIX 1/2: replay-telemetry — var 5:e frame till /tmp/schleswig_replay.log (extern driver
+    ' asserar rörelse/sticky/sprint där); var 120:e frame en skärmdump för HUD-pixelkontroll
+    If replayMode And Not selftest And frames Mod 5 = 0 Then
+        replayLogF = FreeFile
+        Open "/tmp/schleswig_replay.log" For Append As #replayLogF
+        Print #replayLogF, "fr=" + LTrim$(Str$(replayClk&)) + " st=" + state$ + " px=" + LTrim$(Str$(Int(px * 100) / 100)) + " py=" + LTrim$(Str$(Int(py * 100) / 100)) + " ang=" + LTrim$(Str$(Int(angle * 100) / 100)) + " mv=" + LTrim$(Str$(mvF)) + LTrim$(Str$(mvL)) + LTrim$(Str$(mvB)) + LTrim$(Str$(mvR)) + " pv=" + LTrim$(Str$(Int(pvx * 100) / 100)) + "," + LTrim$(Str$(Int(pvy * 100) / 100)) + " spd=" + LTrim$(Str$(spdMul)) + " stam=" + LTrim$(Str$(Int(stamina!))) + " lock=" + LTrim$(Str$(sprintLock)) + " ksW=" + LTrim$(Str$(keySim%(87))) + " ksSH=" + LTrim$(Str$(keySimShift))
+        Close #replayLogF
+    End If
+    If replayMode And Not selftest And state$ = "playing" And replayClk& Mod 120 = 0 Then _SaveImage "/tmp/schleswig_replay.bmp", display&
     If curTime - lastTime >= 1 Then
         fpsShow = Int(frames / (curTime - lastTime))
         _Title strAppName$ + " " + ver$ + " - " + strFps$ + LTrim$(Str$(fpsShow))
@@ -3321,6 +3393,34 @@ Function CountAmmoTicks% (a, cap)
     If a < 0 Then a = 0
     If a > cap Then a = cap
     CountAmmoTicks% = a
+End Function
+
+' KeyDown2% (6G FIX 1): modifier-independent letter-key polling. QB64-PE adds the UPPERCASE
+' ascii code to the held-key table when Shift/CapsLock is held at press/repeat and the
+' lowercase otherwise (libqb keyboard.cpp TranslateLetter/keydown_unicode), and key-up
+' removes whichever code the release event maps to — so polling ONLY Asc("W") left unshifted
+' W dead and could leave a stuck uppercase entry after Shift+W. Check BOTH cases; in replay
+' mode the simulated key table keySim% (indexed by UPPERCASE code) feeds the same predicate.
+Function KeyDown2% (c%)
+    If _KeyDown(c%) Then
+        KeyDown2% = -1
+        Exit Function
+    End If
+    If c% >= 65 And c% <= 90 Then
+        If _KeyDown(c% + 32) Then
+            KeyDown2% = -1
+            Exit Function
+        End If
+        If replayMode And keySim%(c%) Then
+            KeyDown2% = -1
+            Exit Function
+        End If
+    ElseIf replayMode Then
+        If keySim%(c%) Then
+            KeyDown2% = -1
+            Exit Function
+        End If
+    End If
 End Function
 
 ' InitSounds (Fas 4): fyller det datadrivna ljud-registret (id -> vågform,
@@ -10777,6 +10877,120 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c32j = 0 To PR_MAX: prActive(c32j) = 0: Next c32j
                 For c32j = 0 To WP_COUNT - 1: wpOwned(c32j) = 0: Next c32j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
+                testPhase = 33: testT0 = Timer: testFlag = 0   ' 6G: vidare till 6g-a (KeyDown2%-polling genom riktiga app-flödet); kedjan 28->...->33->12
+            End If
+        Case 33  ' 6G FIX 1 6g-a: rörelse через KeyDown2%-polling (SAMMA predikat som riktiga _KeyDown i riktigt spel):
+                 ' W/A/S/D rör spelaren, stannar inom 1 frame efter släpp (sticky-regression), Shift+W sprintar x1.5 + dränerar stamina
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                px = 2.5: py = 12.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo
+                stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
+                replayMode = 1   ' bara för att keySim% ska nå KeyDown2% — ingen telemetry (selftest guard)
+                For c33j = 0 To 127: keySim%(c33j) = 0: Next c33j
+                keySimShift = 0
+                For c33j = 0 To 10: enActive(c33j) = 0: Next c33j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99: enZ(0) = 0
+                For c33j = 0 To PR_MAX: prActive(c33j) = 0: Next c33j
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                state$ = "playing"
+                c33keys(0) = 87: c33keys(1) = 65: c33keys(2) = 83: c33keys(3) = 68   ' W A S D
+                c33k = 0: c33s = 0: c33f = 0: c33ok = 0: c33badK = 0: c33sawMv = 0
+                c33px0 = px: c33py0 = py: c33msg$ = ""
+                c33t = Timer
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                If c33s = 0 Then
+                    ' håll aktuell tangent via keySim% (KeyDown2%-vägen)
+                    keySim%(c33keys(c33k)) = 1
+                    If mvF + mvL + mvB + mvR > 0 Then c33sawMv = 1
+                    c33f = c33f + 1
+                    If c33f >= 20 Then
+                        c33moved! = Sqr((px - c33px0) ^ 2 + (py - c33py0) ^ 2)
+                        If c33moved! > 0.05 And c33sawMv = 1 Then c33ok = c33ok + 1 Else c33msg$ = c33msg$ + " hold k=" + Str$(c33keys(c33k)) + " mv=" + Str$(c33moved!)
+                        keySim%(c33keys(c33k)) = 0
+                        c33pxR = px: c33pyR = py: c33f = 0: c33sawMv = 0: c33badK = 0: c33s = 1
+                    End If
+                ElseIf c33s = 1 Then
+                    ' tangent släppt: mv-flagga 0, pvx/pvy 0, positionen FRYST (sticky-regression)
+                    c33f = c33f + 1
+                    If mvF + mvL + mvB + mvR <> 0 Or pvx <> 0 Or pvy <> 0 Or px <> c33pxR Or py <> c33pyR Then
+                        c33badK = c33badK + 1
+                        c33msg$ = c33msg$ + " sticky k=" + Str$(c33keys(c33k))
+                    End If
+                    If c33f >= 5 Then
+                        If c33badK = 0 Then c33ok = c33ok + 1
+                        c33k = c33k + 1
+                        If c33k <= 3 Then
+                            c33px0 = px: c33py0 = py: c33f = 0: c33s = 0
+                        Else
+                            c33s = 2: c33f = 0: c33spdSaw! = 0: c33st0 = stamina!: c33drained = 0
+                        End If
+                    End If
+                ElseIf c33s = 2 Then
+                    ' Shift+W: sprint x1.5 + stamina dränerar
+                    keySimShift = 1: keySim%(87) = 1
+                    If spdMul > c33spdSaw! Then c33spdSaw! = spdMul
+                    If stamina! < c33st0 Then c33drained = 1
+                    c33f = c33f + 1
+                    If c33f >= 20 Then
+                        If c33spdSaw! = stamSprintMult! Then c33ok = c33ok + 1 Else c33msg$ = c33msg$ + " spdSaw=" + LTrim$(Str$(c33spdSaw!))
+                        If c33drained = 1 Then c33ok = c33ok + 1 Else c33msg$ = c33msg$ + " noDrain stam=" + LTrim$(Str$(stamina!))
+                        keySimShift = 0
+                        c33f = 0: c33s = 3
+                    End If
+                ElseIf c33s = 3 Then
+                    ' Shift släppt (W fortfarande hållen): spdMul tillbaka till 1 direkt, fortfarande mvF
+                    c33f = c33f + 1
+                    If c33f >= 2 Then
+                        If spdMul = 1 And mvF = 1 Then c33ok = c33ok + 1 Else c33msg$ = c33msg$ + " unshift spd=" + LTrim$(Str$(spdMul)) + " mvF=" + Str$(mvF)
+                        keySim%(87) = 0
+                        c33s = 4
+                    End If
+                ElseIf c33s = 4 Then
+                    If c33ok = 11 Then
+                        stMsg$ = "PASS 6g-a-keydown2-polling (W/A/S/D via KeyDown2% rör spelaren >0.05 celler/20f; efter släpp mv-flagga=0, pvx=pvy=0, position fryst 5f — INGEN sticky; Shift+W ger spdMul=" + LTrim$(Str$(stamSprintMult!)) + " + stamina dränerar; Shift-släpp -> spdMul=1 direkt)" + c33msg$
+                        Gosub STLog
+                        testFlag = 2: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL 6g-a ok=" + Str$(c33ok) + "/11 msg=" + c33msg$
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+                If Timer - testT0 > 40 Then
+                    stMsg$ = "FAIL 6g-a-timeout s=" + Str$(c33s) + " k=" + Str$(c33k) + " ok=" + Str$(c33ok) + " msg=" + c33msg$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' 6g-a klar: stäng replay-läget, återställ selftest-miljö, vidare till fas12 (kedjans slut)
+                replayMode = 0: keySimShift = 0
+                For c33j = 0 To 127: keySim%(c33j) = 0: Next c33j
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
+                injMvF = 0: injMvB = 0: injMvL = 0: injMvR = 0: injTurnL = 0: injTurnR = 0
+                For c33j = 0 To 10: enActive(c33j) = 0: Next c33j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c33j = 0 To PR_MAX: prActive(c33j) = 0: Next c33j
+                For c33j = 0 To WP_COUNT - 1: wpOwned(c33j) = 0: Next c33j
                 wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
