@@ -95,6 +95,8 @@ DIM c23f$, c23ln$, c23ch$, c23msg$, c23txt$, c23a, c23b, c23c, c23d, c23m, c23mx
 DIM c24key$, c24map$, c24i, c24j, c24t, c24m, c24ok, c24f, c24wx, c24wy, c24bad, c24x, c24y, dfx, dfy, dfx2, dfy2   ' Fas 24 (6B char-pairs + menu-blink) selftest vars
 DIM c25lvl, c25j, c25k, c25t, c25ok, c25bad, c25n, c25f, c25m, c25jw, c25nd, c25c$, c25hud$, c25alive, c25bi, c25bd, c25d, c25what, c25door, c25dx, c25dy, c25cx, c25cy, c25best, c25bnx, c25bny, c25nx2, c25ny2, c25y, c25kills0, c25assist, c25bot, c25hash&, c25doorX, c25doorY, c25gx, c25gy, c25msave, c25sh0, c25canFire, c25enF(5), c25enO(5), c25enU(5), c25enK(5), c25enG(5), c25wpExp(5), c25keyExp(5), c25doorN(5), c25i, c25x, c25north, c25north2, c25keyOK, c25seg, c25sum, c25ln$, c25f$, c25h&   ' Fas 25 (6C äkta kampanjbanor + 6D 6d-e/6d-f) selftest vars
 DIM c26key$, c26map$, c26i, c26j, c26k, c26t, c26ok, c26bad, c26f$, c26ln$, c26h&, c26txt$, c26x, c26y, c26c&, c26zone, c26found, c26ehF!, c26ehG!, c26ewF!, c26ewG!, c26px0, c26distW!, c26distS!, c26hp0, c26pr0, c26ang, c26f0, c26f1, c26p0, c26p1, c26blue, c26red, c26d, c26rockOK, c26redOK, c26goldOK, c26featherOK, c26spdMax!, c26lockSawBad, c26unlockSt, c26walkSprint   ' Fas 26 (6E) selftest vars
+DIM c27arm, c27pass, c27done, c27i, c27j, c27t, c27ok, c27bad, c27n, c27x, c27y, c27c&, c27bx, c27by, c27type, c27ex0, c27ex1, c27ey0, c27ey1, c27eyeN, c27eyeBad, c27eyeL, c27eyeR, c27eyeType, c27ballN, c27ballW, c27coreN, c27oldW, c27scX0, c27scX1, c27faceX0, c27faceX1, c27zoneY0, c27zoneY1, c27eco&, c27bdist!, c27eh!, c27ew!, c27base!, c27s0&, c27s1&, c27s2&, c27s3&, c27s4&, c27s5&, c27s6&, c27s7&, c27good, c27fx, c27fy, c27fc&, c27fb&, c27op, c27ox, c27oy, c27tx, c27ty, c27want   ' Fas 27 (6F-LITE) selftest vars
+DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
 ' Storleken skalas med RH så layouten hålls på alla skärmupplösningar.
@@ -219,7 +221,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "7dc3328"
+Const strBuild$ = "fc96c8c"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -299,6 +301,7 @@ Const maxAmmo = 40         ' ammo-cap TYP 1 (musköt) — 6E FIX E: 20->40 (mins
 Const startAmmo = 15       ' 5E ammo-balans: start-ammo 5 -> 15 (~3x, André dog of ammoN(1) before level 3)
 Const ammoPickup = 10      ' 5E ammo-balans: per A-pickup +5 -> +10
 Const dbgCellScan = 0      ' 5E: 1 = HUD debug-rad med antal kvarblivna (icke-normaliserade) celltecken (mapBadN, ska vara 0)
+Const dbgEnemyBox = 0      ' 6F FIX A: 1 = DEBUG ONLY — semi-transparent overlay over the whole enemy sprite rect (the "ghost box"); OFF by default, all enemy debug drawing sits behind this flag
 DIM amX(10), amY(10), amActive(10), amT(10)   ' amT = ammoN(1)-typ per pickup (A=1,B=2,C=3,D=4)
 ' 6A: ammo delas per AMMO-TYP (1=musköt, 2=blunderbuss, 3=maskingevär, 4=mini-kanon).
 ' ammoN(1) är samma pool som gamla 'ammo' (musköten). capAmmo per typ.
@@ -365,11 +368,13 @@ DIM enAnimF(10), enAnimT!(10), enLastAX(10), enLastAY(10)                       
 Const ESW = 48
 Const ESH = 72
 DIM enBuf&(ET_COUNT, 1)
+DIM c27opaque%(ET_COUNT - 1, ESW - 1, ESH - 1)   ' 6F 6f-a/6f-b: sprite-buffer opacity map (built by the selftest)
 ' 6E FIX A: färgpalett enligt SPRITE-BRIEF.md §3 (EN källa; selftest 6e-s1 speglar mot briefens _RGB32-värden).
 ' Kan INTE vara Const (RGB32() är funktionsanrop) -> DIM SHARED + InitEnemyPalette.
 DIM SHARED spUniformBlue&, spUniformDeep&, spOfficerBlue&, spGeneralRed&, spHatBlack&, spHatBrim&
 DIM SHARED spCrossWhite&, spGoldYellow&, spFaceSkin&, spBootBlack&, spMusketBrown&, spFeatherWhite&
 DIM SHARED spEyeDark&, spEyeAlertRed&
+DIM SHARED enBallGlow&, enBallCore&   ' 6F FIX C: enemy ball colors (player ball stays plain white)
 ' 6E FIX C: z-order-probe (ritordning per frame) + 6E FIX B: senast renderade sprite-storlek (selftest-prober)
 DIM visI(10), visDist(10), visCX(10), visEW(10), visEH(10), visEX0(10), visEX1(10), visEY0(10), visEY1(10), visBase(10), visOrd(10), visN, zi, zj, zt
 DIM SHARED zProbeX, zProbeY, zProbeC&, zProbeB, zProbeR, zpdx, zpdy, zpx, zpy   ' 6E 6e-s5: pixel-probe läst INUTI render efter buf->display (före _Display)
@@ -405,6 +410,12 @@ Const plrBallDmg = 1      ' same damage per hit as the old hitscan (balance unch
 Const ballScale! = 0.35
 Const ballPxMin = 7
 Const ballPxMax = 12
+' 6F FIX C: ENEMY ball render size — >= 1.5x the old enemy ball (old = ballScale!*0.3
+' clamped to 2..3 px). enBallScale! 0.6 with clamp 5..9 px => always >= 1.5x old at
+' any distance; still a bit smaller than the player ball (7..12) AND a different color.
+Const enBallScale! = 0.6
+Const enBallPxMin = 5
+Const enBallPxMax = 9
 DIM prX(PR_MAX), prY(PR_MAX), prDX(PR_MAX), prDY(PR_MAX), prActive(PR_MAX)
 DIM prSpd!(PR_MAX), prOwner(PR_MAX), prDmg(PR_MAX), prType(PR_MAX), prSrcType(PR_MAX)
 DIM prTX(PR_MAX), prTY(PR_MAX), prLandT(PR_MAX)
@@ -2232,7 +2243,10 @@ Do
             Next sx
             If edistP < wmin! Then
                 _PutImage (ex0, ey0)-(ex1, ey1), ebf&, buf&, (0, 0)-(ESW - 1, ESH - 1)
-                If ealpha > 0 Then Line (ex0, ey0)-(ex1, ey1), _RGBA32(0, 0, 0, ealpha), BF
+                ' 6F FIX A: the full-rect alpha overlay darkens the TRANSPARENT margins of
+                ' the sprite too -> visible semi-transparent box around the enemy. It is
+                ' debug/collision visualization only: behind Const dbgEnemyBox (OFF).
+                If dbgEnemyBox And ealpha > 0 Then Line (ex0, ey0)-(ex1, ey1), _RGBA32(0, 0, 0, ealpha), BF
             Else
                 For sx = ex0 To ex1
                     If edistP < wallDist(sx) Then
@@ -2240,30 +2254,38 @@ Do
                         If srcX < 0 Then srcX = 0
                         If srcX > ESW - 1 Then srcX = ESW - 1
                         _PutImage (sx, ey0)-(sx, ey1), ebf&, buf&, (srcX, 0)-(srcX, ESH - 1)   ' världsbuffern buf& (samma _Dest som väggarna)
-                        If ealpha > 0 Then Line (sx, ey0)-(sx, ey1), _RGBA32(0, 0, 0, ealpha)
+                        If dbgEnemyBox And ealpha > 0 Then Line (sx, ey0)-(sx, ey1), _RGBA32(0, 0, 0, ealpha)
                     End If
                 Next sx
             End If
-            ' ögon i ZONE B (~30% ner): EN färgkälla — EnemyEyeColor&(enState) (patrol mörk / ALERT röd)
+            ' 6F FIX B: eyes are defined in SPRITE-BUFFER coords inside ZONE B (20-45%
+            ' of ESH) and the face span, mapped through the SAME scale as the blit and
+            ' CLIPPED to the sprite rect — ONE placement source (EnemyEyeRect) for
+            ' patrol (dark) and ALERT (red) eyes; only the color differs.
             If ew > 14 Then
                 eco& = EnemyEyeColor&(enState(i))
-                eo = Int(ew * 0.07)
-                If eo < 2 Then eo = 2
-                eoy = Int(ey0 + eh * 0.30)
-                eoh = Int(eh * 0.08)
-                If eoh < 2 Then eoh = 2
-                eoxA = Int(ecx - ew * 0.18): eoxB = Int(ecx + ew * 0.18)
-                If eoy >= 0 And eoy + eoh <= RH - 1 Then
-                    For sx = eoxA - eo To eoxA + eo
-                        If sx >= 0 And sx < RW Then
-                            If edistP < wallDist(sx) Then Line (sx, eoy)-(sx, eoy + eoh), eco&
-                        End If
-                    Next sx
-                    For sx = eoxB - eo To eoxB + eo
-                        If sx >= 0 And sx < RW Then
-                            If edistP < wallDist(sx) Then Line (sx, eoy)-(sx, eoy + eoh), eco&
-                        End If
-                    Next sx
+                eBufY0 = Int(ESH * 0.26): eBufY1 = Int(ESH * 0.36)   ' ZONE B band (0.20..0.45 of ESH)
+                eBufXL0 = ESW \ 2 - 6: eBufXL1 = ESW \ 2 - 4          ' left eye, inside face span
+                eBufXR0 = ESW \ 2 + 4: eBufXR1 = ESW \ 2 + 6          ' right eye
+                EnemyEyeRect eBufXL0, eBufY0, eBufXL1, eBufY1, ex0, ex1, ey0, ey1, eScrX0, eScrY0, eScrX1, eScrY1
+                If eScrX1 >= eScrX0 And eScrY1 >= eScrY0 Then
+                    If eScrX0 < 0 Then eScrX0 = 0
+                    If eScrX1 > RW - 1 Then eScrX1 = RW - 1
+                    If eScrY0 < 0 Then eScrY0 = 0
+                    If eScrY1 > RH - 1 Then eScrY1 = RH - 1
+                    For eex = eScrX0 To eScrX1
+                        If edistP < wallDist(eex) Then Line (eex, eScrY0)-(eex, eScrY1), eco&
+                    Next eex
+                End If
+                EnemyEyeRect eBufXR0, eBufY0, eBufXR1, eBufY1, ex0, ex1, ey0, ey1, eScrX0, eScrY0, eScrX1, eScrY1
+                If eScrX1 >= eScrX0 And eScrY1 >= eScrY0 Then
+                    If eScrX0 < 0 Then eScrX0 = 0
+                    If eScrX1 > RW - 1 Then eScrX1 = RW - 1
+                    If eScrY0 < 0 Then eScrY0 = 0
+                    If eScrY1 > RH - 1 Then eScrY1 = RH - 1
+                    For eex = eScrX0 To eScrX1
+                        If edistP < wallDist(eex) Then Line (eex, eScrY0)-(eex, eScrY1), eco&
+                    Next eex
                 End If
             End If
         End If
@@ -2286,12 +2308,12 @@ Do
                         bcx2 = RW / 2 * (1 + Tan(bang) / planeDist)
                         ' Light distance scale with hard clamp: ballPx = clamp(RW/bdist * ballScale!, ballPxMin, ballPxMax)
                         ' (near ~12 px, far ~7 px — always visible, never a shoebox). Mini-fix 2.
-                        ' 6A FIX E: fiende-kula (musketeer, prOwner=1) = LITEN 2-3 px,
-                        ' ljusgrå — tydligt skild från spelarens vita kula (7-12 px).
+                        ' 6F FIX C: enemy ball (prOwner=1) >= 1.5x the old 2-3 px — clamp 5..9 px
+                        ' via enBallScale!/enBallPxMin/enBallPxMax; player ball unchanged 7..12.
                         If prOwner(i) = 1 Then
-                            ballPx = Int(RW / bdist * ballScale! * 0.3)
-                            If ballPx < 2 Then ballPx = 2
-                            If ballPx > 3 Then ballPx = 3
+                            ballPx = Int(RW / bdist * ballScale! * enBallScale!)
+                            If ballPx < enBallPxMin Then ballPx = enBallPxMin
+                            If ballPx > enBallPxMax Then ballPx = enBallPxMax
                         Else
                             ballPx = Int(RW / bdist * ballScale!)
                             If ballPx < ballPxMin Then ballPx = ballPxMin
@@ -2308,8 +2330,10 @@ Do
                         If bx1 > RW - 1 Then bx1 = RW - 1
                         If by0 < 0 Then by0 = 0
                         If by1 > RH - 1 Then by1 = RH - 1
-                        ' 6A: spelar-kula vit (större), fiende-kula ljusgrå (liten)
-                        If prOwner(i) = 0 Then bcol& = _RGB32(255, 255, 255) Else bcol& = _RGB32(205, 205, 215)
+                        ' player ball = plain white; enemy ball = hot orange glow (6F FIX C)
+                        ' + white-hot core + the same dark rim — a DIFFERENT color from the
+                        ' player's ball (selftest 6f-c compares the constants)
+                        If prOwner(i) = 0 Then bcol& = _RGB32(255, 255, 255) Else bcol& = enBallGlow&
                         If by1 > by0 And bx1 >= bx0 Then
                             ' cheap 1px dark outline around the ball so it pops against walls
                             obx0 = bx0 - 1: obx1 = bx1 + 1: oby0 = by0 - 1: oby1 = by1 + 1
@@ -2325,6 +2349,13 @@ Do
                             For sx = bx0 To bx1
                                 If bdistP < wallDist(sx) Then Line (sx, by0)-(sx, by1), bcol&
                             Next sx
+                            ' 6F FIX C: enemy-only white-hot core, inset 1 px inside the orange glow
+                            If prOwner(i) = 1 And bx1 - 1 >= bx0 + 1 Then
+                                cbx0 = bx0 + 1: cbx1 = bx1 - 1: cby0 = by0 + 1: cby1 = by1 - 1
+                                For sx = cbx0 To cbx1
+                                    If bdistP < wallDist(sx) Then Line (sx, cby0)-(sx, cby1), enBallCore&
+                                Next sx
+                            End If
                         End If
                     End If
                 End If
@@ -2531,6 +2562,113 @@ Do
                 End If
             Next zpdx
         Next zpdy
+    End If
+    ' 6F selftest pixel-probes (after buf->display, Point reads display& here)
+    If selftest And testPhase = 27 And testFlag = 1 And c27arm = 1 And c27done = 0 Then
+        ' 6f-a: ghost-box scan — pass 0 captures the world WITHOUT the enemy into
+        ' c27bg& (rect precomputed by the case logic), pass 1 (enemy visible) checks
+        ' that every pixel where the sprite buffer is TRANSPARENT is unchanged
+        ' (no extra translucent layer in the sprite rect beyond billboard)
+        If c27pass = 0 Then
+            For c27y = c27ey0 To c27ey1
+                If c27y > 1299 Then Exit For
+                For c27x = c27ex0 To c27ex1
+                    If c27x > 2047 Then Exit For
+                    c27bg&(c27x, c27y) = Point(c27x, c27y)
+                Next c27x
+            Next c27y
+            c27s0& = Point(c27ex0 + 3, c27ey0 + 3): c27s1& = c27bg&(c27ex0 + 3, c27ey0 + 3)
+            c27s2& = Point(Int((c27ex0 + c27ex1) / 2), Int((c27ey0 + c27ey1) / 2)): c27s3& = c27bg&(Int((c27ex0 + c27ex1) / 2), Int((c27ey0 + c27ey1) / 2))
+            c27pass = 1: c27done = 1
+        ElseIf visN >= 1 Then
+            c27n = 0: c27bad = 0: c27good = 0: c27fx = -1: c27fy = -1
+            c27s4& = Point(c27ex0 + 3, c27ey0 + 3): c27s5& = c27bg&(c27ex0 + 3, c27ey0 + 3)
+            c27s6& = Point(Int((c27ex0 + c27ex1) / 2), Int((c27ey0 + c27ey1) / 2)): c27s7& = c27bg&(Int((c27ex0 + c27ex1) / 2), Int((c27ey0 + c27ey1) / 2))
+            For c27y = c27ey0 To c27ey1
+                If c27y > 1299 Then Exit For
+                For c27x = c27ex0 To c27ex1
+                    If c27x > 2047 Then Exit For
+                    c27bx = Int((c27x - c27ex0) * ESW / (c27ex1 - c27ex0 + 1))   ' floor mapping = same as the stretch blit
+                    If c27bx < 0 Then c27bx = 0
+                    If c27bx > ESW - 1 Then c27bx = ESW - 1
+                    c27by = Int((c27y - c27ey0) * ESH / (c27ey1 - c27ey0 + 1))
+                    If c27by < 0 Then c27by = 0
+                    If c27by > ESH - 1 Then c27by = ESH - 1
+                    ' conservative: skip the pixel if ANY buffer pixel in the 2x2 block
+                    ' around the mapped coord is opaque (blit scaling rounds +-1 px)
+                    c27op = 0
+                    For c27oy = 0 To 1
+                        For c27ox = 0 To 1
+                            c27tx = c27bx + c27ox: c27ty = c27by + c27oy
+                            If c27tx > ESW - 1 Then c27tx = ESW - 1
+                            If c27ty > ESH - 1 Then c27ty = ESH - 1
+                            If c27opaque%(c27type, c27tx, c27ty) = 1 Then c27op = 1
+                        Next c27ox
+                    Next c27oy
+                    If c27op = 0 Then
+                        c27n = c27n + 1
+                        c27c& = Point(c27x, c27y)   ' assign first — inline Point() in a comparison mis-evaluates in this build (same pattern as zProbeC&/c26c&)
+                        If c27c& <> c27bg&(c27x, c27y) Then
+                            c27bad = c27bad + 1
+                            If c27fx < 0 Then
+                                c27fx = c27x: c27fy = c27y: c27fc& = c27c&: c27fb& = c27bg&(c27x, c27y)
+                            End If
+                        Else
+                            c27good = c27good + 1
+                        End If
+                    End If
+                Next c27x
+            Next c27y
+            c27done = 1
+        End If
+    End If
+    If selftest And testPhase = 27 And testFlag = 2 And visN >= 1 And c27done = 0 Then
+        ' 6f-b: eye scan — every rendered eye-color pixel of the nearest visible
+        ' enemy must map back into ZONE B + face span of the sprite buffer
+        vk = visOrd(visN - 1)
+        c27ex0 = Int(visEX0(vk)): c27ex1 = Int(visEX1(vk)): c27ey0 = Int(visEY0(vk)): c27ey1 = Int(visEY1(vk))
+        c27eyeType = enType(visI(vk))
+        c27eco& = EnemyEyeColor&(enState(visI(vk)))
+        c27zoneY0 = Int(ESH * 0.2): c27zoneY1 = Int(ESH * 0.45) - 1
+        c27faceX0 = (ESW - Int(ESW * 0.7)) \ 2 + 8: c27faceX1 = (ESW - Int(ESW * 0.7)) \ 2 + Int(ESW * 0.7) - 1 - 8
+        c27eyeN = 0: c27eyeBad = 0: c27eyeL = 0: c27eyeR = 0
+        For c27y = c27ey0 To c27ey1
+            For c27x = c27ex0 To c27ex1
+                c27c& = Point(c27x, c27y)   ' assign first — inline Point() comparison mis-evaluates in this build
+                If c27c& = c27eco& Then
+                    c27bx = Int((c27x - c27ex0) * ESW / (c27ex1 - c27ex0 + 1))   ' floor mapping = same as the stretch blit
+                    If c27bx < 0 Then c27bx = 0
+                    If c27bx > ESW - 1 Then c27bx = ESW - 1
+                    c27by = Int((c27y - c27ey0) * ESH / (c27ey1 - c27ey0 + 1))
+                    If c27by < 0 Then c27by = 0
+                    If c27by > ESH - 1 Then c27by = ESH - 1
+                    c27eyeN = c27eyeN + 1
+                    If c27by < c27zoneY0 Or c27by > c27zoneY1 Or c27bx < c27faceX0 Or c27bx > c27faceX1 Then c27eyeBad = c27eyeBad + 1
+                    If c27bx < ESW \ 2 Then c27eyeL = 1
+                    If c27bx > ESW \ 2 Then c27eyeR = 1
+                End If
+            Next c27x
+        Next c27y
+        c27done = 1
+    End If
+    If selftest And testPhase = 27 And testFlag = 3 And c27done = 0 Then
+        ' 6f-c: enemy-ball scan — measure the rendered glow width around screen center
+        ' (ball spawned dead ahead) and count white-hot core pixels
+        c27ballN = 0: c27coreN = 0: c27scX0 = RW: c27scX1 = -1
+        For c27y = midY - 40 To midY + 40   ' midY +- 40 is always on-screen (RH >= 81)
+            For c27x = RW \ 2 - 40 To RW \ 2 + 40
+                c27c& = Point(c27x, c27y)
+                If c27c& = enBallGlow& Then
+                    c27ballN = c27ballN + 1
+                    If c27x < c27scX0 Then c27scX0 = c27x
+                    If c27x > c27scX1 Then c27scX1 = c27x
+                End If
+                If c27c& = enBallCore& Then c27coreN = c27coreN + 1
+            Next c27x
+        Next c27y
+        c27ballW = 0
+        If c27scX1 >= c27scX0 Then c27ballW = c27scX1 - c27scX0 + 1
+        c27done = 1
     End If
     ' Fas 4C: weapon viewmodel — bottom layer, UNDER the HUD (HUD is drawn below,
     ' so ammoN(1)/HP stay readable). This code is only reachable in the playing
@@ -2768,6 +2906,10 @@ InitEnemyPalette:
     spFeatherWhite& = _RGB32(240, 240, 240)
     spEyeDark& = _RGB32(20, 20, 30)
     spEyeAlertRed& = _RGB32(255, 60, 60)
+    ' 6F FIX C: enemy ball = hot orange glow + white-hot core + dark rim (the rim is
+    ' the shared 1px outline below); player ball stays plain white -> distinct color
+    enBallGlow& = _RGB32(255, 110, 0)
+    enBallCore& = _RGB32(255, 240, 180)
     Return
 
 ' EnemyEyeColor& (6E FIX A, 6e-s7): ögonfärg = EN funktion av fiendens
@@ -2779,6 +2921,28 @@ Function EnemyEyeColor& (st%)
         EnemyEyeColor& = spEyeDark&
     End If
 End Function
+
+' EnemyEyeRect (6F FIX B): maps a rectangle given in SPRITE-BUFFER coords
+' (bx0..bx1, by0..by1 of the ESW x ESH buffer — ZONE B face area) to the
+' on-screen sprite rect AFTER scaling (same stretch as the blit) and CLIPS it
+' against the sprite rect (ex0..ex1, ey0..ey1), so eyes can never land outside
+' the face or leave the billboard. ONE source for patrol (dark) and ALERT
+' (red) eyes — only the color (EnemyEyeColor&) differs.
+Sub EnemyEyeRect (bx0, by0, bx1, by1, ex0, ex1, ey0, ey1, sx0, sy0, sx1, sy1)
+    wpx = ex1 - ex0 + 1
+    If wpx < 1 Then wpx = 1
+    hpx = ey1 - ey0 + 1
+    If hpx < 1 Then hpx = 1
+    sx0 = ex0 + Int(bx0 * wpx / ESW)
+    sx1 = ex0 + Int((bx1 + 1) * wpx / ESW) - 1
+    sy0 = ey0 + Int(by0 * hpx / ESH)
+    sy1 = ey0 + Int((by1 + 1) * hpx / ESH) - 1
+    ' clip against the sprite rect — eyes always stay on the billboard
+    If sx0 < ex0 Then sx0 = ex0
+    If sx1 > ex1 Then sx1 = ex1
+    If sy0 < ey0 Then sy0 = ey0
+    If sy1 > ey1 Then sy1 = ey1
+End Sub
 
 ' InitEnemySprites (6E FIX A): skapar enBuf&(typ, frame) — 2 gång-frames per
 ' fiendetyp, ESW x ESH, transparent bakgrund (så väggen bakom syns igenom).
@@ -9853,6 +10017,195 @@ SelftestDrive:
                 runT0 = Timer - 3
                 state$ = "playing"
                 c26key$ = ""
+                testPhase = 27: testT0 = Timer: testFlag = 0   ' 6F-LITE: 6f-a/b/c, sedan fas12
+            End If
+        Case 27  ' 6F-LITE: 6f-a no ghost box around enemies, 6f-b eyes inside ZONE B for
+                 ' all 5 types (incl G 1.4x) + ALERT, 6f-c enemy ball >= 1.5x + distinct
+                 ' color. Sedan fas12.
+            If testFlag = 0 Then
+                ' common setup + sprite-buffer opacity map (black sentinel fill, then
+                ' blit enBuf -> transparent pixels stay pure black, none of the
+                ' palette colors is pure black)
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                px = 8.5: py = 4.5: angle = 0: pitch = 0: hp = 100
+                For c27j = 0 To 10: enActive(c27j) = 0: Next c27j
+                For c27j = 0 To PR_MAX: prActive(c27j) = 0: Next c27j
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                state$ = "playing"
+                For c27j = 0 To ET_COUNT - 1
+                    _Dest display&
+                    Line (0, 0)-(RW - 1, RH - 1), _RGB32(0, 0, 0), BF
+                    _PutImage (0, 0), enBuf&(c27j, 0), display&
+                    For c27y = 0 To ESH - 1
+                        For c27x = 0 To ESW - 1
+                            c27c& = Point(c27x, c27y)   ' assign first — inline Point() comparison mis-evaluates in this build
+                            If c27c& <> _RGB32(0, 0, 0) Then c27opaque%(c27j, c27x, c27y) = 1
+                        Next c27x
+                    Next c27y
+                Next c27j
+                _Dest display&
+                testFlag = 1: testT0 = Timer: c27i = 0
+            End If
+            If testFlag = 1 Then
+                ' --- 6f-a: no semi-transparent box in the sprite rect (pixel-scan) ---
+                If c27i = 0 Then
+                    ' analytic sprite rect for FOOT at (12.5,4.5), player (8.5,4.5), angle 0 (dist 4)
+                    c27bdist! = 4: c27type = ET_FOOT
+                    c27eh! = RH / c27bdist! * 0.9 * etScale!(ET_FOOT)
+                    c27ew! = RW / c27bdist! * 0.9 * etAspect!(ET_FOOT) * etScale!(ET_FOOT)
+                    c27ex0 = Int(RW / 2 - c27ew! / 2): c27ex1 = Int(RW / 2 + c27ew! / 2)
+                    If c27ex0 < 0 Then c27ex0 = 0
+                    If c27ex1 > RW - 1 Then c27ex1 = RW - 1
+                    c27base! = RH \ 2 + RH / (2 * c27bdist!) + pitch
+                    c27ey0 = Int(c27base! - c27eh!): c27ey1 = Int(c27base!)
+                    If c27ey0 < 0 Then c27ey0 = 0
+                    If c27ey1 > RH - 1 Then c27ey1 = RH - 1
+                    c27arm = 1: c27pass = 0: c27done = 0
+                    For c27j = 0 To 10: enActive(c27j) = 0: Next c27j   ' pass 0: enemy hidden -> capture background
+                    c27i = 1: c27t = Timer
+                ElseIf c27i = 1 And c27done = 1 Then
+                    ' background captured; show the FOOT and re-scan the same rect
+                    enX(0) = 12.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = ET_FOOT: enHP(0) = etHP(ET_FOOT): enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99: enAnimF(0) = 0
+                    c27done = 0
+                    c27i = 2: c27t = Timer
+                ElseIf c27i = 2 And c27done = 1 Then
+                    c27arm = 0
+                    c27ok = 0
+                    If dbgEnemyBox = 0 Then c27ok = c27ok + 1   ' debug flag OFF by default
+                    If c27n > 0 And c27bad = 0 Then c27ok = c27ok + 1   ' transparent sprite-rect pixels unchanged
+                    If c27ok = 2 Then
+                        stMsg$ = "PASS 6f-a-no-ghost-box (dbgEnemyBox=0; " + Str$(c27n) + " transparent pixels in the sprite rect all identical to the pre-enemy background, " + Str$(c27bad) + " darkened — no semi-transparent layer beyond the billboard)"
+                        Gosub STLog
+                        testFlag = 2: testT0 = Timer: c27i = 0: c27j = 0
+                    Else
+                        stMsg$ = "FAIL 6f-a dbgEnemyBox=" + Str$(dbgEnemyBox) + " n=" + Str$(c27n) + " bad=" + Str$(c27bad) + " good=" + Str$(c27good) + " firstBad=(" + Str$(c27fx) + "," + Str$(c27fy) + ") now=" + Str$(c27fc&) + " bg=" + Str$(c27fb&) + " pass=" + Str$(c27pass) + " rect=" + Str$(c27ex0) + "," + Str$(c27ey0) + "-" + Str$(c27ex1) + "," + Str$(c27ey1) + " op00=" + Str$(c27opaque%(0, 0, 1)) + " samples TL=" + Str$(c27s4&) + "/" + Str$(c27s5&) + " mid=" + Str$(c27s6&) + "/" + Str$(c27s7&) + " capTL=" + Str$(c27s0&) + "/" + Str$(c27s1&) + " capMid=" + Str$(c27s2&) + "/" + Str$(c27s3&)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 15 Then
+                    stMsg$ = "FAIL 6f-a-timeout c27i=" + Str$(c27i) + " pass=" + Str$(c27pass) + " done=" + Str$(c27done)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' --- 6f-b: both eye pixels inside ZONE B face span, all 5 types + ALERT ---
+                If c27i = 0 Then
+                    mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    px = 8.5: py = 4.5: angle = 0: pitch = 0: hp = 100
+                    For c27j = 0 To 10: enActive(c27j) = 0: Next c27j
+                    For c27j = 0 To PR_MAX: prActive(c27j) = 0: Next c27j
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    c27j = 0: c27ok = 0: c27want = 0
+                    enX(0) = 14.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = c27j: enHP(0) = etHP(c27j): enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99: enAnimF(0) = 0
+                    c27done = 0
+                    c27i = 1: c27t = Timer
+                ElseIf c27i = 1 And c27done = 1 And Timer - c27t >= 0.15 Then
+                    If c27eyeType = c27want And c27eyeN >= 4 And c27eyeBad = 0 And c27eyeL = 1 And c27eyeR = 1 Then c27ok = c27ok + 1
+                    c27j = c27j + 1
+                    If c27j <= ET_COUNT - 1 Then
+                        c27want = c27j
+                        enType(0) = c27j: enHP(0) = etHP(c27j): enState(0) = 0
+                        c27done = 0: c27t = Timer
+                    ElseIf c27j = ET_COUNT Then
+                        c27want = ET_FOOT
+                        enType(0) = ET_FOOT: enState(0) = 1   ' ALERT red eyes — same placement source
+                        c27j = c27j + 1: c27done = 0: c27t = Timer
+                    Else
+                        c27i = 2
+                    End If
+                ElseIf c27i = 2 Then
+                    If c27ok = 6 Then   ' 5 types patrol + 1 ALERT pass
+                        stMsg$ = "PASS 6f-b-eyes-in-zoneB (all 5 types incl G 1.4x + ALERT red: both eyes found, every eye pixel maps back into ZONE B face span of the sprite buffer, 0 outside — shared EnemyEyeRect placement)"
+                        Gosub STLog
+                        testFlag = 3: testT0 = Timer: c27i = 0
+                    Else
+                        stMsg$ = "FAIL 6f-b ok=" + Str$(c27ok) + "/6 type=" + Str$(c27j) + " eyeN=" + Str$(c27eyeN) + " bad=" + Str$(c27eyeBad) + " L=" + Str$(c27eyeL) + " R=" + Str$(c27eyeR) + " eyeType=" + Str$(c27eyeType)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 30 Then
+                    stMsg$ = "FAIL 6f-b-timeout c27i=" + Str$(c27i) + " type=" + Str$(c27j) + " done=" + Str$(c27done)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 3 Then
+                ' --- 6f-c: enemy ball rendered >= 1.5x old width + distinct color consts ---
+                If c27i = 0 Then
+                    mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    px = 8.5: py = 4.5: angle = 0: pitch = 0: hp = 100
+                    For c27j = 0 To 10: enActive(c27j) = 0: Next c27j
+                    For c27j = 0 To PR_MAX: prActive(c27j) = 0: Next c27j
+                    ' stationary enemy ball dead ahead at dist 2
+                    prActive(0) = 1: prType(0) = PR_BALL: prOwner(0) = 1: prSrcType(0) = ET_MUSKETEER
+                    prX(0) = 10.5: prY(0) = 4.5: prDX(0) = 0: prDY(0) = 0: prSpd!(0) = 7: prDmg(0) = 10: prBornT(0) = Timer
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    state$ = "playing"
+                    c27done = 0
+                    c27i = 1: c27t = Timer
+                ElseIf c27i = 1 And c27done = 1 And Timer - c27t >= 0.2 Then
+                    c27bdist! = Sqr((prX(0) - px) ^ 2 + (prY(0) - py) ^ 2)
+                    c27oldW = Int(RW / c27bdist! * ballScale! * 0.3)   ' old enemy-ball formula
+                    If c27oldW < 2 Then c27oldW = 2
+                    If c27oldW > 3 Then c27oldW = 3
+                    c27ok = 0
+                    If c27ballN > 0 And c27ballW >= 1.5 * c27oldW Then c27ok = c27ok + 1   ' rendered >= 1.5x old
+                    If c27coreN > 0 Then c27ok = c27ok + 1                                   ' white-hot core rendered
+                    If enBallGlow& <> _RGB32(255, 255, 255) And enBallCore& <> _RGB32(255, 255, 255) Then c27ok = c27ok + 1   ' const: distinct from player ball
+                    If enBallPxMin >= 5 And enBallScale! >= 0.45 Then c27ok = c27ok + 1       ' size consts guarantee >= 1.5x
+                    If c27ok = 4 Then
+                        stMsg$ = "PASS 6f-c-enemy-ball (rendered glow width " + Str$(c27ballW) + " px >= 1.5x old " + Str$(c27oldW) + " px at dist " + LTrim$(Str$(Int(c27bdist! * 100) / 100)) + ", " + Str$(c27ballN) + " glow + " + Str$(c27coreN) + " core px; hot orange + white core + dark rim; enBallGlow&/enBallCore& <> player white)"
+                        Gosub STLog
+                        testFlag = 4: testT0 = Timer: c27i = 0
+                    Else
+                        stMsg$ = "FAIL 6f-c ok=" + Str$(c27ok) + "/4 ballN=" + Str$(c27ballN) + " W=" + Str$(c27ballW) + " oldW=" + Str$(c27oldW) + " coreN=" + Str$(c27coreN)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 15 Then
+                    stMsg$ = "FAIL 6f-c-timeout c27i=" + Str$(c27i) + " done=" + Str$(c27done) + " ballN=" + Str$(c27ballN)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 4 Then
+                ' --- 6F klar: återställ selftest-miljö, gå till fas12 ---
+                Gosub InitEnemyTypes
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                For c27j = 0 To 10: enActive(c27j) = 0: Next c27j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c27j = 0 To PR_MAX: prActive(c27j) = 0: Next c27j
+                For c27j = 0 To WP_COUNT - 1: wpOwned(c27j) = 0: Next c27j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
                 testPhase = 12: testT0 = Timer: testFlag = 0
             End If
     End Select

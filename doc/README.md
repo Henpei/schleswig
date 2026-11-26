@@ -134,3 +134,12 @@ The HUD ammo panel always shows all four pools (`AMMO  A:n  B:n  C:n  D:n`,
 zeros visible), and each owned weapon in the weapon list shows its own pool
 (e.g. `2:MUSKET*12`). The same panel is printed on the result, victory and
 death screens.
+
+### Projectile colors (6F)
+
+- Player balls: plain **white** (7-12 px, distance-scaled) with a dark 1 px rim
+- Enemy balls (musketeer): **hot orange glow** (5-9 px, >= 1.5x the old 2-3 px)
+  with a **white-hot core** and the same dark rim — clearly a different color
+  from the player's white balls, visible at range
+- Mortar grenades: dark red in flight; blinking amber ring (enemy) / cyan ring
+  (player mini cannon) at the landing cell

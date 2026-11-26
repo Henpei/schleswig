@@ -441,6 +441,38 @@ FIX H (ljud oktav ner): SND_ALERT 620->310 / 930->465 Hz (sub-ton 110->55);
   lägre general-bas), spelas vid PATROLL->JAKT för ET_GENERAL (6e-e: register
   + live-probe sndLastId/sndLastF0!).
 
+## SCHLESWIG 6F-LITE — quick-fix evening before the public beta
+FIX A (ghost box gone): the enemy distance-shade was drawn as an alpha overlay
+  over the WHOLE sprite rect (`Line (ex0,ey0)-(ex1,ey1), _RGBA32(0,0,0,ealpha), BF`,
+  fast path + per-column path), so the TRANSPARENT margins of enBuf were darkened
+  too -> a semi-transparent box around every visible enemy. That overlay is
+  debug/collision visualization only: it now sits behind `Const dbgEnemyBox = 0`
+  (OFF by default; 1 = draw the full-rect debug box). With the flag OFF no extra
+  translucent layer exists in the sprite rect beyond the billboard. Selftest
+  6f-a: two-pass pixel-scan (background without the enemy vs with) — every
+  transparent-buffer pixel in the sprite rect must be unchanged (0 darkened).
+FIX B (eyes inside the face): eye offsets were computed in SCREEN coords from the
+  unclamped height (`eoy = ey0 + eh*0.30`, `eox = ecx +- ew*0.18`) — at buffer
+  level 0.18*ESW = 8.6 px from center lands OUTSIDE the face span (bx0+8..bx1-8 =
+  15..31 of ESW 48), so the right eye rendered on transparent pixels, sometimes
+  off the sprite entirely. Now the eyes are defined in SPRITE-BUFFER coords inside
+  ZONE B (y 0.26..0.36 of ESH, x ESW\2 +- 4..6) and mapped through the SAME scale
+  as the blit by ONE placement source, `Sub EnemyEyeRect` (buffer rect -> screen
+  rect, CLIPPED against the sprite rect ex0..ex1/ey0..ey1). Patrol (dark) and
+  ALERT (red) eyes share it — only the color (EnemyEyeColor&) differs. Selftest
+  6f-b: pixel-scan in ZONE B per type for ALL 5 types incl G (scale 1.4) + one
+  ALERT pass: both eyes found, every eye pixel maps back into ZONE B + face span.
+FIX C (enemy balls readable): enemy ball (prOwner=1) was 2-3 px light gray. Now
+  `Const enBallScale! = 0.6` with clamp `enBallPxMin = 5` / `enBallPxMax = 9`
+  (>= 1.5x the old 2-3 px at ANY distance, still smaller than the player's
+  7-12 px) with hot orange glow `enBallGlow& = _RGB32(255,110,0)` + white-hot
+  core `enBallCore& = _RGB32(255,240,180)` inset 1 px + the shared dark 1 px rim.
+  Player ball stays plain white — different COLOR. Selftest 6f-c: rendered glow
+  width >= 1.5x the old formula at the same distance + core present + the color
+  constants differ from the player ball white. (README has the projectile legend.)
+NOT in 6F (6F-full later): ammo-pickup regression, mini-cannon tunneling
+  (swept collision) — untouched on purpose.
+
 ## Menu render gating (6B FIX F — no menu blink between levels)
 The title/pick menu is rendered ONLY when state$ is still "menu" at render
 time (inside the menu/fadeout branch). pendingStart (VIDARE / paus-RESTART),
