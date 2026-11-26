@@ -2980,7 +2980,7 @@ Do
     If replayMode And Not selftest And frames Mod 5 = 0 Then
         replayLogF = FreeFile
         Open "/tmp/schleswig_replay.log" For Append As #replayLogF
-        Print #replayLogF, "fr=" + LTrim$(Str$(replayClk&)) + " st=" + state$ + " px=" + LTrim$(Str$(Int(px * 100) / 100)) + " py=" + LTrim$(Str$(Int(py * 100) / 100)) + " ang=" + LTrim$(Str$(Int(angle * 100) / 100)) + " mv=" + LTrim$(Str$(mvF)) + LTrim$(Str$(mvL)) + LTrim$(Str$(mvB)) + LTrim$(Str$(mvR)) + " pv=" + LTrim$(Str$(Int(pvx * 100) / 100)) + "," + LTrim$(Str$(Int(pvy * 100) / 100)) + " spd=" + LTrim$(Str$(spdMul)) + " stam=" + LTrim$(Str$(Int(stamina!))) + " lock=" + LTrim$(Str$(sprintLock)) + " ksW=" + LTrim$(Str$(keySim%(87))) + " ksSH=" + LTrim$(Str$(keySimShift))
+        Print #replayLogF, "fr=" + LTrim$(Str$(replayClk&)) + " st=" + state$ + " px=" + LTrim$(Str$(Int(px * 100) / 100)) + " py=" + LTrim$(Str$(Int(py * 100) / 100)) + " ang=" + LTrim$(Str$(Int(angle * 100) / 100)) + " mv=" + LTrim$(Str$(mvF)) + LTrim$(Str$(mvL)) + LTrim$(Str$(mvB)) + LTrim$(Str$(mvR)) + " pv=" + LTrim$(Str$(Int(pvx * 100) / 100)) + "," + LTrim$(Str$(Int(pvy * 100) / 100)) + " spd=" + LTrim$(Str$(spdMul)) + " stam=" + LTrim$(Str$(Int(stamina!))) + " lock=" + LTrim$(Str$(sprintLock)) + " ksW=" + LTrim$(Str$(keySim%(87))) + " ksSH=" + LTrim$(Str$(keySimShift)) + " ammo=" + LTrim$(Str$(ammoN(1))) + "," + LTrim$(Str$(ammoN(2))) + "," + LTrim$(Str$(ammoN(3))) + "," + LTrim$(Str$(ammoN(4)))   ' 6G ammo-replay: pool per ammo-typ (A/B/C/D = 1/2/3/4)
         Close #replayLogF
     End If
     If replayMode And Not selftest And state$ = "playing" And replayClk& Mod 120 = 0 Then _SaveImage "/tmp/schleswig_replay.bmp", display&
