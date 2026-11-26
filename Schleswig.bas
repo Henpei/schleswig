@@ -109,6 +109,8 @@ DIM c33k, c33s, c33f, c33ok, c33badK, c33sawMv, c33j, c33t, c33keys(3), c33px0, 
 DIM c33msg$   ' 6g-a: diagnostiksträng
 DIM c34s, c34ok, c34done, c34fill&, c34tail&   ' Fas 34 (6G 6g-c) stamina-HUD pixel-probe selftest vars
 DIM c35ok   ' Fas 35 (6G 6g-d) ammo-HUD vapennamn selftest vars
+DIM c36ok, c36s, c36j, c36exp!, c36got!   ' Fas 36 (6G 6g-e) FaceNearestEnemy selftest vars
+DIM feI, feD!, feA!, feFound, feDx!, feDy!, feDD!   ' FaceNearestEnemy (6G FIX 5) egna variabler (GOSUB/label-delad scope)
 DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
@@ -400,7 +402,7 @@ DIM SHARED stamina!, sprintLock, spdMul, sprintInj, sprintOn, stamPauseUntil!   
 DIM SHARED injMvF, injMvB, injMvL, injMvR, injTurnL, injTurnR   ' 6F FIX A: hermetisk rörelse-injektion för selftest (i riktigt spel läses rörelse ENBART via _KEYDOWN-polling)
 ' 6G FIX 1/2: replay-mode — simulerade OS-tangenter som matas in i SAMMA polling-pipeline som riktiga
 DIM SHARED replayMode, keySim%(0 To 127), keySimShift   ' keySim% indexeras med VERSAL ascii (65..90); keySimShift = båda Shift
-DIM SHARED replayAt&(0 To 2000), replayTok$(0 To 2000), replayN, replayCnt, replayLogF, replayClk&   ' replayAt/replayTok = script /tmp/schleswig_replay.scr; replayClk& = monoton frame-räknare (frames nollställs varje sekund för FPS)
+DIM SHARED replayAt&(0 To 2000), replayTok$(0 To 2000), replayN, replayCnt, replayLogF, replayClk&, replayPlayFr&   ' replayAt/replayTok = script /tmp/schleswig_replay.scr ("pN" = N frames efter state=playing); replayClk& = monoton frame-räknare (frames nollställs varje sekund för FPS)
 Const stamMax! = 100
 Const stamDrain! = 20      ' stamina/s vid sprint
 Const stamRegen! = 12      ' stamina/s vid vila/gång (6F FIX E: var 10 gång / 20 stillastående)
@@ -549,7 +551,11 @@ If replayMode Then
             If Len(rln$) > 0 And Left$(rln$, 1) <> "'" Then
                 rsp = InStr(rln$, " ")
                 If rsp > 1 Then
-                    replayAt&(replayCnt) = Val(Left$(rln$, rsp - 1))
+                    If Left$(rln$, 1) = "p" Then
+                        replayAt&(replayCnt) = -(Val(Mid$(rln$, 2, rsp - 2)) + 1)   ' negativ = relativt första playing-framen
+                    Else
+                        replayAt&(replayCnt) = Val(Left$(rln$, rsp - 1))
+                    End If
                     replayTok$(replayCnt) = LTrim$(Mid$(rln$, rsp + 1))
                     replayCnt = replayCnt + 1
                 End If
@@ -681,7 +687,14 @@ Do
     ' injects k$, so menus/weapon-keys use the real event path and movement uses KeyDown2%)
     If replayMode Then
         replayClk& = replayClk& + 1
-        While replayN < replayCnt And replayAt&(replayN) <= replayClk&
+        If state$ = "playing" And replayPlayFr& = 0 Then replayPlayFr& = replayClk&
+        While replayN < replayCnt
+            rEff& = replayAt&(replayN)
+            If rEff& < 0 Then
+                If replayPlayFr& <= 0 Or replayClk& < replayPlayFr& - rEff& - 1 Then Exit While
+            ElseIf rEff& > replayClk& Then
+                Exit While
+            End If
             rtok$ = replayTok$(replayN)
             rlen = Len(rtok$)
             If rlen >= 2 And Right$(rtok$, 1) = "+" Then
@@ -3622,6 +3635,23 @@ Sub DrawCursor (x, y)
     If cursorBuf& <> 0 Then _PutImage (x - cursorSize \ 2, y), cursorBuf&   ' <>0: handtag kan vara negativa i QB64-PE
 End Sub
 
+' FaceNearestEnemy (6G FIX 5): sätt start-yaw mot NÄRMASTE aktiva fiende, så spelaren aldrig
+' startar med ryggen mot målet. Per-karta automatiskt — ingen .map-metadata behövs (formatet
+' har bara 'S'; ett riktnings-fält skulle bryta alla existerande kartor). Utan fiender: angle
+' oförändrad. Anropas efter SpawnEnemies i StartRun + LoadLevel (ej i selftest; fas36 testar
+' labeln direkt). Egen loop-variabel (feI) enligt GOSUB/label-scoperegeln.
+FaceNearestEnemy:
+    feD! = 1.0e+30: feA! = angle: feFound = 0
+    For feI = 0 To 10
+        If enActive(feI) Then
+            feDx! = enX(feI) - px: feDy! = enY(feI) - py
+            feDD! = feDx! * feDx! + feDy! * feDy!
+            If feDD! < feD! Then feD! = feDD!: feA! = _ATan2(feDy!, feDx!): feFound = 1
+        End If
+    Next feI
+    If feFound Then angle = feA!: anglePrev = angle
+    Return
+
 StartRun:
     ' ENDA start-vägen (meny START-klick/SPACE + pendingStart från VIDARE).
     ' startRuns räknar triggeringar — selftest fas12b bevisar att VIDARE går här.
@@ -3640,6 +3670,7 @@ StartRun:
     If gameMode$ = "campaign" Then killsTotal = 0: restarts = 0: waveNo = 0   ' 5C: fresh campaign counters, wave register starts at wave 1
     Gosub ApplyMapSpawns   ' Fas 5A: pickups/keys/doors from map, doors closed each round
     Gosub SpawnEnemies
+    If Not selftest Then Gosub FaceNearestEnemy   ' 6G FIX 5: start-yaw mot närmaste fiende (inte ryggen mot målet)
     hpMsg$ = "": hpMsgTime = 0
     lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
     gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: bobPhase = 0: turnDelta = 0: gunSway = 0: anglePrev = angle   ' Fas 4C viewmodel reset
@@ -4166,6 +4197,7 @@ LoadLevel:
     hp = 100: stamina! = stamMax!: sprintLock = 0   ' 6E FIX G + 6A: ammoN/vapen PERSISTERAR över banor (ingen reset här)
     waveNo = 0
     Gosub SpawnEnemies   ' resets ALL enemy state + projectiles + BFS (no leak from level N)
+    If Not selftest Then Gosub FaceNearestEnemy   ' 6G FIX 5: varje bana startar vänd mot närmaste fiende
     hpMsg$ = "": hpMsgTime = 0
     lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
     gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: bobPhase = 0: turnDelta = 0: gunSway = 0: anglePrev = angle   ' Fas 4C viewmodel reset
@@ -11111,6 +11143,79 @@ SelftestDrive:
             End If
             If testFlag = 2 Then
                 ' 6g-d klar: återställ, vidare till fas12 (kedjans slut)
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
+                injMvF = 0: injMvB = 0: injMvL = 0: injMvR = 0: injTurnL = 0: injTurnR = 0
+                For c33j = 0 To 10: enActive(c33j) = 0: Next c33j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c33j = 0 To PR_MAX: prActive(c33j) = 0: Next c33j
+                For c33j = 0 To WP_COUNT - 1: wpOwned(c33j) = 0: Next c33j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
+                testPhase = 36: testT0 = Timer: testFlag = 0   ' 6G: vidare till 6g-e (FaceNearestEnemy); kedjan ...->35->36->12
+            End If
+        Case 36  ' 6G FIX 5 6g-e: FaceNearestEnemy — start-yaw sätts mot närmaste aktiva fiende
+            If testFlag = 0 Then
+                px = 8.5: py = 8.5: angle = 0
+                For c36j = 0 To 10: enActive(c36j) = 0: Next c36j
+                c36ok = 0: c36s = 0
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                If c36s = 0 Then
+                    ' fiende rakt österut (+x): angle ska bli 0
+                    enX(0) = 11.5: enY(0) = 8.5: enActive(0) = 1
+                    angle = -99
+                    Gosub FaceNearestEnemy
+                    If Abs(angle - 0) < 0.01 Then c36ok = c36ok + 1
+                    c36s = 1
+                ElseIf c36s = 1 Then
+                    ' fiende rakt norrut (-y): angle ska bli -pi/2
+                    enX(0) = 8.5: enY(0) = 5.5: enActive(0) = 1
+                    angle = -99
+                    Gosub FaceNearestEnemy
+                    c36exp! = -3.14159265358979# / 2
+                    If Abs(angle - c36exp!) < 0.01 Then c36ok = c36ok + 1
+                    c36s = 2
+                ElseIf c36s = 2 Then
+                    ' två fiender: NÄRMASTE vinner (en0 norr d=3, en1 öst d=2 -> angle 0, ej -pi/2)
+                    enX(0) = 8.5: enY(0) = 5.5: enActive(0) = 1
+                    enX(1) = 10.5: enY(1) = 8.5: enActive(1) = 1
+                    angle = -99
+                    Gosub FaceNearestEnemy
+                    If Abs(angle - 0) < 0.01 Then c36ok = c36ok + 1
+                    c36s = 3
+                ElseIf c36s = 3 Then
+                    ' inga fiender: angle oförändrad
+                    For c36j = 0 To 10: enActive(c36j) = 0: Next c36j
+                    angle = 0.7
+                    Gosub FaceNearestEnemy
+                    If Abs(angle - 0.7) < 0.0001 Then c36ok = c36ok + 1
+                    c36s = 4
+                ElseIf c36s = 4 Then
+                    If c36ok = 4 Then
+                        stMsg$ = "PASS 6g-e-spawn-facing (FaceNearestEnemy: fiende öst -> angle 0, norr -> -pi/2, närmaste av två vinner, utan fiender angle oförändrad — spelaren startar ALLTID vänd mot målet)"
+                        Gosub STLog
+                        testFlag = 2: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL 6g-e ok=" + Str$(c36ok) + "/4 angle=" + LTrim$(Str$(angle))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+            End If
+            If testFlag = 2 Then
+                ' 6g-e klar: återställ, vidare till fas12 (kedjans slut)
                 gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
                 mapFile$ = selftestMap$
                 Gosub LoadMapAuto
