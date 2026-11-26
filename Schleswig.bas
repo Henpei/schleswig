@@ -108,6 +108,7 @@ DIM c32s, c32ok, c32neg, c32over, c32pauseBad, c32mathBad, c32j, c32t0, c32lockT
 DIM c33k, c33s, c33f, c33ok, c33badK, c33sawMv, c33j, c33t, c33keys(3), c33px0, c33py0, c33pxR, c33pyR, c33moved!, c33spdSaw!, c33st0, c33drained   ' Fas 33 (6G 6g-a) KeyDown2%-polling rörelse selftest vars
 DIM c33msg$   ' 6g-a: diagnostiksträng
 DIM c34s, c34ok, c34done, c34fill&, c34tail&   ' Fas 34 (6G 6g-c) stamina-HUD pixel-probe selftest vars
+DIM c35ok   ' Fas 35 (6G 6g-d) ammo-HUD vapennamn selftest vars
 DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
@@ -319,7 +320,7 @@ DIM amX(10), amY(10), amActive(10), amT(10)   ' amT = ammoN(1)-typ per pickup (A
 ' ammoN(1) är samma pool som gamla 'ammo' (musköten). capAmmo per typ.
 ' (Const AMMO_N/WP_* ligger före gun-DIM-raden; se kommentar där.)
 DIM SHARED ammoN(AMMO_N), capAmmo(AMMO_N), segAmmoN(AMMO_N)   ' segAmmoN = per-level-segment snapshot (RESTART LEVEL); SHARED: läses i HUD-Function
-DIM SHARED ammoHud$   ' 6D FIX B: ammo-paneltext "AMMO A:12 B:2 C:0 D:4" — byggs av BuildAmmoHud, visas i HUD + på result/victory/dead
+DIM SHARED ammoHud$   ' 6D FIX B + 6G FIX 4: ammo-paneltext med VAPENNAMN "AMMO MUSKET:12 BLUNDERBUSS:2 MACHINE MUSKET:0 MINI CANNON:4" — byggs av BuildAmmoHud, visas i HUD + på result/victory/dead
 DIM SHARED amCol&(AMMO_N)   ' 6D FIX C: ammo-pickup färg per typ (A/B/C/D), fylls i InitWeapons
 
 ' 6A: VAPENREGISTER — data-drivet som fienderegistret (etX). Se Const-blocket ovan.
@@ -3392,11 +3393,12 @@ Function CalcSegScore& (ss, sd, stOff%)
     CalcSegScore& = sc&
 End Function
 
-' BuildAmmoHud (6D FIX B): bygger ammoHud$ = "AMMO A:n B:n C:n D:n" — ALLTID alla
-' fyra typer (nollor syns). Anropas från HUD (playing) OCH från result/victory/dead,
-' så panelen ser likadan ut överallt. SHARED ammoHud$ låter selftest 6d-b asserta texten.
+' BuildAmmoHud (6D FIX B, 6G FIX 4): bygger ammoHud$ med VAPENNAMN per pool istället för
+' bokstäver — "AMMO  MUSKET:12  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" (pool->vapen
+' via wpAmmoT, namn via wpName$). ALLTID alla fyra typer (nollor syns). Anropas från HUD
+' (playing) OCH från result/victory/dead. SHARED ammoHud$ låter selftest 6d-b/6g-d asserta.
 BuildAmmoHud:
-    ammoHud$ = "AMMO  A:" + LTrim$(Str$(ammoN(1))) + "  B:" + LTrim$(Str$(ammoN(2))) + "  C:" + LTrim$(Str$(ammoN(3))) + "  D:" + LTrim$(Str$(ammoN(4)))
+    ammoHud$ = "AMMO  " + wpName$(WP_MUSKET) + ":" + LTrim$(Str$(ammoN(1))) + "  " + wpName$(WP_BLUNDER) + ":" + LTrim$(Str$(ammoN(2))) + "  " + wpName$(WP_MG) + ":" + LTrim$(Str$(ammoN(3))) + "  " + wpName$(WP_CANNON) + ":" + LTrim$(Str$(ammoN(4)))
     Return
 
 ' CountAmmoTicks% (6A: två arg — aktuell ammo + cap för aktuell ammo-typ/vapen,
@@ -8531,7 +8533,7 @@ SelftestDrive:
                 ElseIf c23i = 1 Then
                     If Timer - c23t >= 0.3 Then
                         Gosub BuildAmmoHud
-                        If ammoHud$ = "AMMO  A:12  B:2  C:0  D:4" And InStr(wpHud$, "MUSKET*12") > 0 Then c23ok = c23ok + 1
+                        If ammoHud$ = "AMMO  MUSKET:12  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" And InStr(wpHud$, "MUSKET*12") > 0 Then c23ok = c23ok + 1
                         ' avfyra musköt -> A 12->11, panel uppdateras
                         lastShotTime = -1
                         c23i = 2: c23t = Timer
@@ -8541,7 +8543,7 @@ SelftestDrive:
                     fireBtn = 0
                     If Timer - c23t >= 0.15 Then
                         Gosub BuildAmmoHud
-                        If ammoN(1) = 11 And ammoHud$ = "AMMO  A:11  B:2  C:0  D:4" And InStr(wpHud$, "MUSKET*11") > 0 Then c23ok = c23ok + 1
+                        If ammoN(1) = 11 And ammoHud$ = "AMMO  MUSKET:11  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" And InStr(wpHud$, "MUSKET*11") > 0 Then c23ok = c23ok + 1
                         ' pickup typ A på spelaren -> A 11+10=21 (cap 40 efter 6E FIX E)
                         For c23j = 0 To 10: amActive(c23j) = 0: Next c23j
                         amActive(0) = 1: amX(0) = px: amY(0) = py: amT(0) = 1
@@ -8550,7 +8552,7 @@ SelftestDrive:
                 ElseIf c23i = 3 Then
                     If Timer - c23t >= 0.5 Then
                         Gosub BuildAmmoHud
-                        If ammoN(1) = 21 And ammoHud$ = "AMMO  A:21  B:2  C:0  D:4" And InStr(wpHud$, "MUSKET*21") > 0 And c23ok = 2 Then
+                        If ammoN(1) = 21 And ammoHud$ = "AMMO  MUSKET:21  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" And InStr(wpHud$, "MUSKET*21") > 0 And c23ok = 2 Then
                             stMsg$ = "PASS 6d-b-hud-ammo-panel (panel '" + ammoHud$ + "' alltid alla fyra; musköt fire A 12->11; pickup A 11+10->21 (cap 40); vapenlistan 'MUSKET*21')"
                             Gosub STLog
                             testFlag = 16: testT0 = Timer: c23i = 0: c23t = Timer: c23ok = 0
@@ -10650,7 +10652,7 @@ SelftestDrive:
                         Next c30j
                         ' (b) HUD-uppdatering: ammoHud$ ska visa aktuella värden (A:10 B:10 C:10 D:8 — D capas vid 8)
                         Gosub BuildAmmoHud
-                        If ammoHud$ = "AMMO  A:10  B:10  C:10  D:8" Then c30ok = c30ok + 1
+                        If ammoHud$ = "AMMO  MUSKET:10  BLUNDERBUSS:10  MACHINE MUSKET:10  MINI CANNON:8" Then c30ok = c30ok + 1
                         c30i = 2: c30t = Timer
                     End If
                 ElseIf c30i = 2 Then
@@ -10695,7 +10697,7 @@ SelftestDrive:
                     End If
                 ElseIf c30i = 6 Then
                     If c30ok = 9 Then
-                        stMsg$ = "PASS 6f-f-ammo-pickups (gå över A/B/C/D ger +10 per typ, capad: A/B/C 0->10, D 0->8=cap; HUD-panel A:10 B:10 C:10 D:8; överlappande multi-pickups samma frame; 0-ammo edge +10; cap-edge utan overflow; ammoN persisterar över LoadLevel) " + c30msg$
+                        stMsg$ = "PASS 6f-f-ammo-pickups (gå över A/B/C/D ger +10 per typ, capad: A/B/C 0->10, D 0->8=cap; HUD-panel MUSKET:10 BLUNDERBUSS:10 MACHINE MUSKET:10 MINI CANNON:8; överlappande multi-pickups samma frame; 0-ammo edge +10; cap-edge utan overflow; ammoN persisterar över LoadLevel) " + c30msg$
                         Gosub STLog
                         testFlag = 2: testT0 = Timer
                     Else
@@ -11068,6 +11070,47 @@ SelftestDrive:
             If testFlag = 2 Then
                 ' 6g-c klar: återställ, vidare till fas12 (kedjans slut)
                 sprintLock = 0: stamina! = stamMax!
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
+                injMvF = 0: injMvB = 0: injMvL = 0: injMvR = 0: injTurnL = 0: injTurnR = 0
+                For c33j = 0 To 10: enActive(c33j) = 0: Next c33j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c33j = 0 To PR_MAX: prActive(c33j) = 0: Next c33j
+                For c33j = 0 To WP_COUNT - 1: wpOwned(c33j) = 0: Next c33j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
+                testPhase = 35: testT0 = Timer: testFlag = 0   ' 6G: vidare till 6g-d (ammo-HUD vapennamn); kedjan ...->34->35->12
+            End If
+        Case 35  ' 6G FIX 4 6g-d: ammo-panelen visar VAPENNAMN per pool (MUSKET/BLUNDERBUSS/...), INTE A/B/C/D
+            If testFlag = 0 Then
+                ammoN(1) = 7: ammoN(2) = 2: ammoN(3) = 0: ammoN(4) = 8
+                Gosub BuildAmmoHud
+                c35ok = 0
+                If ammoHud$ = "AMMO  MUSKET:7  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:8" Then c35ok = c35ok + 1
+                If InStr(ammoHud$, "MUSKET:7") > 0 And InStr(ammoHud$, "BLUNDERBUSS:2") > 0 And InStr(ammoHud$, "MACHINE MUSKET:0") > 0 And InStr(ammoHud$, "MINI CANNON:8") > 0 Then c35ok = c35ok + 1
+                If InStr(ammoHud$, " A:") = 0 And InStr(ammoHud$, " B:") = 0 And InStr(ammoHud$, " C:") = 0 And InStr(ammoHud$, " D:") = 0 Then c35ok = c35ok + 1   ' inga nakna pickup-bokstäver
+                If c35ok = 3 Then
+                    stMsg$ = "PASS 6g-d-ammo-hud-names (ammoHud$='" + ammoHud$ + "' — vapennamn per ammo-pool, alla fyra alltid synliga, inga A/B/C/D-bokstäver)"
+                    Gosub STLog
+                    testFlag = 2: testT0 = Timer
+                Else
+                    stMsg$ = "FAIL 6g-d ok=" + Str$(c35ok) + "/3 ammoHud$='" + ammoHud$ + "'"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' 6g-d klar: återställ, vidare till fas12 (kedjans slut)
                 gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
                 mapFile$ = selftestMap$
                 Gosub LoadMapAuto

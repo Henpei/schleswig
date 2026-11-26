@@ -82,7 +82,9 @@ data) — see AGENTS.md.
 - Weapons: start with the AXE (melee, no ammo). Pickups in the maps:
   `y` axe, `m` musket, `f` blunderbuss (double barrel, 2-shot magazine),
   `k` machine musket, `c` mini cannon (arcing grenade, splash damage).
-  Ammo pickups per type: `A` musket, `B` blunderbuss, `C` machine musket, `D` mini cannon.
+  Ammo pickups per type: `A` musket, `B` blunderbuss, `C` machine musket, `D` mini cannon
+  (HUD ammo panel shows the WEAPON NAMES, not the letters:
+  `AMMO  MUSKET:n  BLUNDERBUSS:n  MACHINE MUSKET:n  MINI CANNON:n`).
   Weapons and ammo carry over between campaign levels (only a fresh round resets them;
   RESTART LEVEL keeps weapons and restores ammo to the level-segment start).
 - E: open door (keys needed for 1/2/3 doors)
