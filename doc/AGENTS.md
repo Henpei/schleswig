@@ -19,8 +19,16 @@ weapons rendering).
   SPACE is NOT a menu selector; menus select with E, mouse click works
   in parallel where applicable.
 
-## Build (from /home/andre/QB64pe, NOT repo root)
-  ./qb64pe -c schleswig/Schleswig.bas -o schleswig/schleswig -x
+## Build (CANONICAL workdir = /home/andre/Dokument/Projekt/schleswig — the repo root)
+  cd /home/andre/Dokument/Projekt/schleswig
+  /home/andre/QB64pe/qb64pe -c Schleswig.bas -o schleswig -x
+- The compiler binary lives at /home/andre/QB64pe/qb64pe — that is the
+  COMPILER's home, NOT the project. The old build area
+  /home/andre/QB64pe/schleswig is André's manual playground: agents must
+  never read or write there.
+- MIGRATION LESSON (6G migration pass): NEVER assume a workdir — always read
+  it from the task instructions or this AGENTS.md; the project can be moved
+  by the user at any time.
 - Requirement: exit code 0. Shell is FISH: check
   $status, not $?.
 - Compile errors land in internal/temp/compilelog.txt,
@@ -28,10 +36,13 @@ weapons rendering).
   terminal "Output:"-line + exit code. Never name the
   binary the same as the source folder ("Är en
   katalog" / "is a directory" build failure).
+- The binary lands at <repo>/schleswig (ELF, gitignored via /schleswig);
+  run it as ./schleswig from the repo root (QB64-PE sets the process cwd
+  to the executable's own directory, so maps/ and the font resolve there).
 
-## Run & selftest
-- Run: ./schleswig/schleswig
-- Selftest: ./schleswig/schleswig selftest
+## Run & selftest (from the canonical workdir)
+- Run: ./schleswig
+- Selftest: ./schleswig selftest
   → ALL phases must PASS, log:
   /tmp/schleswig_selftest.log
 - Report exactly: "SELFTEST OK, n PASS / 0 FAIL".
@@ -99,7 +110,7 @@ weapons rendering).
   DrawCursor, cursorBuf&.
 
 ## Map format (.map) — Fas 5A / 5A-hotfix2
-Load a map: `./schleswig/schleswig path/to/map.map`. NO arg = `maps/default.map`
+Load a map: `./schleswig path/to/map.map`. NO arg = `maps/default.map`
 — the shipped 64x64 TEST ARENA (sealed border, 20x20 center room with a mid
 wall row, an L-corridor block, an 8-cell straight street; S=(32,37); every
 register enemy type F/O/U/K/G placed at least once; no keys/doors). Purpose:
@@ -154,13 +165,13 @@ closed doors are walls for BFS/movement/render-hit.
 
 ## Map loading paths (5A-hotfix2)
 QB64-PE sets the game process cwd to the EXECUTABLE's own directory
-(schleswig/), no matter where you start it from — so map paths resolve
-relative to schleswig/. The loader tries the arg as-is, then "schleswig/" +
-arg (fallback for other exe locations). Works from any shell cwd:
-  ./schleswig/schleswig maps/test64.map     (from QB64pe root)
-  schleswig/schleswig maps/test64.map       (from repo root)
-No arg -> maps/default.map (same two path forms). Build/run from the QB64pe
-root (/home/andre/QB64pe).
+(the canonical repo root, where the binary lives), no matter where you start
+it from — so map paths resolve relative to the repo root. The loader tries
+the arg as-is, then "schleswig/" + arg (fallback for other exe locations).
+Works from any shell cwd:
+  ./schleswig maps/test64.map     (from the canonical repo root)
+No arg -> maps/default.map. Build/run from the canonical workdir
+(/home/andre/Dokument/Projekt/schleswig) — see the Build section above.
 mapRow$ is THE single map grid — every read goes via CellAt$/Solid%/OpenCell%.
 LoadMapAuto always runs before the first render frame.
 

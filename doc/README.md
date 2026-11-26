@@ -4,22 +4,25 @@ A Wolfenstein/Doom-like raycaster FPS written in BASIC for QB64-PE (Linux/Waylan
 
 ## Build
 
-From the QB64-PE root directory:
+From the canonical workdir (the repository root,
+`/home/andre/Dokument/Projekt/schleswig`) — the compiler binary lives at
+`/home/andre/QB64pe/qb64pe` (its own home, not the project):
 
-    ./qb64pe -c schleswig/Schleswig.bas -o schleswig/schleswig -x
+    cd /home/andre/Dokument/Projekt/schleswig
+    /home/andre/QB64pe/qb64pe -c Schleswig.bas -o schleswig -x
 
-The binary is always named `schleswig` (lowercase) inside `schleswig/`.
-The repository directory and the binary intentionally share the name in
-different "layers" (directory vs file), so no name collision can occur.
+The binary is always named `schleswig` (lowercase) at the repository root
+(gitignored). Never assume a workdir — always read it from the task
+instructions or doc/AGENTS.md; the project can be moved by the user.
 
 ## Run
 
-    ./schleswig/schleswig            # no-arg START MENU: [1] CAMPAIGN / [2] TEST ARENA
-    ./schleswig/schleswig map.map    # single-map test mode (HUD: SINGLE)
-    ./schleswig/schleswig campaign   # campaign from maps/levels.lst, level 1 (no menu)
-    ./schleswig/schleswig --level N  # campaign starting at levels.lst position N (dev tool)
-    ./schleswig/schleswig selftest   # scripted self-test, log: /tmp/schleswig_selftest.log
-    ./schleswig/schleswig replay [map.map]
+    ./schleswig            # no-arg START MENU: [1] CAMPAIGN / [2] TEST ARENA
+    ./schleswig map.map    # single-map test mode (HUD: SINGLE)
+    ./schleswig campaign   # campaign from maps/levels.lst, level 1 (no menu)
+    ./schleswig --level N  # campaign starting at levels.lst position N (dev tool)
+    ./schleswig selftest   # scripted self-test, log: /tmp/schleswig_selftest.log
+    ./schleswig replay [map.map]
                                      # replay mode: NORMAL binary + real app flow (menu ->
                                      # StartRun -> fade -> playing), OS key events simulated
                                      # from /tmp/schleswig_replay.scr, telemetry ->
@@ -44,8 +47,9 @@ S/down = row 2) and confirm with ENTER or E.
 Mouse click also works before the pointer lock. ESC or Q quits.
 
 A map file is the ONLY way to play — there is no embedded fallback map.
-Paths resolve relative to the executable's own directory (schleswig/);
-the loader also tries a "schleswig/" prefix.
+Paths resolve relative to the executable's own directory (the canonical
+repo root, where the `schleswig` binary lives); the loader also tries a
+"schleswig/" prefix.
 Missing file -> fullscreen "MAP FILE NOT FOUND: <path>. Press Q to quit.";
 invalid map -> "INVALID MAP: <path> line <r> col <c>: <why>. Press Q to quit."
 (Broken maps/levels.lst in campaign mode: "LEVELS FILE NOT FOUND" /
@@ -132,8 +136,8 @@ GPLv3 (planned). The license text will be attached as a LICENSE file at the
 
 ## Maps (.map files, Fas 5A)
 
-    ./schleswig/schleswig maps/test64.map    # load a specific map (64x64 test map shipped)
-    ./schleswig/schleswig                    # no arg = maps/default.map
+    ./schleswig maps/test64.map    # load a specific map (64x64 test map shipped)
+    ./schleswig                    # no arg = maps/default.map
 
 `maps/default.map` is the shipped 64x64 TEST ARENA: sealed border, a 20x20
 center room with a mid wall row, an L-shaped corridor block, an 8-cell
