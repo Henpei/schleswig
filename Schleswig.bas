@@ -96,6 +96,8 @@ DIM c24key$, c24map$, c24i, c24j, c24t, c24m, c24ok, c24f, c24wx, c24wy, c24bad,
 DIM c25lvl, c25j, c25k, c25t, c25ok, c25bad, c25n, c25f, c25m, c25jw, c25nd, c25c$, c25hud$, c25alive, c25bi, c25bd, c25d, c25what, c25door, c25dx, c25dy, c25cx, c25cy, c25best, c25bnx, c25bny, c25nx2, c25ny2, c25y, c25kills0, c25assist, c25bot, c25hash&, c25doorX, c25doorY, c25gx, c25gy, c25msave, c25sh0, c25canFire, c25enF(5), c25enO(5), c25enU(5), c25enK(5), c25enG(5), c25wpExp(5), c25keyExp(5), c25doorN(5), c25i, c25x, c25north, c25north2, c25keyOK, c25seg, c25sum, c25ln$, c25f$, c25h&   ' Fas 25 (6C äkta kampanjbanor + 6D 6d-e/6d-f) selftest vars
 DIM c26key$, c26map$, c26i, c26j, c26k, c26t, c26ok, c26bad, c26f$, c26ln$, c26h&, c26txt$, c26x, c26y, c26c&, c26zone, c26found, c26ehF!, c26ehG!, c26ewF!, c26ewG!, c26px0, c26distW!, c26distS!, c26hp0, c26pr0, c26ang, c26f0, c26f1, c26p0, c26p1, c26blue, c26red, c26d, c26rockOK, c26redOK, c26goldOK, c26featherOK, c26spdMax!, c26lockSawBad, c26unlockSt, c26walkSprint   ' Fas 26 (6E) selftest vars
 DIM c27arm, c27pass, c27done, c27i, c27j, c27t, c27ok, c27bad, c27n, c27x, c27y, c27c&, c27bx, c27by, c27type, c27ex0, c27ex1, c27ey0, c27ey1, c27eyeN, c27eyeBad, c27eyeL, c27eyeR, c27eyeType, c27ballN, c27ballW, c27coreN, c27oldW, c27scX0, c27scX1, c27faceX0, c27faceX1, c27zoneY0, c27zoneY1, c27eco&, c27bdist!, c27eh!, c27ew!, c27base!, c27s0&, c27s1&, c27s2&, c27s3&, c27s4&, c27s5&, c27s6&, c27s7&, c27good, c27fx, c27fy, c27fc&, c27fb&, c27op, c27ox, c27oy, c27tx, c27ty, c27want   ' Fas 27 (6F-LITE) selftest vars
+DIM c28k, c28s, c28n, c28ok, c28bad, c28pxR, c28pyR, c28px0, c28py0, c28sawVel, c28moved!, c28mvF, c28mvB, c28mvL, c28mvR, c28dx!, c28dy!, c28fwd!, c28j, c28t   ' Fas 28 (6F-FULL 6f-d) input-pipeline selftest vars
+DIM c28msg$   ' 6f-d: per-tangent diagnostiksträng
 DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
@@ -221,7 +223,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "fc96c8c"
+Const strBuild$ = "7eb4124"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -382,6 +384,7 @@ DIM SHARED zDrawOrder$
 DIM SHARED renEH!, renEW!, renType, wmin!
 ' 6E FIX G: sprint + stamina
 DIM SHARED stamina!, sprintLock, spdMul, sprintInj, sprintOn   ' sprintInj = selftest-injektion (hermetiskt, riktig Shift ignoreras ej utan OR:as in)
+DIM SHARED injMvF, injMvB, injMvL, injMvR, injTurnL, injTurnR   ' 6F FIX A: hermetisk rörelse-injektion för selftest (i riktigt spel läses rörelse ENBART via _KEYDOWN-polling)
 Const stamMax! = 100
 Const stamDrain! = 20      ' stamina/s vid sprint
 Const stamRegen! = 10      ' stamina/s vid gång
@@ -1239,17 +1242,21 @@ Do
         hpMsgTime = Timer
         PlaySound SND_HURT
     End If
-    ' RÖRELSE-FLAGGOR: sätts FRESH varje frame från tangentbordet (k$ + _KeyDown).
-    ' Nollställs vid ALLA state-övergångar (StartRun + reset-blocken) så inget
-    ' rörelse-state överlever en övergång — annars kan spelaren gå framåt
-    ' automatiskt efter VIDARE (fastnat _KeyDown/key-repeat över övergången).
+    ' RÖRELSE-FLAGGOR: sätts FRESH varje frame — REN _KEYDOWN-polling i riktigt
+    ' spel (6F FIX A). k$/InKey$ är event-baserad (key-repeat) och blandades
+    ' tidigare in i rörelsen, så ett key-repeat-event samma frame som key-up
+    ' (eller ett fastnat tillstånd över en state-övergång) kunde hålla mvF=1
+    ' efter att W släpptes -> spelaren fortsatte gå. Event-termen (k$) finns
+    ' nu ENBART under selftest, där riktigt tangentbord är avstängt och k$/inj*
+    ' är den enda injektionsvägen. Flaggor nollställs fortfarande vid ALLA
+    ' state-övergångar (StartRun + reset-blocken).
     mvF = 0: mvB = 0: mvL = 0: mvR = 0: turnL = 0: turnR = 0
-    If k$ = "w" Or k$ = "W" Or _KeyDown(Asc("W")) Or _KeyDown(Asc("w")) Then mvF = 1
-    If k$ = "s" Or k$ = "S" Or _KeyDown(Asc("S")) Or _KeyDown(Asc("s")) Then mvB = 1
-    If k$ = "a" Or k$ = "A" Or _KeyDown(Asc("A")) Or _KeyDown(Asc("a")) Then mvL = 1
-    If k$ = "d" Or k$ = "D" Or _KeyDown(Asc("D")) Or _KeyDown(Asc("d")) Then mvR = 1
-    If k$ = Chr$(0) + "K" Or _KeyDown(19200) Then turnL = 1
-    If k$ = Chr$(0) + "M" Or _KeyDown(19712) Then turnR = 1
+    If _KeyDown(Asc("W")) Or (selftest And (k$ = "w" Or k$ = "W" Or injMvF)) Then mvF = 1
+    If _KeyDown(Asc("S")) Or (selftest And (k$ = "s" Or k$ = "S" Or injMvB)) Then mvB = 1
+    If _KeyDown(Asc("A")) Or (selftest And (k$ = "a" Or k$ = "A" Or injMvL)) Then mvL = 1
+    If _KeyDown(Asc("D")) Or (selftest And (k$ = "d" Or k$ = "D" Or injMvR)) Then mvR = 1
+    If _KeyDown(19200) Or (selftest And (k$ = Chr$(0) + "K" Or injTurnL)) Then turnL = 1
+    If _KeyDown(19712) Or (selftest And (k$ = Chr$(0) + "M" Or injTurnR)) Then turnR = 1
     anglePrev = angle   ' Fas 4C: captured before turn input -> turnDelta covers keys+mouse
     If turnL Then angle = angle - turnStep * speed
     If turnR Then angle = angle + turnStep * speed
@@ -1353,6 +1360,9 @@ Do
 
     ' Fas 4B: player velocity (cells/s) — used by the general's mortar lead
     pvx = (px - ox) / dt: pvy = (py - oy) / dt
+    ' 6F FIX A: explicit per-frame velocity zeroing — with no movement key down
+    ' the velocity components are EXACTLY 0 (invariant selftest 6f-d asserts)
+    If mvF = 0 And mvB = 0 And mvL = 0 And mvR = 0 Then pvx = 0: pvy = 0
 
     ' Fas 4: fotsteg spelare — var 0.5 cell gångavstånd (rytm følger hastigheten)
     stepAcc = stepAcc + Sqr((px - ox) ^ 2 + (py - oy) ^ 2)
@@ -10201,6 +10211,129 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c27j = 0 To PR_MAX: prActive(c27j) = 0: Next c27j
                 For c27j = 0 To WP_COUNT - 1: wpOwned(c27j) = 0: Next c27j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
+                testPhase = 28: testT0 = Timer: testFlag = 0   ' 6F-FULL: vidare till 6f-d (input-pipeline); kedjan 28->29->...->12
+            End If
+        Case 28  ' 6F-FULL 6f-d: input-pipeline — REN _KEYDOWN-polling för rörelse.
+                 ' Headless simulering: håll W/A/S/D 30 frames -> släpp -> efter
+                 ' EXAKT 1 frame måste motsvarande hastighetskomponent vara 0
+                 ' (mv-flagga 0, pvx=pvy=0, position oförändrad). Dessutom
+                 ' W-sticky under samtidig A/D: släpp W, behåll D -> mvF=0,
+                 ' mvR=1, ingen framåt-komponent i rörelsen.
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                px = 8.5: py = 12.5: angle = 0: pitch = 0: hp = 100
+                For c28j = 0 To 10: enActive(c28j) = 0: Next c28j
+                ' EN dummy-fiende hålls vid liv så win-triggern (alive==0 -> result) INTE
+                ' går mitt i testet — samma mönster som 6b-e
+                enActive(0) = 1: Gosub DummyFar: enType(0) = ET_FOOT: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c28j = 0 To PR_MAX: prActive(c28j) = 0: Next c28j
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                state$ = "playing"
+                injMvF = 0: injMvB = 0: injMvL = 0: injMvR = 0: injTurnL = 0: injTurnR = 0
+                c28k = 0: c28s = 0: c28n = 0: c28ok = 0: c28bad = 0: c28msg$ = ""
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                ' per-tangent: c28k = 0..3 -> W/A/S/D
+                If c28s = 0 Then
+                    ' startläge för denna tangent: öppet golv (4.5,12.5), håll nere 30 frames
+                    px = 4.5: py = 12.5: angle = 0: pitch = 0
+                    c28px0 = px: c28py0 = py: c28sawVel = 0: c28moved! = 0: c28n = 0
+                    If c28k = 0 Then injMvF = 1
+                    If c28k = 1 Then injMvL = 1
+                    If c28k = 2 Then injMvB = 1
+                    If c28k = 3 Then injMvR = 1
+                    c28s = 1: c28t = Timer
+                ElseIf c28s = 1 Then
+                    ' hållfas: räkna frames, observera rörelse + velocity
+                    c28n = c28n + 1
+                    If pvx <> 0 Or pvy <> 0 Then c28sawVel = 1
+                    c28moved! = Sqr((px - c28px0) ^ 2 + (py - c28py0) ^ 2)
+                    If c28n >= 30 Then
+                        c28pxR = px: c28pyR = py   ' position EFTER de 30 håll-framearna
+                        If c28k = 0 Then injMvF = 0
+                        If c28k = 1 Then injMvL = 0
+                        If c28k = 2 Then injMvB = 0
+                        If c28k = 3 Then injMvR = 0
+                        c28s = 2   ' nästa frame: assert 0 velocity efter exakt 1 frame
+                    End If
+                ElseIf c28s = 2 Then
+                    ' EXAKT 1 frame efter key-up: flagga 0, velocity 0, position fryst
+                    c28mvF = mvF: c28mvB = mvB: c28mvL = mvL: c28mvR = mvR
+                    c28msg$ = c28msg$ + " k" + Str$(c28k) + "[mv=" + Str$(c28mvF + c28mvL + c28mvB + c28mvR) + " pv=" + Str$(pvx <> 0 Or pvy <> 0) + " pos=" + Str$(px = c28pxR And py = c28pyR) + " saw=" + Str$(c28sawVel) + " moved=" + LTrim$(Str$(Int(c28moved! * 100) / 100)) + "]"
+                    If c28k = 0 And c28mvF = 0 And pvx = 0 And pvy = 0 And px = c28pxR And py = c28pyR And c28sawVel = 1 And c28moved! > 0.05 Then c28ok = c28ok + 1
+                    If c28k = 1 And c28mvL = 0 And pvx = 0 And pvy = 0 And px = c28pxR And py = c28pyR And c28sawVel = 1 And c28moved! > 0.05 Then c28ok = c28ok + 1
+                    If c28k = 2 And c28mvB = 0 And pvx = 0 And pvy = 0 And px = c28pxR And py = c28pyR And c28sawVel = 1 And c28moved! > 0.05 Then c28ok = c28ok + 1
+                    If c28k = 3 And c28mvR = 0 And pvx = 0 And pvy = 0 And px = c28pxR And py = c28pyR And c28sawVel = 1 And c28moved! > 0.05 Then c28ok = c28ok + 1
+                    If c28k = 0 And (c28mvF <> 0 Or pvx <> 0 Or pvy <> 0 Or px <> c28pxR Or py <> c28pyR) Then c28bad = c28bad + 1
+                    If c28k = 1 And (c28mvL <> 0 Or pvx <> 0 Or pvy <> 0 Or px <> c28pxR Or py <> c28pyR) Then c28bad = c28bad + 1
+                    If c28k = 2 And (c28mvB <> 0 Or pvx <> 0 Or pvy <> 0 Or px <> c28pxR Or py <> c28pyR) Then c28bad = c28bad + 1
+                    If c28k = 3 And (c28mvR <> 0 Or pvx <> 0 Or pvy <> 0 Or px <> c28pxR Or py <> c28pyR) Then c28bad = c28bad + 1
+                    c28k = c28k + 1: c28s = 0
+                    If c28k > 3 Then c28s = 3: c28n = 0   ' gå till W+D-sticky-testet
+                ElseIf c28s = 3 Then
+                    ' W-sticky under samtidig D: håll W+D 10 frames, släpp W, behåll D
+                    If c28n = 0 Then
+                        px = 4.5: py = 12.5: angle = 0: pitch = 0
+                        c28pxR = px: c28pyR = py
+                        injMvF = 1: injMvR = 1
+                    End If
+                    c28n = c28n + 1
+                    If c28n >= 10 Then
+                        c28px0 = px: c28py0 = py   ' referens vid W-släpp
+                        injMvF = 0                 ' släpp ENDAST W
+                        c28s = 4
+                    End If
+                ElseIf c28s = 4 Then
+                    ' 1 frame efter W-släpp (D fortfarande nere): mvF=0, mvR=1,
+                    ' ingen framåt-komponent (angle=0 -> dir=(1,0) -> px oförändrad, py ändras)
+                    c28dx! = px - c28px0: c28dy! = py - c28py0
+                    c28fwd! = c28dx! * dirX + c28dy! * dirY
+                    c28msg$ = c28msg$ + " sticky[mvF=" + Str$(mvF) + " mvR=" + Str$(mvR) + " fwd=" + LTrim$(Str$(c28fwd!)) + " dy=" + LTrim$(Str$(c28dy!)) + "]"
+                    If mvF = 0 And mvR = 1 And c28fwd! = 0 And c28dy! <> 0 Then c28ok = c28ok + 1
+                    injMvR = 0
+                    c28s = 5
+                ElseIf c28s = 5 Then
+                    If c28ok = 5 Then
+                        stMsg$ = "PASS 6f-d-input-polling (W/A/S/D: 30 frames håll -> släpp -> efter 1 frame mv-flagga=0, pvx=pvy=0, position fryst; W-släpp under D: mvF=0, mvR=1, framåt-komponent=0 — rörelse är ren _KEYDOWN-polling)"
+                        Gosub STLog
+                        testFlag = 2: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL 6f-d ok=" + Str$(c28ok) + "/5 k=" + Str$(c28k) + " s=" + Str$(c28s) + " mvF=" + Str$(mvF) + " mvL=" + Str$(mvL) + " mvB=" + Str$(mvB) + " mvR=" + Str$(mvR) + " pvx=" + LTrim$(Str$(pvx)) + " pvy=" + LTrim$(Str$(pvy)) + " px=" + LTrim$(Str$(px)) + " pxR=" + LTrim$(Str$(c28pxR)) + " fwd=" + LTrim$(Str$(c28fwd!)) + " msg=" + c28msg$
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+                If Timer - testT0 > 30 Then
+                    stMsg$ = "FAIL 6f-d-timeout k=" + Str$(c28k) + " s=" + Str$(c28s) + " n=" + Str$(c28n) + " ok=" + Str$(c28ok)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' 6f-d klar: återställ miljö, vidare till fas12 (6f-e..h kedjas in här senare)
+                injMvF = 0: injMvB = 0: injMvL = 0: injMvR = 0: injTurnL = 0: injTurnR = 0
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                For c28j = 0 To 10: enActive(c28j) = 0: Next c28j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c28j = 0 To PR_MAX: prActive(c28j) = 0: Next c28j
+                For c28j = 0 To WP_COUNT - 1: wpOwned(c28j) = 0: Next c28j
                 wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
