@@ -4,14 +4,17 @@ Read this FIRST in every session, then follow it.
 ## Project
 QB64-PE raycaster game (Wayland-native). Source:
 schleswig/Schleswig.bas. Repo: Henpei/schleswig.
-Working on: phases 4+ (enemy AI, projectiles,
-weapons rendering).
+Working on: pre-release polish (6L-B cap visibility + starvation-zero
+L3-L5 ammo balance + full selftest suite gate before public release).
 
 ## Language rules (STRICT)
 - ALL commit messages: English.
 - ALL new code comments: English.
 - ALL in-game text: English.
 - Variable/function names: English.
+- ALL agent prompts/assignments: English. Swedish user context may be
+  quoted verbatim, but instructions, requirements, and acceptance criteria
+  MUST be unambiguous English.
 
 ## Input schema
 - KeyUse = universal interaction key (E) — upcoming phases reuse this
@@ -252,18 +255,23 @@ shut ("NEED ... KEY") — by design the key is always reachable first, so no
 lockout is possible. default.map (64x64 TEST ARENA) is untouched: row 2 all
 five weapon chars, row 3 B/C/D next to A — the test kitchen.
 
-## Ammo balance (5E + 6A)
-Const startAmmo = 15 (was 5 — ~3x, André ran dry before level 3),
-Const ammoPickup = 10 per ammo pickup (was +5). 6A: ammo is PER TYPE —
-ammoN(1..4) with per-type caps capAmmo (6E FIX E: minst dubbelt — var 20/6/24/4):
-typ1 (musköt) = maxAmmo = 40, typ2 (blunderbuss) = 12, typ3 (maskingevär) = 48, typ4 (mini-kanon) = 8.
-Pickup chars: A=+10 typ1, B=+10 typ2, C=+10 typ3, D=+10 typ4 (capped).
+## Ammo balance (5E + 6A + 6H + 6L-B)
+Const startAmmo = 15. 6A: ammo is PER TYPE — ammoN(1..4). 6H: per-type pickup
+amounts amPickup(AMMO_N) = 10/4/12/2 (A=musköt, B=blunderbuss, C=maskingevär,
+D=mini-kanon) and per-type caps capAmmo = 40/16/48/12 (B 12->16, D 8->12 in 6H).
+Pickup chars: A=+10 typ1, B=+4 typ2, C=+12 typ3, D=+2 typ4 (capped).
+6L: pickup message is per-type — hpMsg$ = "+"+amPickup(t)+" "+AmmoTypeName$(t)+" AMMO".
+6L-B: cap visibility — pool already at cap -> "<NAME> AMMO FULL"; partial
+truncation -> "+<actual> <NAME> AMMO (FULL: +<lost> lost)"; message always
+shows the pickup's amount, never the truncated gain, except in the FULL case.
 6C real maps (measured char counts, selftest 6b-f re-proves >= principle):
 level01 A x3 M x1; level02 A x3 B x3 M x2; level03 A/B/C x2 M x2;
 level04 A/B/C/D x2 M x2; level05 A/B/C x1 D x3 M x2 — every level carries
 ammo for ALL weapons ownable at that point (L1 A / L2 A+B / L3 A+B+C /
 L4 A+B+C+D / L5 D-rich + A+B+C+M). (The old 5E placeholder counts 1/2/2/3/4
-A-cells are superseded by the real maps.)
+A-cells are superseded by the real maps.) 6H STEG 5 audit added A-pickups on
+L3 (+2 near 'k'), L4 (+4: near 'c' x2, row 19, row 55), L5 (+2) after the
+audit bot showed pool-A starvation on L3-L5.
 
 ## Weapon system (6A) — data-driven register
 Same pattern as the enemy register (InitEnemyTypes -> InitWeapons fills
@@ -566,6 +574,17 @@ learned: QB64 % is 16-bit — passing 100304 through a % parameter overflows;
 use & for key codes (kcn&). Replay test tokens "E<code>" inject raw overlay
 events (combat_replay_test.py scenario "e"). Keylog uses monotonic lifeFr&
 (frames resets each second for FPS).
+
+## SCHLESWIG 6K — sprite z-order (pickups behind pickups fixed)
+Root cause: pickups (amActive/wpActive/pkActive) were blitted in fixed index
+order with a per-column check only against wallDist — two sprites on the same
+sightline could paint over each other in the wrong order. Fix: ONE per-column
+sprite zbuffer sprDist(RW) initialized from wallDist before sprites; EVERY
+sprite type (pickups, weapon pickups, medkits, keys, enemies, projectiles,
+markers) tests each column against sprDist(x) and marks it via SprMark (which
+LOWERS sprDist(x) after the sprite) — back-to-front painter order across the
+whole sprite layer, nearest occludes. The viewmodel (gunBuf&) and the HUD are
+rendered LAST on top and are untouched by the zbuffer.
 
 ## Viewmodel design note (5A-hotfix2)
 The viewmodel sits deliberately ~half a gun-width RIGHT of center
