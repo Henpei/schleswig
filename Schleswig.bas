@@ -94,7 +94,7 @@ DIM c23key$, c23map$, c23i, c23j, c23w, c23ok, c23h&, c23gx, c23gy, c23am0, c23p
 DIM c23f$, c23ln$, c23ch$, c23msg$, c23txt$, c23a, c23b, c23c, c23d, c23m, c23mx, c23my, c23dd, c23ok2, c23dx, c23dy, c23sp   ' 6B-KOMPLETT/6D fas23: 6b-b kanonmål, 6b-f ammo-distribution, 6d-a aim, 6d-c readme
 DIM c24key$, c24map$, c24i, c24j, c24t, c24m, c24ok, c24f, c24wx, c24wy, c24bad, c24x, c24y, dfx, dfy, dfx2, dfy2   ' Fas 24 (6B char-pairs + menu-blink) selftest vars
 DIM c25lvl, c25j, c25k, c25t, c25ok, c25bad, c25n, c25f, c25m, c25jw, c25nd, c25c$, c25hud$, c25alive, c25bi, c25bd, c25d, c25what, c25door, c25dx, c25dy, c25cx, c25cy, c25best, c25bnx, c25bny, c25nx2, c25ny2, c25y, c25kills0, c25assist, c25bot, c25hash&, c25doorX, c25doorY, c25gx, c25gy, c25msave, c25sh0, c25canFire, c25enF(5), c25enO(5), c25enU(5), c25enK(5), c25enG(5), c25wpExp(5), c25keyExp(5), c25doorN(5), c25i, c25x, c25north, c25north2, c25keyOK, c25seg, c25sum, c25ln$, c25f$, c25h&   ' Fas 25 (6C äkta kampanjbanor + 6D 6d-e/6d-f) selftest vars
-DIM c26key$, c26map$, c26i, c26j, c26k, c26t, c26ok, c26bad, c26f$, c26ln$, c26h&, c26txt$, c26x, c26y, c26c&, c26zone, c26found, c26ehF!, c26ehG!, c26ewF!, c26ewG!, c26px0, c26distW!, c26distS!, c26hp0, c26pr0, c26ang, c26f0, c26f1, c26p0, c26p1, c26blue, c26red, c26d, c26rockOK, c26redOK, c26goldOK, c26featherOK, c26spdMax!, c26lockSawBad, c26unlockSt, c26walkSprint   ' Fas 26 (6E) selftest vars
+DIM c26key$, c26map$, c26i, c26j, c26k, c26t, c26ok, c26bad, c26f$, c26ln$, c26h&, c26txt$, c26x, c26y, c26c&, c26zone, c26found, c26ehF!, c26ehG!, c26ewF!, c26ewG!, c26px0, c26distW!, c26distS!, c26hp0, c26pr0, c26ang, c26f0, c26f1, c26p0, c26p1, c26blue, c26red, c26d, c26rockOK, c26redOK, c26goldOK, c26featherOK, c26spdMax!, c26lockSawBad, c26unlockSt, c26walkSprint, c26lockT   ' Fas 26 (6E) selftest vars
 DIM c27arm, c27pass, c27done, c27i, c27j, c27t, c27ok, c27bad, c27n, c27x, c27y, c27c&, c27bx, c27by, c27type, c27ex0, c27ex1, c27ey0, c27ey1, c27eyeN, c27eyeBad, c27eyeL, c27eyeR, c27eyeType, c27ballN, c27ballW, c27coreN, c27oldW, c27scX0, c27scX1, c27faceX0, c27faceX1, c27zoneY0, c27zoneY1, c27eco&, c27bdist!, c27eh!, c27ew!, c27base!, c27s0&, c27s1&, c27s2&, c27s3&, c27s4&, c27s5&, c27s6&, c27s7&, c27good, c27fx, c27fy, c27fc&, c27fb&, c27op, c27ox, c27oy, c27tx, c27ty, c27want   ' Fas 27 (6F-LITE) selftest vars
 DIM c28k, c28s, c28n, c28ok, c28bad, c28pxR, c28pyR, c28px0, c28py0, c28sawVel, c28moved!, c28mvF, c28mvB, c28mvL, c28mvR, c28dx!, c28dy!, c28fwd!, c28j, c28t   ' Fas 28 (6F-FULL 6f-d) input-pipeline selftest vars
 DIM c28msg$   ' 6f-d: per-tangent diagnostiksträng
@@ -104,6 +104,7 @@ DIM c30i, c30j, c30t, c30ok, c30act, c30f, c30a0(4), c30exp   ' Fas 30 (6F-FULL 
 DIM c30msg$   ' 6f-f: diagnostiksträng
 DIM c31k, c31s, c31t, c31ok, c31pr0, c31j, c31types(4)   ' Fas 31 (6F-FULL 6f-g) fiende-eldgivning selftest vars
 DIM c31msg$   ' 6f-g: diagnostiksträng
+DIM c32s, c32ok, c32neg, c32over, c32pauseBad, c32mathBad, c32j, c32t0, c32lockT, c32lockSt, c32lockSpd, c32unlockT, c32unlockSt, c32fullT, c32spdMax!, c32stPrev, c32msg$   ' Fas 32 (6F-FULL 6f-h) sprint/stamina selftest vars
 DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
 ' (ingen bild-skalning/_PutImage — det kraschade "Invalid expression" rad ~1409).
@@ -220,7 +221,7 @@ Next i
 angle = 0
 pitch = 0
 state$ = "menu"
-moveStep = 0.012   ' +20% (2026-11-23 hastighets-bump, var 0.01); strafe = 0.6x oförändrad
+moveStep = 0.0156   ' 6F FIX E: +30% (var 0.012 efter 2026-11-23-bumpen, var 0.01 före); strafe = 0.6x oförändrad
 turnStep = 0.04
 mouseSens = 0.002
 Const pitchSens = 2
@@ -229,7 +230,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "1c8c635"
+Const strBuild$ = "7757071"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -391,15 +392,14 @@ DIM SHARED zProbeX, zProbeY, zProbeC&, zProbeB, zProbeR, zpdx, zpdy, zpx, zpy   
 DIM SHARED zDrawOrder$
 DIM SHARED renEH!, renEW!, renType, wmin!
 ' 6E FIX G: sprint + stamina
-DIM SHARED stamina!, sprintLock, spdMul, sprintInj, sprintOn   ' sprintInj = selftest-injektion (hermetiskt, riktig Shift ignoreras ej utan OR:as in)
+DIM SHARED stamina!, sprintLock, spdMul, sprintInj, sprintOn, stamPauseUntil!   ' sprintInj = selftest-injektion (hermetiskt); stamPauseUntil! = 6F FIX E: när regen-pulsen börjar igen efter tömning
 DIM SHARED injMvF, injMvB, injMvL, injMvR, injTurnL, injTurnR   ' 6F FIX A: hermetisk rörelse-injektion för selftest (i riktigt spel läses rörelse ENBART via _KEYDOWN-polling)
 Const stamMax! = 100
 Const stamDrain! = 20      ' stamina/s vid sprint
-Const stamRegen! = 10      ' stamina/s vid gång
-Const stamRegenIdle! = 20  ' stamina/s stillastående
-Const stamUnlockAt! = 30   ' lås upp först vid denna stamina
-Const stamSprintMult! = 1.25
-stamina! = stamMax!: sprintLock = 0: sprintInj = 0   ' 6E FIX G: sprint-state init (efter Const — QB64 kräver Const före användning)
+Const stamRegen! = 12      ' stamina/s vid vila/gång (6F FIX E: var 10 gång / 20 stillastående)
+Const stamPause! = 1       ' 6F FIX E: regen-paus (s) efter tömning — förhindrar pulsande
+Const stamSprintMult! = 1.5   ' 6F FIX E: sprint x1.5 (var x1.25)
+stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0   ' 6E FIX G + 6F FIX E: sprint-state init (efter Const — QB64 kräver Const före användning)
 ' 6E FIX H: ljud-probe (senast spelade ljudets id + f0)
 DIM SHARED sndLastId, sndLastF0!
 DIM enType(10), enZigX(10), enZigY(10), enZigT(10), enZigS(10)   ' per-enemy type + zigzag target cell / re-roll timer / side sign
@@ -522,7 +522,7 @@ If selftest Then Randomize 987654: dodgeSeed& = 987654: aiSeed& = 13579   ' Fas 
 testPhase = 0: testT0 = Timer: stMsg$ = "": testDbg = 0: testHb = Timer: testFlag = 0
 Gosub InitSounds   ' Fas 4: ljud-register + raw-pipe (säker även headless)
 ' Highscore: nollställ counters, ladda bästa score från lokal fil (.schleswig_scores.txt)
-shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0: lvlT0 = Timer: stamina! = stamMax!: sprintLock = 0: sprintInj = 0   ' 6E FIX G: sprint-state reset vid StartRun
+shotsFired = 0: dmgTaken = 0: runT0 = Timer: score = 0: newRecord = 0: bestScore = 0: lvlT0 = Timer: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0   ' 6E FIX G: sprint-state reset vid StartRun
 winPending = 0: winT0 = 0: runTimeFrozen = -1: escCool = -99
 lockEngaged = 0: lockEngages = 0: lockDestroys = 0   ' låset engageras vid FÖRSTA fade-slutet (StartRun-vägen), INTE vid init
 gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: bobPhase = 0: turnDelta = 0: anglePrev = 0: gunSway = 0: gunRendered = 0   ' Fas 4C viewmodel init
@@ -1272,9 +1272,10 @@ Do
     If turnL Then angle = angle - turnStep * speed
     If turnR Then angle = angle + turnStep * speed
 
-    ' 6E FIX G: SPRINT (Shift) + STAMINA — hastighet x1.25 vid sprint; stamina
-    ' 100 dräneras 20/s, tom bar -> gång-LÅS tills stamina >= 30; återhämtning
-    ' 10/s vid gång, 20/s stillastående. spdMul används av rörelseblocken nedan.
+    ' 6F FIX E: SPRINT (Shift) + STAMINA — hastighet x1.5 vid sprint; stamina 100
+    ' dräneras 20/s vid sprint; tom bar -> sprint-LÅS direkt + 1 s regen-paus
+    ' (anti-puls); annars regen 12/s vid vila/gång. Sprint kräver stamina > 0.
+    ' spdMul används av rörelseblocken nedan.
     spdMul = 1
     sprintOn = 0
     If state$ = "playing" And (_KeyDown(42) Or _KeyDown(54) Or sprintInj) Then
@@ -1282,14 +1283,10 @@ Do
     End If
     If sprintOn Then
         stamina! = stamina! - stamDrain! * dt
-        If stamina! <= 0 Then stamina! = 0: sprintLock = 1
+        If stamina! <= 0 Then stamina! = 0: sprintLock = 1: stamPauseUntil! = Timer + stamPause!   ' lås direkt + regen-paus
     Else
-        If state$ = "playing" And mvF = 0 And mvB = 0 And mvL = 0 And mvR = 0 Then
-            stamina! = stamina! + stamRegenIdle! * dt
-        Else
-            stamina! = stamina! + stamRegen! * dt
-        End If
-        If sprintLock And stamina! >= stamUnlockAt! Then sprintLock = 0
+        If Timer >= stamPauseUntil! Then stamina! = stamina! + stamRegen! * dt   ' regen 12/s (pausad efter tömning)
+        If sprintLock And stamina! > 0 Then sprintLock = 0   ' upplås så fort stamina > 0 igen (efter pausen)
     End If
     If stamina! > stamMax! Then stamina! = stamMax!
     If stamina! < 0 Then stamina! = 0
@@ -9918,10 +9915,10 @@ SelftestDrive:
                 End If
             End If
             If testFlag = 10 Then
-                ' --- 6e-d: sprint + stamina — x1.25 hastighet, dränering 20/s, lås vid 0, upplås vid 30 ---
+                ' --- 6e-d: sprint + stamina — 6F FIX E: x1.5 hastighet, drän 20/s, lås vid 0 + 1 s regen-paus, upplås vid stamina > 0 ---
                 If c26i = 0 Then
                     mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
-                    px = 2.5: py = 13.5: angle = 0: hp = 100: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                    px = 2.5: py = 13.5: angle = 0: hp = 100: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
                     For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
                     enActive(0) = 1: Gosub DummyFar: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                     For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
@@ -9948,7 +9945,8 @@ SelftestDrive:
                     If spdMul > c26spdMax! Then c26spdMax! = spdMul
                     If sprintLock And spdMul > 1 Then c26lockSawBad = 1
                     If sprintLock And Timer - c26t >= 0.2 Then
-                        ' låst vid tom stamina; vänta på upplås (regen 10/s vid gång -> 30 tar 3 s)
+                        ' låst vid tom stamina; vänta på upplås (1 s paus, sedan regen 12/s -> upplås vid stamina > 0)
+                        c26lockT = Timer
                         c26i = 4: c26t = Timer: sprintInj = 0
                     ElseIf Timer - c26t >= 4 Then
                         stMsg$ = "FAIL 6e-d-no-lock stamina=" + Str$(Int(stamina!)) + " lock=" + Str$(sprintLock)
@@ -9964,16 +9962,16 @@ SelftestDrive:
                         c26ok = 0
                         If c26walkSprint = 0 Then c26ok = c26ok + 1   ' gång-fasen: spdMul aldrig >1
                         If c26distW! > 0.2 Then c26ok = c26ok + 1   ' rörde sig under gång
-                        If c26spdMax! = stamSprintMult! Then c26ok = c26ok + 1   ' sprint: spdMul == 1.25
+                        If c26spdMax! = stamSprintMult! Then c26ok = c26ok + 1   ' sprint: spdMul == 1.5
                         If c26lockSawBad = 0 Then c26ok = c26ok + 1   ' låst: spdMul == 1
-                        If c26unlockSt >= stamUnlockAt! Then c26ok = c26ok + 1   ' upplås först vid >=30
+                        If c26unlockSt > 0 And Timer - c26lockT >= stamPause! - 0.1 Then c26ok = c26ok + 1   ' 6F FIX E: upplås vid stamina > 0, först efter 1 s paus
                         If c26ok = 5 Then
-                            stMsg$ = "PASS 6e-d-sprint-stamina (spdMul 1 vid gång / 1.25 vid sprint (bas*1.25); dist sprint/walk=" + LTrim$(Str$(Int(c26distS! / c26distW! * 100) / 100)) + "; drän 20/s -> lås vid 0 (spdMul 1); upplås vid stamina " + Str$(Int(c26unlockSt)) + " >= 30)"
+                            stMsg$ = "PASS 6e-d-sprint-stamina (spdMul 1 vid gång / " + LTrim$(Str$(stamSprintMult!)) + " vid sprint; dist sprint/walk=" + LTrim$(Str$(Int(c26distS! / c26distW! * 100) / 100)) + "; drän 20/s -> lås vid 0 (spdMul 1); " + LTrim$(Str$(stamPause!)) + " s regen-paus; upplås vid stamina " + LTrim$(Str$(Int(c26unlockSt * 100) / 100)) + " > 0)"
                             Gosub STLog
                             c26key$ = ""
                             testFlag = 11: testT0 = Timer: c26i = 0
                         Else
-                            stMsg$ = "FAIL 6e-d ok=" + Str$(c26ok) + "/5 walkSprint=" + Str$(c26walkSprint) + " distW=" + Str$(Int(c26distW! * 100) / 100) + " ratio=" + Str$(Int(c26distS! / c26distW! * 100) / 100) + " spdMax=" + LTrim$(Str$(c26spdMax!)) + " mult=" + LTrim$(Str$(stamSprintMult!)) + " lockBad=" + Str$(c26lockSawBad) + " unlockSt=" + LTrim$(Str$(c26unlockSt)) + " unlAt=" + LTrim$(Str$(stamUnlockAt!))
+                            stMsg$ = "FAIL 6e-d ok=" + Str$(c26ok) + "/5 walkSprint=" + Str$(c26walkSprint) + " distW=" + Str$(Int(c26distW! * 100) / 100) + " ratio=" + Str$(Int(c26distS! / c26distW! * 100) / 100) + " spdMax=" + LTrim$(Str$(c26spdMax!)) + " mult=" + LTrim$(Str$(stamSprintMult!)) + " lockBad=" + Str$(c26lockSawBad) + " unlockSt=" + LTrim$(Str$(c26unlockSt)) + " lockT=" + LTrim$(Str$(Timer - c26lockT))
                             Gosub STLog
                             stMsg$ = "SELFTEST FAIL"
                             Gosub STLog
@@ -10051,7 +10049,7 @@ SelftestDrive:
                 mapFile$ = selftestMap$
                 Gosub LoadMapAuto
                 Gosub ApplyMapSpawns
-                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
                 For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
                 enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
@@ -10241,7 +10239,7 @@ SelftestDrive:
                 mapFile$ = selftestMap$
                 Gosub LoadMapAuto
                 Gosub ApplyMapSpawns
-                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
                 For c27j = 0 To 10: enActive(c27j) = 0: Next c27j
                 enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
@@ -10364,7 +10362,7 @@ SelftestDrive:
                 mapFile$ = selftestMap$
                 Gosub LoadMapAuto
                 Gosub ApplyMapSpawns
-                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
                 For c28j = 0 To 10: enActive(c28j) = 0: Next c28j
                 enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
@@ -10482,7 +10480,7 @@ SelftestDrive:
                 mapFile$ = selftestMap$
                 Gosub LoadMapAuto
                 Gosub ApplyMapSpawns
-                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
                 For c29j = 0 To 10: enActive(c29j) = 0: Next c29j
                 enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
@@ -10613,7 +10611,7 @@ SelftestDrive:
                 mapFile$ = selftestMap$
                 Gosub LoadMapAuto
                 Gosub ApplyMapSpawns
-                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
                 For c30j = 0 To 10: enActive(c30j) = 0: Next c30j
                 enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
@@ -10686,12 +10684,99 @@ SelftestDrive:
                 mapFile$ = selftestMap$
                 Gosub LoadMapAuto
                 Gosub ApplyMapSpawns
-                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
                 For c31j = 0 To 10: enActive(c31j) = 0: Next c31j
                 enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c31j = 0 To PR_MAX: prActive(c31j) = 0: Next c31j
                 For c31j = 0 To WP_COUNT - 1: wpOwned(c31j) = 0: Next c31j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
+                testPhase = 32: testT0 = Timer: testFlag = 0   ' 6F-FULL: vidare till 6f-h (sprint/stamina), kedjan 28->29->30->31->32->12
+            End If
+        Case 32  ' 6F-FULL 6f-h: sprint/stamina-matematik — drän exakt 20/s, lås vid 0 + 1 s regen-paus,
+                 ' upplås vid stamina > 0 efter pausen, regen exakt 12/s tillbaka till 100, aldrig <0/>100
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                px = 2.5: py = 12.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo
+                stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
+                injMvF = 1: sprintInj = 1   ' hermetisk sprint framåt längs rad 12 (helt öppen rad)
+                For c32j = 0 To 10: enActive(c32j) = 0: Next c32j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enType(0) = ET_FOOT: enHP(0) = etHP(ET_FOOT): enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99: enZ(0) = 0
+                For c32j = 0 To PR_MAX: prActive(c32j) = 0: Next c32j
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                state$ = "playing"
+                c32s = 0: c32ok = 0: c32neg = 0: c32over = 0: c32pauseBad = 0: c32mathBad = 0
+                c32lockT = -1: c32lockSt = -1: c32lockSpd = -1: c32unlockT = -1: c32unlockSt = -1: c32fullT = -1
+                c32spdMax! = 0: c32stPrev = stamMax!: c32msg$ = ""
+                c32t0 = Timer
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                ' per-frame invariants (SelftestDrive körs EFTER rörelse/sprint-blocket samma frame)
+                If stamina! < 0 Then c32neg = 1
+                If stamina! > stamMax! + 0.001 Then c32over = 1
+                If sprintOn = 1 And sprintLock = 0 Then
+                    If spdMul > c32spdMax! Then c32spdMax! = spdMul
+                    If Abs((c32stPrev - stamina!) - stamDrain! * dt) > 0.02 Then c32mathBad = 1   ' drän exakt 20/s
+                End If
+                If sprintOn = 0 And Timer >= stamPauseUntil! And stamina! < stamMax! Then
+                    If Abs((stamina! - c32stPrev) - stamRegen! * dt) > 0.02 Then c32mathBad = 1   ' regen exakt 12/s
+                End If
+                If sprintLock = 1 And Timer < stamPauseUntil! And stamina! > 0.001 Then c32pauseBad = 1   ' paus: ingen regen
+                If c32lockT < 0 And sprintLock = 1 Then c32lockT = Timer: c32lockSt = stamina!: c32lockSpd = spdMul: c32s = 1   ' lås vid 0
+                If c32lockT >= 0 And c32unlockT < 0 And sprintLock = 0 Then c32unlockT = Timer: c32unlockSt = stamina!   ' upplås
+                c32stPrev = stamina!
+                If c32s = 1 And Timer - c32lockT >= stamPause! Then c32s = 2: sprintInj = 0: injMvF = 0   ' vila efter pausen
+                If c32s = 2 And stamina! >= stamMax! Then c32s = 3: c32fullT = Timer   ' regen klar till 100
+                If c32s = 3 Then
+                    If c32lockT > 0 And c32lockSt = 0 And c32lockSpd = 1 Then c32ok = c32ok + 1   ' lås vid stamina 0, spdMul 1 direkt (sprint avstannar)
+                    If c32spdMax! = stamSprintMult! Then c32ok = c32ok + 1   ' sprint gav exakt x1.5
+                    If c32mathBad = 0 Then c32ok = c32ok + 1   ' drän/regen-matematik exakt per frame
+                    If c32neg = 0 Then c32ok = c32ok + 1   ' aldrig negativ stamina
+                    If c32pauseBad = 0 Then c32ok = c32ok + 1   ' regen-paus respekterad (stamina 0 under hela pausen)
+                    If c32unlockT > 0 And c32unlockSt > 0 And c32unlockT - c32lockT >= stamPause! - 0.2 Then c32ok = c32ok + 1   ' upplås först efter pausen, vid stamina > 0
+                    If c32over = 0 Then c32ok = c32ok + 1   ' aldrig över 100
+                    If stamina! = stamMax! Then c32ok = c32ok + 1   ' regen tillbaka till exakt 100 efter vila
+                    If c32ok = 8 Then
+                        stMsg$ = "PASS 6f-h-sprint-stamina (drän exakt " + LTrim$(Str$(stamDrain!)) + "/s -> lås vid 0 (spdMul 1, sprint avstannar); sprint x" + LTrim$(Str$(stamSprintMult!)) + "; " + LTrim$(Str$(stamPause!)) + " s regen-paus; upplås vid stamina " + LTrim$(Str$(Int(c32unlockSt * 100) / 100)) + " > 0 efter " + LTrim$(Str$(Int((c32unlockT - c32lockT) * 100) / 100)) + " s; regen exakt " + LTrim$(Str$(stamRegen!)) + "/s tillbaka till 100 på " + LTrim$(Str$(Int((c32fullT - c32unlockT) * 100) / 100)) + " s; aldrig <0 eller >100)"
+                        Gosub STLog
+                        testFlag = 2: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL 6f-h ok=" + Str$(c32ok) + "/8 lock=" + Str$(c32lockT > 0) + " lockSt=" + LTrim$(Str$(c32lockSt)) + " lockSpd=" + Str$(c32lockSpd) + " spdMax=" + LTrim$(Str$(c32spdMax!)) + " mathBad=" + Str$(c32mathBad) + " neg=" + Str$(c32neg) + " pauseBad=" + Str$(c32pauseBad) + " unlDt=" + LTrim$(Str$(c32unlockT - c32lockT)) + " unlSt=" + LTrim$(Str$(c32unlockSt)) + " over=" + Str$(c32over) + " final=" + LTrim$(Str$(stamina!))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+                If Timer - testT0 > 90 Then
+                    stMsg$ = "FAIL 6f-h-timeout s=" + Str$(c32s) + " stamina=" + LTrim$(Str$(stamina!)) + " lock=" + Str$(sprintLock) + " ok=" + Str$(c32ok)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' 6f-h klar: återställ selftest-miljö, vidare till fas12 (slutet av 6F-FULL-kedjan)
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
+                injMvF = 0: injMvB = 0: injMvL = 0: injMvR = 0: injTurnL = 0: injTurnR = 0
+                For c32j = 0 To 10: enActive(c32j) = 0: Next c32j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c32j = 0 To PR_MAX: prActive(c32j) = 0: Next c32j
+                For c32j = 0 To WP_COUNT - 1: wpOwned(c32j) = 0: Next c32j
                 wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0

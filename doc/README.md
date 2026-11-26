@@ -57,9 +57,10 @@ data) — see AGENTS.md.
 
 - SPACE or click START GAME: start the game
 - W / S: forward / back, A / D: strafe
-- SHIFT: sprint (x1.25 speed) — drains the stamina bar under the HP box
-  (20/s); when empty, sprint locks until stamina recovers to 30 (regen 10/s
-  walking, 20/s standing still)
+- SHIFT: sprint (x1.5 speed, 6F-FULL fix E; base walk speed also +30%) —
+  drains the stamina bar under the HP box (max 100, 20/s); when empty,
+  sprint locks immediately and regen pauses for 1 s (anti-puls), then
+  stamina regens at 12/s and the lock releases as soon as stamina > 0
 - Mouse: look around. NOTE (Wayland): pointer lock engages on the first mouse
   click in game (the protocol requires a user gesture)
 - Left mouse button: attack / shoot (per weapon)
