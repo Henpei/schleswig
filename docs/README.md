@@ -25,6 +25,10 @@ absolute machine paths are hardcoded here.
                                      # StartRun -> fade -> playing), OS key events simulated
                                      # from /tmp/schleswig_replay.scr, telemetry ->
                                      # /tmp/schleswig_replay.log (6G; see tools/replay_test.py)
+    ./schleswig audit      # 6H STEG 5: ammo-economy bot — plays campaign L1..L5
+                                     # (musket-first hunt-bot), logs per level to terminal +
+                                     # /tmp/schleswig_audit.log: enemies/HP, shots, ammo
+                                     # pickups per type, pool minimum, starvation events
 
 ## Real-input integration test (6G)
 

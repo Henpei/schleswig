@@ -400,6 +400,7 @@ DIM SHARED stamina!, sprintLock, spdMul, sprintInj, sprintOn, stamPauseUntil!   
 DIM SHARED injMvF, injMvB, injMvL, injMvR, injTurnL, injTurnR   ' 6F FIX A: hermetisk rörelse-injektion för selftest (i riktigt spel läses rörelse ENBART via _KEYDOWN-polling)
 ' 6G FIX 1/2: replay-mode — simulerade OS-tangenter som matas in i SAMMA polling-pipeline som riktiga
 DIM SHARED replayMode, keySim%(0 To 127), keySimShift, keySimFire   ' keySim% indexeras med VERSAL ascii (65..90); keySimShift = båda Shift; keySimFire = avfyra (6H reload-test)
+DIM SHARED auditMode, auLogF, auMsg$, auLvl, auStarted, auT0, auEnN, auEnHP, auShots0, auShots, auStarveN, auStarveWas, auAlive, auBi, auBd, auD, auI, auJ, auT, auWat, auCx, auCy, auNx, auNy, auNx2, auNy2, auBest, auFire, auTx, auTy, auPd, auF2, auWpN, auWhy$, auFr, auUseE, auHasRanged, auCh$, auPk(0 To 4), auMin(0 To 4)   ' 6H STEG 5 audit-bot
 DIM SHARED enAliveN, enHPTot   ' 6H audit: aktiva fiender + deras total-HP (replay-telemetry)
 DIM SHARED replayAt&(0 To 2000), replayTok$(0 To 2000), replayN, replayCnt, replayLogF, replayClk&, replayPlayFr&   ' replayAt/replayTok = script /tmp/schleswig_replay.scr ("pN" = N frames efter state=playing); replayClk& = monoton frame-räknare (frames nollställs varje sekund för FPS)
 Const stamMax! = 100
@@ -487,6 +488,11 @@ DIM SHARED sndDbg, sndCalls   ' ljud-debug: filhandtag + anropsräknare
 selftest = 0
 cmdArg$ = LCase$(LTrim$(RTrim$(Command$)))   ' Obs: Trim$ finns inte i QB64-PE, bara LTrim$/RTrim$
 If cmdArg$ = "selftest" Then selftest = 1
+' 6H STEG 5: "audit" = ammo-ekonomi-bot — spelar kampanjbanorna L1..L5 med
+' hunt-bot (musköt först, yxa vid reload-lås nära) och loggar per bana:
+' fiendeantal+HP, skott, pickups per typ, pool-minimum, svält-tillfällen.
+' Logg: terminal + /tmp/schleswig_audit.log. Körs headless (SDL dummy).
+If cmdArg$ = "audit" Then auditMode = 1
 ' 6G FIX 1/2: "replay" = NORMAL binary + NORMAL app flow (menu->pick->StartRun->fade->playing),
 ' but OS key events are simulated from /tmp/schleswig_replay.scr (the sandbox cannot deliver
 ' real key events headless). keySim% feeds the SAME polling predicate (KeyDown2%) that real
@@ -534,6 +540,9 @@ If loadFatal Then
 Else
     Gosub ApplyMapSpawns
     px = plStartX + 0.5: py = plStartY + 0.5   ' Fas 5A: player start from map ('S')
+End If
+If auditMode And Not loadFatal Then
+    auLvl = 0: auStarted = 0   ' auLogF öppnas inte längre — AuLog append:ar per rad (flush direkt)
 End If
 If selftest Then Randomize 987654: dodgeSeed& = 987654: aiSeed& = 13579   ' Fas 4A/4B: seeded RNG in selftest -> deterministic zigzag/dodge/spread tests
 ' 6G FIX 1/2: replay-mode init — load script /tmp/schleswig_replay.scr ("<frame> <token>" per
@@ -850,6 +859,7 @@ Do
             Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, Int(fa * 255)), BF
             If fa >= 1 Then
                 state$ = "playing"
+                If auditMode And auStarted = 0 Then auStarted = 1: Gosub AuditLevelStart   ' 6H STEG 5
                 LogMouse "HIDE_DISABLE StartRun fade-klar"
                 LogMouse "MOUSEMOVE center StartRun (före låset)"
                 _MOUSEMOVE RW \ 2, RH \ 2   ' färsk serial INNAN låset (ordning enligt fix)
@@ -1035,6 +1045,7 @@ Do
         End If
         _Display
     ElseIf state$ = "result" Then
+        If auditMode Then auWhy$ = "cleared": Gosub AuditNext   ' 6H STEG 5: logga banan + ladda nästa
         ' RESULTATMENY: riktig meny, samma knapp-stil som huvudmenyn (samma
         ' DrawButton-widget, hover, fill/border). Musen är VÄLKOMMEN synlig här.
         ' AI/fysik/tid fryst (egen gren). Knappar: VIDARE / HUVUDMENY. ESC=meny.
@@ -1130,6 +1141,7 @@ Do
         _Display
         If selftest Then Gosub SelftestDrive   ' fas12: observera state=result här
     ElseIf state$ = "victory" Then
+        If auditMode Then auWhy$ = "cleared": Gosub AuditNext   ' 6H STEG 5: sista banan klar -> summering + End
         ' 5C SEGER-SKÄRM: campaign finished (last level of levels.lst cleared).
         ' Stats table: score, total kills, per-level times, best. Buttons:
         ' PLAY AGAIN (restart campaign at level 1, score zeroed) / QUIT.
@@ -1281,7 +1293,7 @@ Do
     ' Fas 5A: doors — E (KeyUse) while standing next to a door cell tries to open it.
     ' 'd' always opens; '1'/'2'/'3' need bronze/silver/gold key (else 2 s HUD msg).
     ' Opened doors stay open for the rest of the round (V1, no re-close).
-    If state$ = "playing" And KeyUseHit%(k$) Then
+    If state$ = "playing" And (KeyUseHit%(k$) Or (auditMode And auUseE)) Then   ' 6H STEG 5: audit-bot öppnar dörrar
         doorPX = Int(px): doorPY = Int(py)
         For doorI = 0 To 3
             If doorI = 0 Then doorCX = doorPX + 1: doorCY = doorPY
@@ -1421,6 +1433,9 @@ Do
                 hpMsg$ = "RELOADING": hpMsgTime = Timer
             End If
         End If
+        ' 6H STEG 5 audit-bot: rörelse/sikte/vapen sätts här (före rörelseblocket);
+        ' auFire kopplas in efter mus-läsningen nedan.
+        If auditMode Then Gosub AuditBot
     End If
 
     dirX = Cos(angle)
@@ -1487,6 +1502,7 @@ Do
         If Abs(mmx) > 300 Then mmx = 0
         fireBtn = _MouseButton(1)
         If replayMode And keySimFire Then fireBtn = 1   ' 6H: replay-token F+ avfyrar
+        If auditMode Then fireBtn = auFire   ' 6H STEG 5: audit-bot avfyrar
         If fireBtn Then lockHint = 0   ' första klicket i rundan
     End If
     angle = angle + mmx * mouseSens * speed
@@ -2019,6 +2035,7 @@ Do
         hp = 0
         state$ = "dead"
         deathTime = Timer
+        If auditMode Then Gosub AuditDead   ' 6H STEG 5: bot dog -> logga + avsluta
         If gameMode$ = "campaign" Then selIdx = 1   ' 5C: death options start on RESTART LEVEL
         LogMouse "LIVSTIDSLAS death (ingen unlock)"
         ' Highscore: räkna score vid död; spara nytt rekord (ej i selftest = anti-cheese)
@@ -3890,6 +3907,8 @@ Function GameModeFromCmd$ (c$)
         GameModeFromCmd$ = "arena"
     ElseIf t$ = "campaign" Then
         GameModeFromCmd$ = "campaign"
+    ElseIf t$ = "audit" Then
+        GameModeFromCmd$ = "campaign"   ' 6H STEG 5: audit-bot kör hela kampanjen (autoCamp via AutoStartFromCmd%)
     ElseIf Left$(t$, 7) = "--level" Then
         GameModeFromCmd$ = "campaign"
     Else
@@ -4293,6 +4312,199 @@ ApplyMapSpawns:
             doorOpen%(xx, yy) = 0
         Next xx
     Next yy
+    Return
+
+' ======== 6H STEG 5: AUDIT-BOT (cmd "audit") ================
+' AuLog: skriv auMsg$ till terminal + /tmp/schleswig_audit.log (append per rad = flush direkt)
+AuLog:
+    Print auMsg$
+    auF2 = FreeFile
+    Open "/tmp/schleswig_audit.log" For Append As #auF2
+    Print #auF2, auMsg$
+    Close #auF2
+    Return
+
+' AuditLevelStart: anropas när fade->playing för en ny bana (auStarted=0)
+AuditLevelStart:
+    auLvl = auLvl + 1
+    auT0 = Timer
+    auEnN = 0: auEnHP = 0
+    For auI = 0 To 10
+        If enActive(auI) Then auEnN = auEnN + 1: auEnHP = auEnHP + enHP(auI)
+    Next auI
+    For auT = 1 To AMMO_N: auPk(auT) = 0: auMin(auT) = ammoN(auT): Next auT
+    For auI = 0 To 10
+        If amActive(auI) Then auPk(amT(auI)) = auPk(amT(auI)) + 1
+    Next auI
+    auWpN = 0
+    For auI = 0 To 10
+        If wpActive(auI) Then auWpN = auWpN + 1
+    Next auI
+    auStarveN = 0: auStarveWas = 0: auShots0 = shotsFired
+    auMsg$ = "AUDIT L" + LTrim$(Str$(auLvl)) + "/" + LTrim$(Str$(lvlN)) + " start: enemies=" + LTrim$(Str$(auEnN)) + " hpTot=" + LTrim$(Str$(auEnHP)) + " ammoPk A/B/C/D=" + LTrim$(Str$(auPk(1))) + "/" + LTrim$(Str$(auPk(2))) + "/" + LTrim$(Str$(auPk(3))) + "/" + LTrim$(Str$(auPk(4))) + " wpPk=" + LTrim$(Str$(auWpN)) + " pools=" + LTrim$(Str$(ammoN(1))) + "/" + LTrim$(Str$(ammoN(2))) + "/" + LTrim$(Str$(ammoN(3))) + "/" + LTrim$(Str$(ammoN(4)))
+    Gosub AuLog
+    Return
+
+' AuditNext: bana klar (result/victory) eller timeout — logga + ladda nästa
+AuditNext:
+    auShots = shotsFired - auShots0
+    If auWhy$ = "" Then auWhy$ = "cleared"
+    auMsg$ = "AUDIT L" + LTrim$(Str$(auLvl)) + " END " + auWhy$ + ": shots=" + LTrim$(Str$(auShots)) + " poolMin A/B/C/D=" + LTrim$(Str$(auMin(1))) + "/" + LTrim$(Str$(auMin(2))) + "/" + LTrim$(Str$(auMin(3))) + "/" + LTrim$(Str$(auMin(4))) + " starveEvents=" + LTrim$(Str$(auStarveN)) + " poolsNow=" + LTrim$(Str$(ammoN(1))) + "/" + LTrim$(Str$(ammoN(2))) + "/" + LTrim$(Str$(ammoN(3))) + "/" + LTrim$(Str$(ammoN(4)))
+    Gosub AuLog
+    auWhy$ = ""
+    If auLvl >= lvlN Then
+        auMsg$ = "AUDIT DONE: all " + LTrim$(Str$(lvlN)) + " levels cleared by bot"
+        Gosub AuLog
+        End
+    End If
+    lvlIdx = lvlIdx + 1
+    Gosub LoadLevel
+    auStarted = 0   ' nästa fade->playing triggar AuditLevelStart för banan
+    Return
+
+' AuditDead: botten dog — logga och fortsätt med nästa bana (audit-data för alla L1-L5)
+AuditDead:
+    auShots = shotsFired - auShots0
+    auMsg$ = "AUDIT L" + LTrim$(Str$(auLvl)) + " DEAD: shots=" + LTrim$(Str$(auShots)) + " poolMin A/B/C/D=" + LTrim$(Str$(auMin(1))) + "/" + LTrim$(Str$(auMin(2))) + "/" + LTrim$(Str$(auMin(3))) + "/" + LTrim$(Str$(auMin(4))) + " starveEvents=" + LTrim$(Str$(auStarveN)) + " poolsNow=" + LTrim$(Str$(ammoN(1))) + "/" + LTrim$(Str$(ammoN(2))) + "/" + LTrim$(Str$(ammoN(3))) + "/" + LTrim$(Str$(ammoN(4)))
+    Gosub AuLog
+    auWhy$ = "DEAD"
+    Gosub AuditNext
+    Return
+
+' AuditBot: per-frame bot-kontroll i playing. Ranged-prioritet: musköt först,
+' yxa endast vid reload-lås + fiende närmare än 1 cell. Annars BFS-vandring mot
+' närmaste fiende; skjut vid LOS inom 4 celler. Spårar pool-min + svält.
+AuditBot:
+    auFire = 0: auUseE = 0: mvF = 0: mvB = 0: mvL = 0: mvR = 0
+    auAlive = 0
+    For auI = 0 To 10
+        If enActive(auI) Then auAlive = auAlive + 1
+    Next auI
+    For auT = 1 To AMMO_N
+        If ammoN(auT) < auMin(auT) Then auMin(auT) = ammoN(auT)
+    Next auT
+    If auAlive > 0 And auLvl > 0 And wpMag(wpCur) > 0 Then
+        auWat = wpAmmoT(wpCur)
+        If ammoN(auWat) <= 0 And wpMagNow(wpCur) <= 0 Then
+            If auStarveWas = 0 Then auStarveN = auStarveN + 1
+            auStarveWas = 1
+        Else
+            auStarveWas = 0
+        End If
+    End If
+    If auLvl > 0 And Timer - auT0 > 60 Then auWhy$ = "TIMEOUT": Gosub AuditNext: Return   ' timeout -> nästa bana
+    auBi = -1: auBd = 1000000
+    For auI = 0 To 10
+        If enActive(auI) Then
+            auD = Sqr((enX(auI) - px) ^ 2 + (enY(auI) - py) ^ 2)
+            If auD < auBd Then auBd = auD: auBi = auI
+        End If
+    Next auI
+    ' vapensprioritet: musköt först; yxa endast vid reload-lås + fiende < 1 cell;
+    ' om muskötens pool+mag är tom, fall tillbaka till annat ägt magasin-vapen
+    If wpOwned(WP_MUSKET) And (ammoN(1) > 0 Or wpMagNow(WP_MUSKET) > 0 Or wpRlT!(WP_MUSKET) > 0) Then
+        If wpRlT!(WP_MUSKET) > 0 And auBd >= 0 And auBd < 1 And ammoN(1) = 0 And wpMagNow(WP_MUSKET) = 0 Then wpCur = WP_AXE Else wpCur = WP_MUSKET
+    ElseIf wpOwned(WP_MG) And (ammoN(3) > 0 Or wpMagNow(WP_MG) > 0) Then
+        wpCur = WP_MG
+    ElseIf wpOwned(WP_BLUNDER) And (ammoN(2) > 0 Or wpMagNow(WP_BLUNDER) > 0) Then
+        wpCur = WP_BLUNDER
+    ElseIf wpOwned(WP_CANNON) And (ammoN(4) > 0 Or wpMagNow(WP_CANNON) > 0) Then
+        wpCur = WP_CANNON
+    Else
+        wpCur = WP_AXE
+    End If
+    If auBi < 0 Then Return
+    auHasRanged = 0
+    For auI = 0 To WP_COUNT - 1
+        If wpOwned(auI) And wpMag(auI) > 0 Then auHasRanged = 1
+    Next auI
+    fx = px: fy = py: tx = enX(auBi): ty = enY(auBi): Gosub LOSCheck
+    If losOK And auBd <= 8 And (auHasRanged Or auBd < 1.3) Then
+        angle = _ATan2(enY(auBi) - py, enX(auBi) - px)
+        If wpMag(wpCur) = 0 And auBd < 1.3 Then auFire = 1   ' yxa: närstrid
+        If wpMag(wpCur) > 0 Then auFire = 1
+    Else
+        ' gå mot närmaste pickup om den är NÄRA, annars mot fienden.
+        ' Saknas fjärrvapen helt: prioritera VAPEN-pickup (oavsett avstånd).
+        auTx = -1: auTy = -1: auPd = 2
+        If auHasRanged Then
+            For auI = 0 To 10
+                If amActive(auI) Then
+                    auD = Sqr((amX(auI) - px) ^ 2 + (amY(auI) - py) ^ 2)
+                    If auD < auPd Then auPd = auD: auTx = Int(amX(auI)): auTy = Int(amY(auI))
+                End If
+            Next auI
+        Else
+            auPd = 1000000
+        End If
+        For auI = 0 To 10
+            If wpActive(auI) Then
+                auD = Sqr((wpX(auI) - px) ^ 2 + (wpY(auI) - py) ^ 2)
+                If auD < auPd Then auPd = auD: auTx = Int(wpX(auI)): auTy = Int(wpY(auI))
+            End If
+        Next auI
+        If hp < 50 Then auPd = 1000000   ' låg hp: medkit prioriteras över ammo/vapen
+        If hp < 60 Then
+            For auI = 0 To 10
+                If pkActive(auI) Then
+                    auD = Sqr((pkX(auI) - px) ^ 2 + (pkY(auI) - py) ^ 2)
+                    If auD < auPd Then auPd = auD: auTx = Int(pkX(auI)): auTy = Int(pkY(auI))
+                End If
+            Next auI
+        End If
+        If auTx < 0 Then auTx = Int(enX(auBi)): auTy = Int(enY(auBi))
+        bfsTX = auTx: bfsTY = auTy: Gosub BFSCompute
+        auCx = Int(px): auCy = Int(py)
+        If bfsD(auCx, auCy) < 0 Then
+            ' mål onåbart (stängd dörr/nyckel saknas) — gå till närmaste aktiva nyckel först
+            auTx = -1: auTy = -1: auPd = 1000000
+            For auI = 0 To 10
+                If keyActive(auI) Then
+                    auD = Sqr((keyX(auI) - px) ^ 2 + (keyY(auI) - py) ^ 2)
+                    If auD < auPd Then auPd = auD: auTx = Int(keyX(auI)): auTy = Int(keyY(auI))
+                End If
+            Next auI
+            If auTx >= 0 Then bfsTX = auTx: bfsTY = auTy: Gosub BFSCompute
+        End If
+        auBest = bfsD(auCx, auCy): auNx = -1: auNy = -1
+        For auJ = 0 To 3
+            If auJ = 0 Then auNx2 = auCx + 1: auNy2 = auCy
+            If auJ = 1 Then auNx2 = auCx - 1: auNy2 = auCy
+            If auJ = 2 Then auNx2 = auCx: auNy2 = auCy + 1
+            If auJ = 3 Then auNx2 = auCx: auNy2 = auCy - 1
+            If auNx2 >= 0 And auNx2 <= mapW - 1 And auNy2 >= 0 And auNy2 <= mapH - 1 Then
+                If bfsD(auNx2, auNy2) >= 0 And bfsD(auNx2, auNy2) < auBest Then
+                    auBest = bfsD(auNx2, auNy2): auNx = auNx2: auNy = auNy2
+                End If
+            End If
+        Next auJ
+        If auNx >= 0 Then
+            auCh$ = Mid$(mapRow$(auNy), auNx + 1, 1)
+            If DoorChar%(auCh$) And doorOpen%(auNx, auNy) = 0 Then auUseE = 1   ' nästa steg är en stängd dörr -> öppna med E
+            angle = _ATan2(auNy + 0.5 - py, auNx + 0.5 - px)
+            mvF = 1
+        Else
+            ' auNx=-1: står på målcell (best=0) eller mål onåbart (best=-1).
+            ' Gå ändå rakt mot målet; öppna ev. stängd dörr i någon av de 4 riktningarna.
+            For auJ = 0 To 3
+                If auJ = 0 Then auNx2 = auCx + 1: auNy2 = auCy
+                If auJ = 1 Then auNx2 = auCx - 1: auNy2 = auCy
+                If auJ = 2 Then auNx2 = auCx: auNy2 = auCy + 1
+                If auJ = 3 Then auNx2 = auCx: auNy2 = auCy - 1
+                If auNx2 >= 0 And auNx2 <= mapW - 1 And auNy2 >= 0 And auNy2 <= mapH - 1 Then
+                    auCh$ = Mid$(mapRow$(auNy2), auNx2 + 1, 1)
+                    If DoorChar%(auCh$) And doorOpen%(auNx2, auNy2) = 0 Then auUseE = 1
+                End If
+            Next auJ
+            If auTx >= 0 Then angle = _ATan2(auTy + 0.5 - py, auTx + 0.5 - px)
+            mvF = 1
+        End If
+    End If
+    auFr = auFr + 1
+    If auFr Mod 300 = 0 Then
+        auMsg$ = "DBG L" + LTrim$(Str$(auLvl)) + " fr=" + LTrim$(Str$(auFr)) + " px=" + LTrim$(Str$(Int(px * 10) / 10)) + " py=" + LTrim$(Str$(Int(py * 10) / 10)) + " en=" + LTrim$(Str$(auBi)) + " bd=" + LTrim$(Str$(Int(auBd * 10) / 10)) + " los=" + LTrim$(Str$(losOK)) + " wp=" + LTrim$(Str$(wpCur)) + " mag=" + LTrim$(Str$(wpMagNow(wpCur))) + "/" + LTrim$(Str$(wpMag(wpCur))) + " pool=" + LTrim$(Str$(ammoN(1))) + " fire=" + LTrim$(Str$(auFire)) + " hp=" + LTrim$(Str$(hp)) + " t=" + LTrim$(Str$(Int(Timer - auT0))) + " mvF=" + LTrim$(Str$(mvF)) + " tx=" + LTrim$(Str$(auTx)) + "," + LTrim$(Str$(auTy)) + " nx=" + LTrim$(Str$(auNx)) + "," + LTrim$(Str$(auNy)) + " best=" + LTrim$(Str$(auBest)) + " useE=" + LTrim$(Str$(auUseE))
+        Gosub AuLog
+    End If
     Return
 
 ' LOSCheck: DDA-stråle från (fx,fy) till (tx,ty); losOK=1 om ingen väggcell på vägen
