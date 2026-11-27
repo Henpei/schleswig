@@ -90,7 +90,7 @@ DIM c19hash&, c19alive, c19seg, c19lvl, c19i, c19x, c19y, c19cnt(5), c19f, c19pr
 DIM inj20a, inj20c, c20hud$, c20hash&, c20alive   ' Fas 5D start-menu selftest vars
 DIM c21t0, c21shots, c21corner, c21edge, c21mortar, c21alive, c21i, c21j, c21x, c21y, c21f, c21r$, c21d, c21en, c21killed, c21edgeOK, c21cornerOK, c21mortOK   ' Fas 5D 64x64 runtime-regression selftest vars
 DIM c22m$(6), c22x, c22y, c22i, c22j, c22n, c22bad, c22open, c22bfs, c22f, c22min, c22lvl, c22alive, c22wp, c22wpN, c22wx(8), c22wy(8), c22wd(127, 127), c22dir, c22ok4, c22t, c22ok, c22exp, c22tx, c22ty, c22cx, c22cy, c22nx, c22ny, c22d, c22best, c22bnx, c22bny, c22shots, c22am, c22ammo0, c22bd, c22bi, c22msave, c22maxd, c22c$, c22key$, c22dbgT, ok22, c22hash&   ' Fas 5E selftest vars
-DIM c23key$, c23map$, c23i, c23j, c23w, c23ok, c23h&, c23gx, c23gy, c23am0, c23pe0, c23hop, c23maxhop, c23px, c23py, c23hp0, c23kills0, c23wpOk, c23amOk, c23swOk, c23swMax, c23perOk, c23meleeOk, c23canOk, c23qtdOk, c23dodOk, c23fireOk, c23arnOk, c23t, c23lvlSave, c23mode$, c23a2, c23w0, c23k   ' Fas 23 (6A vapen) selftest vars
+DIM c23key$, c23map$, c23i, c23j, c23w, c23ok, c23h&, c23gx, c23gy, c23am0, c23pe0, c23hop, c23maxhop, c23px, c23py, c23hp0, c23kills0, c23wpOk, c23amOk, c23swOk, c23swMax, c23perOk, c23meleeOk, c23canOk, c23qtdOk, c23dodOk, c23fireOk, c23arnOk, c23t, c23lvlSave, c23mode$, c23a2, c23w0, c23k, c23rl   ' Fas 23 (6A vapen) selftest vars (c23rl: 6M 6b-e reload-armed flag)
 DIM c23f$, c23ln$, c23ch$, c23msg$, c23txt$, c23a, c23b, c23c, c23d, c23m, c23mx, c23my, c23dd, c23ok2, c23dx, c23dy, c23sp   ' 6B-KOMPLETT/6D fas23: 6b-b kanonmål, 6b-f ammo-distribution, 6d-a aim, 6d-c readme
 DIM c24key$, c24map$, c24i, c24j, c24t, c24m, c24ok, c24f, c24wx, c24wy, c24bad, c24x, c24y, dfx, dfy, dfx2, dfy2   ' Fas 24 (6B char-pairs + menu-blink) selftest vars
 DIM c25lvl, c25j, c25k, c25t, c25ok, c25bad, c25n, c25f, c25m, c25jw, c25nd, c25c$, c25hud$, c25alive, c25bi, c25bd, c25d, c25what, c25door, c25dx, c25dy, c25cx, c25cy, c25best, c25bnx, c25bny, c25nx2, c25ny2, c25y, c25kills0, c25assist, c25bot, c25hash&, c25doorX, c25doorY, c25gx, c25gy, c25msave, c25sh0, c25canFire, c25enF(5), c25enO(5), c25enU(5), c25enK(5), c25enG(5), c25wpExp(5), c25keyExp(5), c25doorN(5), c25i, c25x, c25north, c25north2, c25keyOK, c25seg, c25sum, c25ln$, c25f$, c25h&   ' Fas 25 (6C äkta kampanjbanor + 6D 6d-e/6d-f) selftest vars
@@ -110,6 +110,9 @@ DIM c33msg$   ' 6g-a: diagnostiksträng
 DIM c34s, c34ok, c34done, c34fill&, c34tail&   ' Fas 34 (6G 6g-c) stamina-HUD pixel-probe selftest vars
 DIM c35ok   ' Fas 35 (6G 6g-d) ammo-HUD vapennamn selftest vars
 DIM c36ok, c36s, c36j, c36exp!, c36got!   ' Fas 36 (6G 6g-e) FaceNearestEnemy selftest vars
+DIM c37okA, c37okB, c37okC, c37j, c37above&, c37in&, c37wall&, c37msg$   ' Fas 37 (6M 6m-a) unified-billboard z-order pixel-probe vars
+DIM c38j, c38pr0   ' Fas 38 (6M 6m-b) undetected-enemy-never-fires selftest vars
+DIM c39j, c39hit, c39ok   ' Fas 39 (6M 6m-c) aggro-on-hit selftest vars
 DIM feI, feD!, feA!, feFound, feDx!, feDy!, feDD!   ' FaceNearestEnemy (6G FIX 5) egna variabler (GOSUB/label-delad scope)
 DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
@@ -234,7 +237,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "7757071"
+Const strBuild$ = "df579c9"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -304,8 +307,8 @@ floorCol& = _RGB32(70, 45, 25)
 ' px/py, så arrayer med samma namn skulle krocka med dem. wallDist(RW) behövs
 ' för att sprites ska kunna döljas bakom väggar (se RENDERING-sektionen).
 DIM wallDist(RW)
-DIM sprDist(RW)   ' 6K: per-kolumn sprite-zbuffer — initieras till wallDist efter väggloopen; varje ritad sprite-kolumn sänker sprDist(sx) till sitt eget avstånd, så närmare sprites alltid vinner över fjärre (även mellan olika spritetyper)
-DIM smX, smX0, smX1, smD!   ' 6K SprMark-parametrar
+DIM sprDist(RW)   ' 6M FIX 1: per-column WALL depth buffer ONLY — init from wallDist after the wall loop; every sprite column clips against it, but sprites no longer WRITE their depth into it (inter-sprite order is now the unified painter-sorted billboard list sb* below)
+DIM sbK(99), sbI(99), sbT(99), sbD!(99), sbX0(99), sbX1(99), sbY0(99), sbY1(99), sbCX!(99), sbBase!(99), sbH!(99), sbW!(99), sbCol&(99), sbOrd(99), sbN   ' 6M FIX 1: ONE unified billboard list (0=medkit 1=ammo 2=key 3=weapon 4=enemy 5=ball 6=mortar shell), depth-sorted far->near and drawn in that order
 DIM pkX(10), pkY(10), pkActive(10)
 hp = 100
 hpMsg$ = ""
@@ -1611,8 +1614,14 @@ Do
             If wpRlT!(i) <= 0 Then
                 wpRlT!(i) = 0
                 wat2 = wpAmmoT(i)
-                take2 = wpMag(i): If take2 > ammoN(wat2) Then take2 = ammoN(wat2)
-                wpMagNow(i) = take2: ammoN(wat2) = ammoN(wat2) - take2
+                ' 6M FIX: reload moves only the DEFICIT (wpMag - wpMagNow) from the pool —
+                ' the old code charged a FULL magazine (take2 = wpMag) even when the mag
+                ' was partially full (R-reload path), so an 8-mag MG at 7/8 drained 8 from
+                ' the pool for +1 round (selftest 6b-e caught it once fas14c was fixed).
+                take2 = wpMag(i) - wpMagNow(i)
+                If take2 < 0 Then take2 = 0
+                If take2 > ammoN(wat2) Then take2 = ammoN(wat2)
+                wpMagNow(i) = wpMagNow(i) + take2: ammoN(wat2) = ammoN(wat2) - take2
                 If take2 > 0 Then hpMsg$ = "LOADED": hpMsgTime = Timer
             End If
         End If
@@ -1919,9 +1928,11 @@ Do
             enLastAX(i) = enX(i): enLastAY(i) = enY(i)
             ' Fas 4B: ranged attack (etShoot: 1 = BALL, 2 = MORTAR). Requires LOS
             ' (enSeen from pass 1) + fire interval per enemy (enFireT).
+            ' 6M FIX 2: ALSO requires enState >= 1 (JAKT/ANFALL) — an undetected
+            ' enemy (PATROLL, LOS only beyond the 6-cell detect range) NEVER fires.
             ' Musketeer fires only inside his hold band (3-5 cells); the general
             ' lobs a MORTAR at the player's PREDICTED position (pos + vel * flygtid).
-            If etShoot(enType(i)) > 0 And enSeen(i) And Timer >= enFireT(i) Then
+            If etShoot(enType(i)) > 0 And enSeen(i) And enState(i) >= 1 And Timer >= enFireT(i) Then
                 If etShoot(enType(i)) = 1 And edist >= etMinR!(enType(i)) And edist <= etRange!(enType(i)) Then   ' 6F FIX D: per-typ räckvidd
                     adx = px - enX(i): ady = py - enY(i)
                     ad = Sqr(adx * adx + ady * ady): If ad < 0.01 Then adx = 1: ady = 0: ad = 1
@@ -2230,16 +2241,23 @@ Do
         End If
         Line (x, ys)-(x, ye), wcol&
     Next x
-    ' 6K: sprite-zbuffer startar från vägg-zbuffern — sprites occlusion-testas
-    ' mot sprDist (vägg + alla redan ritade sprites), inte bara wallDist
+    ' 6M FIX 1: sprDist is the WALL depth buffer ONLY (init from wallDist). ALL
+    ' billboards (medkits, ammo, keys, weapon pickups, enemies, balls, mortar
+    ' shells) are projected into ONE visibility list (sb*), depth-sorted
+    ' far->near, then drawn in that order (painter's algorithm): a nearer sprite
+    ' overwrites a farther one with its ACTUAL pixels only, so a floor pickup in
+    ' front of a far enemy occludes ONLY its own drawn rect (the old fel.png bug:
+    ' SprMark wrote whole screen columns into sprDist, hiding everything behind
+    ' a pickup). Per-column wall clipping is unchanged (sprite vs sprDist).
     For sx = 0 To RW - 1
         sprDist(sx) = wallDist(sx)
     Next sx
+    sbN = 0
 
-    ' ======== SPRITES/PICKUPS: projektion + vägg-ocklusion ========
-    ' pickups: små röda medkit-rutor med vitt kors, på golvet, med vägg-ocklusion
+    ' ======== SPRITES: projection into the unified billboard list (sb*) ========
+    ' medkits: small red floor squares with a white cross (6G: square box)
     For i = 0 To 10
-        If pkActive(i) Then
+        If pkActive(i) And sbN < 99 Then
             pdx = pkX(i) - px
             pdy = pkY(i) - py
             pdist = Sqr(pdx * pdx + pdy * pdy)
@@ -2248,61 +2266,35 @@ Do
                 While pang > 3.14159265: pang = pang - 6.2831853: Wend
                 While pang < -3.14159265: pang = pang + 6.2831853: Wend
                 If Abs(pang) < fovCut Then
-                    pdistP = pdist * Cos(pang)   ' perpendikulärt avstånd, samma mått som wallDist
-                    ' projektionsformeln: vägg-loopen har cameraX = 2*x/RW-1 och
-                    ' plan = 0.66*dir, dvs tan(pang) = 0.66*cameraX. Omvänt blir
-                    ' skärmkolumnen pcx = RW/2*(1 + Tan(pang)/0.66), där pang är
-                    ' vinkeln till pickupen relativt spelarens riktning.
+                    pdistP = pdist * Cos(pang)   ' perpendicular distance, same metric as wallDist
+                    ' projection: the wall loop has cameraX = 2*x/RW-1 and plane = 0.66*dir,
+                    ' i.e. tan(pang) = planeDist*cameraX; inverted: pcx = RW/2*(1+Tan(pang)/planeDist)
                     pcx = RW / 2 * (1 + Tan(pang) / planeDist)
                     pw = RW / pdist * 0.25
                     ph = RH / pdist * 0.25
-                    ' pbase = golvlinjen vid avståndet pdist: horisont + halva
-                    ' vägghöjden där (samma perspectiv som väggarna), + pitch.
+                    ' pbase = floor line at distance pdist: horizon + half wall height there, + pitch
                     pbase = midY + RH / (2 * pdist) + pitch
-                    ' 6G eye-dom: medkit-boxen blir FYRKANTIG (sida = ph, centrerad på pcx)
-                    ' så den skiljer sig från de rektangulära ammo-boxarna (Danska flaggan-effekten)
+                    ' 6G eye-dom: the medkit box is SQUARE (side = ph, centered on pcx)
                     pw = ph
                     x0 = Int(pcx - pw / 2): x1 = Int(pcx + pw / 2)
                     If x0 < 0 Then x0 = 0
                     If x1 > RW - 1 Then x1 = RW - 1
-                    For sx = x0 To x1
-                        If pdistP < sprDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(200, 30, 30)
-                    Next sx
-                    ' pcx kan hamna utanför skärmen när |pang| närmar sig
-                    ' synfältet (0.66 rad) -> clampa innan wallDist-index,
-                    ' annars "subscript out of range" (wallDist är 0..RW-1).
-                    cx = Int(pcx)
-                    If cx < 0 Then cx = 0
-                    If cx > RW - 1 Then cx = RW - 1
-                    If x0 <= x1 Then
-                        ' 6G pickup-visualitet: vitt kors i stapelbredd pmt skalad med sprite-höjden
-                        ' (ph/12, 2..4 px = 5..9 px tjocklek; 6G eye-dom: 5 px vid ~9 celler "lagom")
-                        pmt = Int(ph / 12)
-                        If pmt < 2 Then pmt = 2
-                        If pmt > 4 Then pmt = 4
-                        pmid = Int(pbase - ph / 2)
-                        For sx = cx - pmt To cx + pmt   ' lodrätt stapel
-                            If sx >= 0 And sx <= RW - 1 Then
-                                If pdistP < sprDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
-                            End If
-                        Next sx
-                        py0 = pmid - pmt: py1 = pmid + pmt   ' vågrät stapel
-                        If py0 < pbase - ph Then py0 = pbase - ph
-                        If py1 > pbase Then py1 = pbase
-                        For sx = x0 To x1
-                            If pdistP < sprDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
-                        Next sx
-                        smX0 = x0: smX1 = x1: smD! = pdistP: Gosub SprMark   ' 6K
+                    If x1 >= x0 Then
+                        sbK(sbN) = 0: sbI(sbN) = i: sbD!(sbN) = pdistP: sbT(sbN) = 0
+                        sbX0(sbN) = x0: sbX1(sbN) = x1: sbY0(sbN) = Int(pbase - ph): sbY1(sbN) = Int(pbase)
+                        sbCX!(sbN) = pcx: sbBase!(sbN) = pbase: sbH!(sbN) = ph: sbW!(sbN) = pw
+                        sbCol&(sbN) = _RGB32(200, 30, 30)
+                        sbN = sbN + 1
                     End If
                 End If
             End If
         End If
     Next i
 
-    ' ammo-pickups (A/B/C/D): ruta i TYPENS egen färg (amCol&) + liten formdiff
-    ' per typ (6D FIX C): A=prick, B=vågrätt streck, C=lodrätt streck, D=kryss/X
+    ' ammo pickups (A/B/C/D): box in the TYPE's own color (amCol&) — drawn with
+    ' the per-type white shape mark in the unified draw loop (6D FIX C)
     For i = 0 To 10
-        If amActive(i) Then
+        If amActive(i) And sbN < 99 Then
             pdx = amX(i) - px
             pdy = amY(i) - py
             pdist = Sqr(pdx * pdx + pdy * pdy)
@@ -2311,7 +2303,7 @@ Do
                 While pang > 3.14159265: pang = pang - 6.2831853: Wend
                 While pang < -3.14159265: pang = pang + 6.2831853: Wend
                 If Abs(pang) < fovCut Then
-                    pdistP = pdist * Cos(pang)   ' perpendikulärt avstånd, samma mått som wallDist
+                    pdistP = pdist * Cos(pang)
                     pcx = RW / 2 * (1 + Tan(pang) / planeDist)
                     pw = RW / pdist * 0.25
                     ph = RH / pdist * 0.25
@@ -2321,64 +2313,12 @@ Do
                     If x1 > RW - 1 Then x1 = RW - 1
                     amTi = amT(i)
                     If amTi < 1 Or amTi > AMMO_N Then amTi = 1
-                    For sx = x0 To x1
-                        If pdistP < sprDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), amCol&(amTi)
-                    Next sx
-                    ' formdiff per typ (vit), centrerad på pcx
-                    cx = Int(pcx)
-                    If cx < 0 Then cx = 0
-                    If cx > RW - 1 Then cx = RW - 1
-                    If x0 <= x1 Then
-                        ' 6G pickup-visualitet: formdiff per typ i TJOCK vit (pmt = ph/12, 2..4 px
-                        ' = 5..9 px tjocklek, vid ~9 celler 5 px — eye-dom "lagom").
-                        ' A: STOR prick med mörk kontring runt vit kärna.
-                        pmt = Int(ph / 12)
-                        If pmt < 2 Then pmt = 2
-                        If pmt > 4 Then pmt = 4
-                        pmid = Int(pbase - ph / 2)
-                        If amTi = 1 Then
-                            ' stor prick: mörk ring (svart) + vit kärna
-                            pms = Int(ph / 4)
-                            If pms < 2 Then pms = 2
-                            For sx = cx - pms - 2 To cx + pms + 2
-                                If sx >= 0 And sx <= RW - 1 Then
-                                    If pdistP < sprDist(sx) Then Line (sx, pmid - pms - 2)-(sx, pmid + pms + 2), _RGB32(0, 0, 0)
-                                End If
-                            Next sx
-                            For sx = cx - pms To cx + pms
-                                If sx >= 0 And sx <= RW - 1 Then
-                                    If pdistP < sprDist(sx) Then Line (sx, pmid - pms)-(sx, pmid + pms), _RGB32(255, 255, 255)
-                                End If
-                            Next sx
-                        End If
-                        If amTi = 2 Then
-                            ' vågrätt streck, tjockt (B)
-                            py0 = pmid - pmt: py1 = pmid + pmt
-                            For sx = x0 To x1
-                                If pdistP < sprDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
-                            Next sx
-                        End If
-                        If amTi = 3 Then
-                            ' lodrätt streck, tjockt (C)
-                            For sx = cx - pmt To cx + pmt
-                                If sx >= 0 And sx <= RW - 1 Then
-                                    If pdistP < sprDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
-                                End If
-                            Next sx
-                        End If
-                        If amTi = 4 Then
-                            ' kryss, tjockt (D)
-                            For sx = cx - pmt To cx + pmt
-                                If sx >= 0 And sx <= RW - 1 Then
-                                    If pdistP < sprDist(sx) Then Line (sx, pbase - ph)-(sx, pbase), _RGB32(255, 255, 255)
-                                End If
-                            Next sx
-                            py0 = pmid - pmt: py1 = pmid + pmt
-                            For sx = x0 To x1
-                                If pdistP < sprDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
-                            Next sx
-                        End If
-                        smX0 = x0: smX1 = x1: smD! = pdistP: Gosub SprMark   ' 6K
+                    If x1 >= x0 Then
+                        sbK(sbN) = 1: sbI(sbN) = i: sbD!(sbN) = pdistP: sbT(sbN) = amTi
+                        sbX0(sbN) = x0: sbX1(sbN) = x1: sbY0(sbN) = Int(pbase - ph): sbY1(sbN) = Int(pbase)
+                        sbCX!(sbN) = pcx: sbBase!(sbN) = pbase: sbH!(sbN) = ph: sbW!(sbN) = pw
+                        sbCol&(sbN) = amCol&(amTi)
+                        sbN = sbN + 1
                     End If
                 End If
             End If
@@ -2386,9 +2326,9 @@ Do
     Next i
 
     ' Fas 5A: key pickups — small colored dots on the floor (bronze/silver/gold)
-    ' + white glimt, same projection + wall occlusion as the other pickups
+    ' + white glint, same projection into the unified list
     For i = 0 To 10
-        If keyActive(i) Then
+        If keyActive(i) And sbN < 99 Then
             keyDx = keyX(i) - px
             keyDy = keyY(i) - py
             keyDist = Sqr(keyDx * keyDx + keyDy * keyDy)
@@ -2408,23 +2348,22 @@ Do
                     If keyType(i) = 1 Then keyCol& = _RGB32(205, 127, 50)
                     If keyType(i) = 2 Then keyCol& = _RGB32(200, 200, 215)
                     If keyType(i) = 3 Then keyCol& = _RGB32(255, 215, 0)
-                    For sx = keyX0 To keyX1
-                        If keyDistP < sprDist(sx) Then Line (sx, keyBase - keyH)-(sx, keyBase), keyCol&
-                    Next sx
-                    keyCx2 = Int(keyCx)
-                    If keyCx2 < 0 Then keyCx2 = 0
-                    If keyCx2 > RW - 1 Then keyCx2 = RW - 1
-                    If keyDistP < sprDist(keyCx2) Then Line (keyCx2, keyBase - keyH)-(keyCx2, keyBase), _RGB32(255, 255, 255)
-                    smX0 = keyX0: smX1 = keyX1: smD! = keyDistP: Gosub SprMark   ' 6K
+                    If keyX1 >= keyX0 Then
+                        sbK(sbN) = 2: sbI(sbN) = i: sbD!(sbN) = keyDistP: sbT(sbN) = keyType(i)
+                        sbX0(sbN) = keyX0: sbX1(sbN) = keyX1: sbY0(sbN) = Int(keyBase - keyH): sbY1(sbN) = Int(keyBase)
+                        sbCX!(sbN) = keyCx: sbBase!(sbN) = keyBase: sbH!(sbN) = keyH: sbW!(sbN) = keyW
+                        sbCol&(sbN) = keyCol&
+                        sbN = sbN + 1
+                    End If
                 End If
             End If
         End If
     Next i
 
     ' 6A: weapon pickups — small floor squares in the WEAPON's register color
-    ' (wpCol&) + white glimt, same projection + wall occlusion as other pickups
+    ' (wpCol&) + white glint, same projection into the unified list
     For i = 0 To 10
-        If wpActive(i) Then
+        If wpActive(i) And sbN < 99 Then
             wpdx = wpX(i) - px
             wpdy = wpY(i) - py
             wpdist = Sqr(wpdx * wpdx + wpdy * wpdy)
@@ -2441,26 +2380,23 @@ Do
                     wpx0 = Int(wpcx - wpw / 2): wpx1 = Int(wpcx + wpw / 2)
                     If wpx0 < 0 Then wpx0 = 0
                     If wpx1 > RW - 1 Then wpx1 = RW - 1
-                    For sx = wpx0 To wpx1
-                        If wpdistP < sprDist(sx) Then Line (sx, wpbase - wph)-(sx, wpbase), wpCol&(wpT(i))
-                    Next sx
-                    wpcx2 = Int(wpcx)
-                    If wpcx2 < 0 Then wpcx2 = 0
-                    If wpcx2 > RW - 1 Then wpcx2 = RW - 1
-                    If wpdistP < sprDist(wpcx2) Then Line (wpcx2, wpbase - wph)-(wpcx2, wpbase), _RGB32(255, 255, 255)
-                    smX0 = wpx0: smX1 = wpx1: smD! = wpdistP: Gosub SprMark   ' 6K
+                    If wpx1 >= wpx0 Then
+                        sbK(sbN) = 3: sbI(sbN) = i: sbD!(sbN) = wpdistP: sbT(sbN) = wpT(i)
+                        sbX0(sbN) = wpx0: sbX1(sbN) = wpx1: sbY0(sbN) = Int(wpbase - wph): sbY1(sbN) = Int(wpbase)
+                        sbCX!(sbN) = wpcx: sbBase!(sbN) = wpbase: sbH!(sbN) = wph: sbW!(sbN) = wpw
+                        sbCol&(sbN) = wpCol&(wpT(i))
+                        sbN = sbN + 1
+                    End If
                 End If
             End If
         End If
     Next i
 
-    ' 6E FIX A+C: fiende-sprites — procedur-sprite per typ (enBuf&(typ, frame)),
-    ' painter's algorithm: samla synbara fiender, sortera på avstånd (fjärran
-    ' först), rita närmast sist; VARJE kolumn z-clippas mot vägg-zbufferten
-    ' (wallDist) så fiender bakom väggar/varandra klipps korrekt.
-    visN = 0
+    ' 6E FIX A+C: enemy sprites — procedural sprite per type (enBuf&(typ, frame)),
+    ' collected here (vis* keeps the 6e-s5/6f-b probe interface), then merged
+    ' into the unified list; drawn in the sorted unified loop below.
     For i = 0 To 10
-        If enActive(i) Then
+        If enActive(i) And sbN < 99 Then
             edx = enX(i) - px
             edy = enY(i) - py
             edist = Sqr(edx * edx + edy * edy)
@@ -2469,12 +2405,12 @@ Do
                 While eang > 3.14159265: eang = eang - 6.2831853: Wend
                 While eang < -3.14159265: eang = eang + 6.2831853: Wend
                 If Abs(eang) < fovCut Then
-                    edistP = edist * Cos(eang)   ' perpendikulärt avstånd, samma mått som wallDist
+                    edistP = edist * Cos(eang)   ' perpendicular distance, same metric as wallDist
                     ecx = RW / 2 * (1 + Tan(eang) / planeDist)
                     et2 = enType(i)
-                    eh = RH / edist * 0.9 * etScale!(et2)                  ' höjd px (står på golvet; G 1.4x)
-                    ew = RW / edist * 0.9 * etAspect!(et2) * etScale!(et2) ' 6E FIX B: bredd via aspekt (F 0.667, G 0.8)
-                    ebase = midY + RH / (2 * edist) + pitch - enZ(i) * RH / edist   ' golvlinje vid edist (6F FIX B: - fiendens egen höjd)
+                    eh = RH / edist * 0.9 * etScale!(et2)                  ' height px (stands on floor; G 1.4x)
+                    ew = RW / edist * 0.9 * etAspect!(et2) * etScale!(et2) ' 6E FIX B: width via aspect (F 0.667, G 0.8)
+                    ebase = midY + RH / (2 * edist) + pitch - enZ(i) * RH / edist   ' floor line at edist (6F FIX B: - own height)
                     ey0 = ebase - eh
                     ey1 = ebase
                     If ey0 < 0 Then ey0 = 0
@@ -2483,104 +2419,22 @@ Do
                     If ex0 < 0 Then ex0 = 0
                     If ex1 > RW - 1 Then ex1 = RW - 1
                     If ex1 >= ex0 And ey1 > ey0 Then
-                        visI(visN) = i: visDist(visN) = edistP: visCX(visN) = ecx
-                        visEW(visN) = ew: visEH(visN) = eh
-                        visEX0(visN) = ex0: visEX1(visN) = ex1: visEY0(visN) = ey0: visEY1(visN) = ey1
-                        visBase(visN) = ebase
-                        visN = visN + 1
+                        sbK(sbN) = 4: sbI(sbN) = i: sbD!(sbN) = edistP: sbT(sbN) = et2
+                        sbX0(sbN) = ex0: sbX1(sbN) = ex1: sbY0(sbN) = ey0: sbY1(sbN) = ey1
+                        sbCX!(sbN) = ecx: sbBase!(sbN) = ebase: sbH!(sbN) = eh: sbW!(sbN) = ew
+                        sbCol&(sbN) = 0
+                        sbN = sbN + 1
                     End If
-                    renEH! = eh: renEW! = ew: renType = et2   ' 6E 6e-s3 probe: senast synliga fiendens sprite-storlek
+                    renEH! = eh: renEW! = ew: renType = et2   ' 6E 6e-s3 probe: last visible enemy sprite size
                 End If
             End If
         End If
     Next i
-    ' sortera synbara på avstånd — FJÄRRAN först (bubble sort, <=11 element)
-    For zi = 0 To visN - 1
-        visOrd(zi) = zi
-    Next zi
-    For zi = 0 To visN - 2
-        For zj = 0 To visN - 2 - zi
-            If visDist(visOrd(zj)) < visDist(visOrd(zj + 1)) Then
-                zt = visOrd(zj): visOrd(zj) = visOrd(zj + 1): visOrd(zj + 1) = zt
-            End If
-        Next zj
-    Next zi
-    zDrawOrder$ = ""
-    For zi = 0 To visN - 1
-        vk = visOrd(zi)
-        i = visI(vk)
-        edistP = visDist(vk): ecx = visCX(vk): ew = visEW(vk): eh = visEH(vk)
-        ex0 = visEX0(vk): ex1 = visEX1(vk): ey0 = visEY0(vk): ey1 = visEY1(vk)
-        et2 = enType(i)
-        zDrawOrder$ = zDrawOrder$ + LTrim$(Str$(i))   ' 6E 6e-s5 probe: ritordning
-        ' avståndsskuggning som väggarna (min 20% ljushet) — alpha-överlägg per kolumn efter blit
-        eshade = 255 - edistP * 15
-        If eshade < 51 Then eshade = 51
-        ealpha = 255 - eshade
-        ebf& = enBuf&(et2, enAnimF(i))
-        If ebf& <> 0 And ex1 >= ex0 And ey1 > ey0 Then
-            ' snabbväg: om HELA spriten ligger framför väggen (alla kolumner passerar
-            ' wallDist) -> EN enda skalad blit; annars per-kolumn z-clip (partial occlusion)
-            wmin! = sprDist(ex0)
-            For sx = ex0 + 1 To ex1
-                If sprDist(sx) < wmin! Then wmin! = sprDist(sx)
-            Next sx
-            If edistP < wmin! Then
-                _PutImage (ex0, ey0)-(ex1, ey1), ebf&, buf&, (0, 0)-(ESW - 1, ESH - 1)
-                ' 6F FIX A: the full-rect alpha overlay darkens the TRANSPARENT margins of
-                ' the sprite too -> visible semi-transparent box around the enemy. It is
-                ' debug/collision visualization only: behind Const dbgEnemyBox (OFF).
-                If dbgEnemyBox And ealpha > 0 Then Line (ex0, ey0)-(ex1, ey1), _RGBA32(0, 0, 0, ealpha), BF
-            Else
-                For sx = ex0 To ex1
-                    If edistP < sprDist(sx) Then
-                        srcX = Int((sx - ex0 + 0.5) / (ex1 - ex0 + 1) * ESW)
-                        If srcX < 0 Then srcX = 0
-                        If srcX > ESW - 1 Then srcX = ESW - 1
-                        _PutImage (sx, ey0)-(sx, ey1), ebf&, buf&, (srcX, 0)-(srcX, ESH - 1)   ' världsbuffern buf& (samma _Dest som väggarna)
-                        If dbgEnemyBox And ealpha > 0 Then Line (sx, ey0)-(sx, ey1), _RGBA32(0, 0, 0, ealpha)
-                    End If
-                Next sx
-            End If
-            ' 6F FIX B: eyes are defined in SPRITE-BUFFER coords inside ZONE B (20-45%
-            ' of ESH) and the face span, mapped through the SAME scale as the blit and
-            ' CLIPPED to the sprite rect — ONE placement source (EnemyEyeRect) for
-            ' patrol (dark) and ALERT (red) eyes; only the color differs.
-            If ew > 14 Then
-                eco& = EnemyEyeColor&(enState(i))
-                eBufY0 = Int(ESH * 0.26): eBufY1 = Int(ESH * 0.36)   ' ZONE B band (0.20..0.45 of ESH)
-                eBufXL0 = ESW \ 2 - 6: eBufXL1 = ESW \ 2 - 4          ' left eye, inside face span
-                eBufXR0 = ESW \ 2 + 4: eBufXR1 = ESW \ 2 + 6          ' right eye
-                EnemyEyeRect eBufXL0, eBufY0, eBufXL1, eBufY1, ex0, ex1, ey0, ey1, eScrX0, eScrY0, eScrX1, eScrY1
-                If eScrX1 >= eScrX0 And eScrY1 >= eScrY0 Then
-                    If eScrX0 < 0 Then eScrX0 = 0
-                    If eScrX1 > RW - 1 Then eScrX1 = RW - 1
-                    If eScrY0 < 0 Then eScrY0 = 0
-                    If eScrY1 > RH - 1 Then eScrY1 = RH - 1
-                    For eex = eScrX0 To eScrX1
-                        If edistP < sprDist(eex) Then Line (eex, eScrY0)-(eex, eScrY1), eco&
-                    Next eex
-                End If
-                EnemyEyeRect eBufXR0, eBufY0, eBufXR1, eBufY1, ex0, ex1, ey0, ey1, eScrX0, eScrY0, eScrX1, eScrY1
-                If eScrX1 >= eScrX0 And eScrY1 >= eScrY0 Then
-                    If eScrX0 < 0 Then eScrX0 = 0
-                    If eScrX1 > RW - 1 Then eScrX1 = RW - 1
-                    If eScrY0 < 0 Then eScrY0 = 0
-                    If eScrY1 > RH - 1 Then eScrY1 = RH - 1
-                    For eex = eScrX0 To eScrX1
-                        If edistP < sprDist(eex) Then Line (eex, eScrY0)-(eex, eScrY1), eco&
-                    Next eex
-                End If
-            End If
-            smX0 = ex0: smX1 = ex1: smD! = edistP: Gosub SprMark   ' 6K: fienden registrerar sitt djup (efter blit+ögon)
-        End If
-    Next zi
 
-    ' Fas 4B: render flying BALLs (small dot, wall-occluded; white = player's,
-    ' red = enemy's) and MORTAR telegraphs (blinking amber ring on the floor at
-    ' the target cell — visible for the whole flight time).
+    ' Fas 4B: flying BALLs (small dot; white = player's, hot orange = enemy's)
+    ' and MORTAR shells (dark red arc) — projected into the unified list too.
     For i = 0 To PR_MAX
-        If prActive(i) Then
+        If prActive(i) And sbN < 99 Then
             If prType(i) = PR_BALL Then
                 bdx2 = prX(i) - px: bdy2 = prY(i) - py
                 bdist = Sqr(bdx2 * bdx2 + bdy2 * bdy2)
@@ -2591,10 +2445,9 @@ Do
                     If Abs(bang) < fovCut Then
                         bdistP = bdist * Cos(bang)
                         bcx2 = RW / 2 * (1 + Tan(bang) / planeDist)
-                        ' Light distance scale with hard clamp: ballPx = clamp(RW/bdist * ballScale!, ballPxMin, ballPxMax)
-                        ' (near ~12 px, far ~7 px — always visible, never a shoebox). Mini-fix 2.
-                        ' 6F FIX C: enemy ball (prOwner=1) >= 1.5x the old 2-3 px — clamp 5..9 px
-                        ' via enBallScale!/enBallPxMin/enBallPxMax; player ball unchanged 7..12.
+                        ' Light distance scale with hard clamp: ballPx = clamp(RW/bdist*ballScale!, min, max)
+                        ' 6F FIX C: enemy ball (prOwner=1) >= 1.5x the old 2-3 px — clamp 5..9 px;
+                        ' player ball unchanged 7..12 px.
                         If prOwner(i) = 1 Then
                             ballPx = Int(RW / bdist * ballScale! * enBallScale!)
                             If ballPx < enBallPxMin Then ballPx = enBallPxMin
@@ -2605,50 +2458,28 @@ Do
                             If ballPx > ballPxMax Then ballPx = ballPxMax
                         End If
                         bx0 = Int(bcx2 - ballPx / 2): bx1 = bx0 + ballPx - 1
-                        bzp! = bdistP: If bzp! < 0.2 Then bzp! = 0.2   ' 6F FIX B: projektionsavstånd för kulans egen höjd
-                        by0 = Int(midY + pitch - (prZ(i) - 0.5) * (RH / bzp!) - ballPx / 2): by1 = by0 + ballPx - 1   ' 6F FIX B: kulans z projiceras
-                        ' 5D FIX: clamps on SEPARATE lines — a single-line
-                        ' "If a<0 Then a=0: If b>RW Then b=..." would skip the
-                        ' b-clamp whenever a>=0 -> sprDist(b) subscript OOB
-                        ' (the "subscript out of range" crash at a ball near the
-                        ' right screen edge on the 64x64 arena).
+                        bzp! = bdistP: If bzp! < 0.2 Then bzp! = 0.2   ' 6F FIX B: projection distance for the ball's own height
+                        by0 = Int(midY + pitch - (prZ(i) - 0.5) * (RH / bzp!) - ballPx / 2): by1 = by0 + ballPx - 1   ' 6F FIX B: ball z projected
+                        ' 5D FIX: clamps on SEPARATE lines (single-line If would skip the
+                        ' second clamp whenever the first is false -> sprDist subscript OOB)
                         If bx0 < 0 Then bx0 = 0
                         If bx1 > RW - 1 Then bx1 = RW - 1
                         If by0 < 0 Then by0 = 0
                         If by1 > RH - 1 Then by1 = RH - 1
-                        ' player ball = plain white; enemy ball = hot orange glow (6F FIX C)
-                        ' + white-hot core + the same dark rim — a DIFFERENT color from the
-                        ' player's ball (selftest 6f-c compares the constants)
-                        If prOwner(i) = 0 Then bcol& = _RGB32(255, 255, 255) Else bcol& = enBallGlow&
                         If by1 > by0 And bx1 >= bx0 Then
-                            ' cheap 1px dark outline around the ball so it pops against walls
-                            obx0 = bx0 - 1: obx1 = bx1 + 1: oby0 = by0 - 1: oby1 = by1 + 1
-                            If obx0 < 0 Then obx0 = 0
-                            If obx1 > RW - 1 Then obx1 = RW - 1
-                            If oby0 < 0 Then oby0 = 0
-                            If oby1 > RH - 1 Then oby1 = RH - 1
-                            For sx = obx0 To obx1
-                                If bdistP < sprDist(sx) Then
-                                    Line (sx, oby0)-(sx, oby1), _RGB32(20, 20, 20)
-                                End If
-                            Next sx
-                            For sx = bx0 To bx1
-                                If bdistP < sprDist(sx) Then Line (sx, by0)-(sx, by1), bcol&
-                            Next sx
-                            ' 6F FIX C: enemy-only white-hot core, inset 1 px inside the orange glow
-                            If prOwner(i) = 1 And bx1 - 1 >= bx0 + 1 Then
-                                cbx0 = bx0 + 1: cbx1 = bx1 - 1: cby0 = by0 + 1: cby1 = by1 - 1
-                                For sx = cbx0 To cbx1
-                                    If bdistP < sprDist(sx) Then Line (sx, cby0)-(sx, cby1), enBallCore&
-                                Next sx
-                            End If
-                            smX0 = bx0: smX1 = bx1: smD! = bdistP: Gosub SprMark   ' 6K
+                            ' player ball = plain white; enemy ball = hot orange glow (6F FIX C)
+                            If prOwner(i) = 0 Then bcol& = _RGB32(255, 255, 255) Else bcol& = enBallGlow&
+                            sbK(sbN) = 5: sbI(sbN) = i: sbD!(sbN) = bdistP: sbT(sbN) = prOwner(i)
+                            sbX0(sbN) = bx0: sbX1(sbN) = bx1: sbY0(sbN) = by0: sbY1(sbN) = by1
+                            sbCX!(sbN) = bcx2: sbBase!(sbN) = 0: sbH!(sbN) = ballPx: sbW!(sbN) = ballPx
+                            sbCol&(sbN) = bcol&
+                            sbN = sbN + 1
                         End If
                     End If
                 End If
             Else
-                ' MORTAR in flight: STOR 6-8 px mörkröd granat i båge (6A FIX E),
-                ' position = lerp spawn->target över flygtiden + höjdbåge
+                ' MORTAR in flight: BIG 6-8 px dark red grenade in an arc (6A FIX E),
+                ' position = lerp spawn->target over flight time + height arc
                 mfrac! = 1
                 If prLandT(i) > prBornT(i) Then mfrac! = (Timer - prBornT(i)) / (prLandT(i) - prBornT(i))
                 If mfrac! < 0 Then mfrac! = 0
@@ -2668,7 +2499,7 @@ Do
                         If mballPx < 6 Then mballPx = 6
                         If mballPx > 8 Then mballPx = 8
                         mbx0 = Int(mcx2 - mballPx / 2): mbx1 = mbx0 + mballPx - 1
-                        ' båge: lyft i mitten av flygningen (parabel)
+                        ' arc: lift in the middle of the flight (parabola)
                         mArc = Sin(mfrac! * 3.14159265) * RH * 0.12 / mdistP
                         mby0 = Int(midY + pitch - mballPx / 2 - mArc): mby1 = mby0 + mballPx - 1
                         If mbx0 < 0 Then mbx0 = 0
@@ -2676,15 +2507,257 @@ Do
                         If mby0 < 0 Then mby0 = 0
                         If mby1 > RH - 1 Then mby1 = RH - 1
                         If mby1 > mby0 And mbx1 >= mbx0 Then
-                            For sx = mbx0 To mbx1
-                                If mdistP < sprDist(sx) Then Line (sx, mby0)-(sx, mby1), _RGB32(120, 20, 20)
-                            Next sx
-                            smX0 = mbx0: smX1 = mbx1: smD! = mdistP: Gosub SprMark   ' 6K
+                            sbK(sbN) = 6: sbI(sbN) = i: sbD!(sbN) = mdistP: sbT(sbN) = 0
+                            sbX0(sbN) = mbx0: sbX1(sbN) = mbx1: sbY0(sbN) = mby0: sbY1(sbN) = mby1
+                            sbCX!(sbN) = mcx2: sbBase!(sbN) = 0: sbH!(sbN) = mballPx: sbW!(sbN) = mballPx
+                            sbCol&(sbN) = _RGB32(120, 20, 20)
+                            sbN = sbN + 1
                         End If
                     End If
                 End If
-                ' MORTAR telegraph: blinking ring at target cell, floor-projected.
-                ' 6A: STÖRRE ring för mörser; färg efter ägare (fiende=amber, spelare=cyan)
+            End If
+        End If
+    Next i
+
+    ' depth-sort the unified billboard list far->near (bubble sort, <= ~90 items)
+    For zi = 0 To sbN - 1
+        sbOrd(zi) = zi
+    Next zi
+    For zi = 0 To sbN - 2
+        For zj = 0 To sbN - 2 - zi
+            If sbD!(sbOrd(zj)) < sbD!(sbOrd(zj + 1)) Then
+                zt = sbOrd(zj): sbOrd(zj) = sbOrd(zj + 1): sbOrd(zj + 1) = zt
+            End If
+        Next zj
+    Next zi
+    ' rebuild the enemy vis* arrays in draw order (6e-s5 / 6f-b probes read them
+    ' after render: visOrd(visN-1) = nearest = last drawn)
+    visN = 0
+    For zi = 0 To sbN - 1
+        If sbK(sbOrd(zi)) = 4 Then
+            vk = sbOrd(zi)
+            visI(visN) = sbI(vk): visDist(visN) = sbD!(vk): visCX(visN) = sbCX!(vk)
+            visEW(visN) = sbW!(vk): visEH(visN) = sbH!(vk)
+            visEX0(visN) = sbX0(vk): visEX1(visN) = sbX1(vk): visEY0(visN) = sbY0(vk): visEY1(visN) = sbY1(vk)
+            visBase(visN) = sbBase!(vk)
+            visOrd(visN) = visN
+            visN = visN + 1
+        End If
+    Next zi
+
+    ' ======== UNIFIED BILLBOARD DRAW: far->near, per-column clip vs sprDist (walls) ========
+    ' A nearer sprite is drawn AFTER the farther one and overwrites it only with
+    ' its own pixels (_PutImage keeps transparent margins; Line draws only the
+    ' sprite's own rect), so overlapping sprites resolve correctly by distance.
+    zDrawOrder$ = ""
+    For zi = 0 To sbN - 1
+        sbk = sbOrd(zi)
+        drd! = sbD!(sbk)
+        drx0 = sbX0(sbk): drx1 = sbX1(sbk)
+        dry0 = sbY0(sbk): dry1 = sbY1(sbk)
+        If dry0 < 0 Then dry0 = 0
+        If dry1 > RH - 1 Then dry1 = RH - 1
+        Select Case sbK(sbk)
+            Case 0   ' medkit: red box + thick white cross (bar pmt = ph/12, 2..4 px)
+                If drx1 >= drx0 And dry1 > dry0 Then
+                    For sx = drx0 To drx1
+                        If drd! < sprDist(sx) Then Line (sx, sbY0(sbk))-(sx, sbY1(sbk)), sbCol&(sbk)
+                    Next sx
+                    ph2! = sbH!(sbk)
+                    pmt = Int(ph2! / 12)
+                    If pmt < 2 Then pmt = 2
+                    If pmt > 4 Then pmt = 4
+                    cx = Int(sbCX!(sbk))
+                    If cx < 0 Then cx = 0
+                    If cx > RW - 1 Then cx = RW - 1
+                    pmid = Int(sbBase!(sbk) - ph2! / 2)
+                    For sx = cx - pmt To cx + pmt   ' vertical bar
+                        If sx >= 0 And sx <= RW - 1 Then
+                            If drd! < sprDist(sx) Then Line (sx, sbY0(sbk))-(sx, sbY1(sbk)), _RGB32(255, 255, 255)
+                        End If
+                    Next sx
+                    py0 = pmid - pmt: py1 = pmid + pmt   ' horizontal bar, clamped to the box
+                    If py0 < sbY0(sbk) Then py0 = sbY0(sbk)
+                    If py1 > sbY1(sbk) Then py1 = sbY1(sbk)
+                    For sx = drx0 To drx1
+                        If drd! < sprDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
+                    Next sx
+                End If
+            Case 1   ' ammo pickup: type-color box + white shape mark (A dot, B h-bar, C v-bar, D cross)
+                If drx1 >= drx0 And dry1 > dry0 Then
+                    amTi = sbT(sbk)
+                    For sx = drx0 To drx1
+                        If drd! < sprDist(sx) Then Line (sx, sbY0(sbk))-(sx, sbY1(sbk)), sbCol&(sbk)
+                    Next sx
+                    ph2! = sbH!(sbk)
+                    pmt = Int(ph2! / 12)
+                    If pmt < 2 Then pmt = 2
+                    If pmt > 4 Then pmt = 4
+                    cx = Int(sbCX!(sbk))
+                    If cx < 0 Then cx = 0
+                    If cx > RW - 1 Then cx = RW - 1
+                    pmid = Int(sbBase!(sbk) - ph2! / 2)
+                    If amTi = 1 Then
+                        ' big dot: dark ring + white core
+                        pms = Int(ph2! / 4)
+                        If pms < 2 Then pms = 2
+                        For sx = cx - pms - 2 To cx + pms + 2
+                            If sx >= 0 And sx <= RW - 1 Then
+                                If drd! < sprDist(sx) Then Line (sx, pmid - pms - 2)-(sx, pmid + pms + 2), _RGB32(0, 0, 0)
+                            End If
+                        Next sx
+                        For sx = cx - pms To cx + pms
+                            If sx >= 0 And sx <= RW - 1 Then
+                                If drd! < sprDist(sx) Then Line (sx, pmid - pms)-(sx, pmid + pms), _RGB32(255, 255, 255)
+                            End If
+                        Next sx
+                    End If
+                    If amTi = 2 Then
+                        ' thick horizontal bar (B)
+                        py0 = pmid - pmt: py1 = pmid + pmt
+                        For sx = drx0 To drx1
+                            If drd! < sprDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
+                        Next sx
+                    End If
+                    If amTi = 3 Then
+                        ' thick vertical bar (C)
+                        For sx = cx - pmt To cx + pmt
+                            If sx >= 0 And sx <= RW - 1 Then
+                                If drd! < sprDist(sx) Then Line (sx, sbY0(sbk))-(sx, sbY1(sbk)), _RGB32(255, 255, 255)
+                            End If
+                        Next sx
+                    End If
+                    If amTi = 4 Then
+                        ' thick cross (D)
+                        For sx = cx - pmt To cx + pmt
+                            If sx >= 0 And sx <= RW - 1 Then
+                                If drd! < sprDist(sx) Then Line (sx, sbY0(sbk))-(sx, sbY1(sbk)), _RGB32(255, 255, 255)
+                            End If
+                        Next sx
+                        py0 = pmid - pmt: py1 = pmid + pmt
+                        For sx = drx0 To drx1
+                            If drd! < sprDist(sx) Then Line (sx, py0)-(sx, py1), _RGB32(255, 255, 255)
+                        Next sx
+                    End If
+                End If
+            Case 2   ' key pickup: colored box + white glint column
+                If drx1 >= drx0 And dry1 > dry0 Then
+                    For sx = drx0 To drx1
+                        If drd! < sprDist(sx) Then Line (sx, sbY0(sbk))-(sx, sbY1(sbk)), sbCol&(sbk)
+                    Next sx
+                    cx = Int(sbCX!(sbk))
+                    If cx < 0 Then cx = 0
+                    If cx > RW - 1 Then cx = RW - 1
+                    If drd! < sprDist(cx) Then Line (cx, sbY0(sbk))-(cx, sbY1(sbk)), _RGB32(255, 255, 255)
+                End If
+            Case 3   ' weapon pickup: weapon-color box + white glint column
+                If drx1 >= drx0 And dry1 > dry0 Then
+                    For sx = drx0 To drx1
+                        If drd! < sprDist(sx) Then Line (sx, sbY0(sbk))-(sx, sbY1(sbk)), sbCol&(sbk)
+                    Next sx
+                    cx = Int(sbCX!(sbk))
+                    If cx < 0 Then cx = 0
+                    If cx > RW - 1 Then cx = RW - 1
+                    If drd! < sprDist(cx) Then Line (cx, sbY0(sbk))-(cx, sbY1(sbk)), _RGB32(255, 255, 255)
+                End If
+            Case 4   ' enemy billboard sprite (6E FIX A: enBuf&(type, frame))
+                i = sbI(sbk)
+                et2 = enType(i)
+                zDrawOrder$ = zDrawOrder$ + LTrim$(Str$(i))   ' 6E 6e-s5 probe: draw order
+                ' distance shade like the walls (min 20% brightness) — alpha overlay per column
+                eshade = 255 - drd! * 15
+                If eshade < 51 Then eshade = 51
+                ealpha = 255 - eshade
+                ebf& = enBuf&(et2, enAnimF(i))
+                If ebf& <> 0 And drx1 >= drx0 And dry1 > dry0 Then
+                    ' fast path: if the WHOLE sprite is in front of the wall (all columns pass
+                    ' sprDist) -> ONE scaled blit; otherwise per-column z-clip (partial occlusion)
+                    wmin! = sprDist(drx0)
+                    For sx = drx0 + 1 To drx1
+                        If sprDist(sx) < wmin! Then wmin! = sprDist(sx)
+                    Next sx
+                    If drd! < wmin! Then
+                        _PutImage (drx0, dry0)-(drx1, dry1), ebf&, buf&, (0, 0)-(ESW - 1, ESH - 1)
+                        ' 6F FIX A: the full-rect alpha overlay would darken the TRANSPARENT
+                        ' margins too -> ghost box. Debug/collision visualization only, behind
+                        ' Const dbgEnemyBox (OFF).
+                        If dbgEnemyBox And ealpha > 0 Then Line (drx0, dry0)-(drx1, dry1), _RGBA32(0, 0, 0, ealpha), BF
+                    Else
+                        For sx = drx0 To drx1
+                            If drd! < sprDist(sx) Then
+                                srcX = Int((sx - drx0 + 0.5) / (drx1 - drx0 + 1) * ESW)
+                                If srcX < 0 Then srcX = 0
+                                If srcX > ESW - 1 Then srcX = ESW - 1
+                                _PutImage (sx, dry0)-(sx, dry1), ebf&, buf&, (srcX, 0)-(srcX, ESH - 1)   ' world buffer buf& (same _Dest as walls)
+                                If dbgEnemyBox And ealpha > 0 Then Line (sx, dry0)-(sx, dry1), _RGBA32(0, 0, 0, ealpha)
+                            End If
+                        Next sx
+                    End If
+                    ' 6F FIX B: eyes defined in SPRITE-BUFFER coords inside ZONE B, mapped through
+                    ' the SAME scale as the blit and CLIPPED to the sprite rect — ONE placement
+                    ' source (EnemyEyeRect); only the color (EnemyEyeColor&) differs.
+                    If sbW!(sbk) > 14 Then
+                        eco& = EnemyEyeColor&(enState(i))
+                        eBufY0 = Int(ESH * 0.26): eBufY1 = Int(ESH * 0.36)   ' ZONE B band (0.20..0.45 of ESH)
+                        eBufXL0 = ESW \ 2 - 6: eBufXL1 = ESW \ 2 - 4          ' left eye, inside face span
+                        eBufXR0 = ESW \ 2 + 4: eBufXR1 = ESW \ 2 + 6          ' right eye
+                        EnemyEyeRect eBufXL0, eBufY0, eBufXL1, eBufY1, drx0, drx1, dry0, dry1, eScrX0, eScrY0, eScrX1, eScrY1
+                        If eScrX1 >= eScrX0 And eScrY1 >= eScrY0 Then
+                            If eScrX0 < 0 Then eScrX0 = 0
+                            If eScrX1 > RW - 1 Then eScrX1 = RW - 1
+                            If eScrY0 < 0 Then eScrY0 = 0
+                            If eScrY1 > RH - 1 Then eScrY1 = RH - 1
+                            For eex = eScrX0 To eScrX1
+                                If drd! < sprDist(eex) Then Line (eex, eScrY0)-(eex, eScrY1), eco&
+                            Next eex
+                        End If
+                        EnemyEyeRect eBufXR0, eBufY0, eBufXR1, eBufY1, drx0, drx1, dry0, dry1, eScrX0, eScrY0, eScrX1, eScrY1
+                        If eScrX1 >= eScrX0 And eScrY1 >= eScrY0 Then
+                            If eScrX0 < 0 Then eScrX0 = 0
+                            If eScrX1 > RW - 1 Then eScrX1 = RW - 1
+                            If eScrY0 < 0 Then eScrY0 = 0
+                            If eScrY1 > RH - 1 Then eScrY1 = RH - 1
+                            For eex = eScrX0 To eScrX1
+                                If drd! < sprDist(eex) Then Line (eex, eScrY0)-(eex, eScrY1), eco&
+                            Next eex
+                        End If
+                    End If
+                End If
+            Case 5   ' projectile ball: cheap 1px dark rim + body (+ white-hot core for enemy balls, 6F FIX C)
+                If drx1 >= drx0 And dry1 > dry0 Then
+                    obx0 = drx0 - 1: obx1 = drx1 + 1: oby0 = dry0 - 1: oby1 = dry1 + 1
+                    If obx0 < 0 Then obx0 = 0
+                    If obx1 > RW - 1 Then obx1 = RW - 1
+                    If oby0 < 0 Then oby0 = 0
+                    If oby1 > RH - 1 Then oby1 = RH - 1
+                    For sx = obx0 To obx1
+                        If drd! < sprDist(sx) Then Line (sx, oby0)-(sx, oby1), _RGB32(20, 20, 20)
+                    Next sx
+                    For sx = drx0 To drx1
+                        If drd! < sprDist(sx) Then Line (sx, dry0)-(sx, dry1), sbCol&(sbk)
+                    Next sx
+                    If sbT(sbk) = 1 And drx1 - 1 >= drx0 + 1 Then
+                        cbx0 = drx0 + 1: cbx1 = drx1 - 1: cby0 = dry0 + 1: cby1 = dry1 - 1
+                        For sx = cbx0 To cbx1
+                            If drd! < sprDist(sx) Then Line (sx, cby0)-(sx, cby1), enBallCore&
+                        Next sx
+                    End If
+                End If
+            Case 6   ' mortar shell in flight: dark red box
+                If drx1 >= drx0 And dry1 > dry0 Then
+                    For sx = drx0 To drx1
+                        If drd! < sprDist(sx) Then Line (sx, dry0)-(sx, dry1), sbCol&(sbk)
+                    Next sx
+                End If
+        End Select
+    Next zi
+
+    ' MORTAR telegraphs (blinking ring on the floor at the target cell — visible
+    ' for the whole flight time): drawn AFTER the billboards (floor decal), per
+    ' center-column clip vs sprDist (walls) — 6M FIX 1: no sprDist write anymore.
+    For i = 0 To PR_MAX
+        If prActive(i) Then
+            If prType(i) <> PR_BALL Then
                 If Int(Timer * 4) Mod 2 = 0 Then
                     tdx = prTX(i) + 0.5 - px: tdy = prTY(i) + 0.5 - py
                     tdist = Sqr(tdx * tdx + tdy * tdy)
@@ -2697,13 +2770,12 @@ Do
                             tcx = Int(RW / 2 * (1 + Tan(tang) / planeDist))
                             If tcx >= 0 And tcx <= RW - 1 Then
                                 If tdistP < sprDist(tcx) Then
-                                    sprDist(tcx) = tdistP   ' 6K
                                     tgy = midY + RH / (2 * tdistP) + pitch
                                     st2 = prSrcType(i): If st2 < 0 Or st2 > ET_COUNT - 1 Then st2 = 0   ' defensive clamp
                                     trr! = etSplashR!(st2)
                                     If prOwner(i) = 0 Then trr! = wpSplashR!(WP_CANNON)
                                     trp = RW / tdistP * trr! * 0.5
-                                    If trp < 8 Then trp = 8          ' 6A: STÖRRE telegraf för mörser
+                                    If trp < 8 Then trp = 8          ' 6A: BIGGER telegraph for mortars
                                     If trp > RW / 2 Then trp = RW / 2
                                     If prOwner(i) = 0 Then
                                         If tgy > 0 And tgy < RH Then CIRCLE (tcx, tgy), trp, _RGB32(0, 255, 180)
@@ -2735,8 +2807,7 @@ Do
                 catdistP = catdist * Cos(caang)
                 catcx = Int(RW / 2 * (1 + Tan(caang) / planeDist))
                 If catcx >= 0 And catcx <= RW - 1 Then
-                    If catdistP < sprDist(catcx) Then
-                        sprDist(catcx) = catdistP   ' 6K
+                    If catdistP < sprDist(catcx) Then   ' 6M FIX 1: clip vs walls only, no sprDist write
                         catgy = midY + RH / (2 * catdistP) + pitch
                         catrp = RW / catdistP * wpSplashR!(WP_CANNON) * 0.5
                         If catrp < 8 Then catrp = 8
@@ -2775,6 +2846,62 @@ Do
         End If
     End If
 
+    ' 6M 6m-a: pixel-probe of the unified billboard z-order (POINT on buf&; _Dest is still buf& here).
+    ' (a) ammo pickup in front of a far enemy occludes ONLY its own rect (fel.png case);
+    ' (b) a pickup behind a wall corner stays clipped (wall clip unchanged).
+    If selftest And testPhase = 37 And testFlag = 1 And Timer - testT0 >= 0.3 Then
+        testFlag = 2
+        ' recompute the projections with the same formulas as the collection code
+        pdx = amX(0) - px: pdy = amY(0) - py
+        pdist = Sqr(pdx * pdx + pdy * pdy)
+        pang = _ATan2(pdy, pdx) - angle
+        pdistP = pdist * Cos(pang)
+        pcx = RW / 2 * (1 + Tan(pang) / planeDist)
+        pw = RW / pdist * 0.25: ph = RH / pdist * 0.25
+        pbase = midY + RH / (2 * pdist) + pitch
+        px0 = Int(pcx - pw / 2)
+        edx = enX(0) - px: edy = enY(0) - py
+        edist = Sqr(edx * edx + edy * edy)
+        eang = _ATan2(edy, edx) - angle
+        edistP = edist * Cos(eang)
+        ecx = RW / 2 * (1 + Tan(eang) / planeDist)
+        eh = RH / edist * 0.9 * etScale!(enType(0))
+        ebase = midY + RH / (2 * edist) + pitch
+        ey0 = Int(ebase - eh)
+        acx = Int(ecx)
+        If acx < 0 Then acx = 0
+        If acx > RW - 1 Then acx = RW - 1
+        apy = ey0 + 2
+        If apy < 0 Then apy = 0
+        If apy > RH - 1 Then apy = RH - 1
+        c37above& = POINT(acx, apy)   ' enemy pixel ABOVE the pickup rect (old column-zbuffer clipped this to ceiling)
+        bcx = px0 + 2
+        If bcx < 0 Then bcx = 0
+        If bcx > RW - 1 Then bcx = RW - 1
+        bcy = Int(pbase) - 2
+        c37in& = POINT(bcx, bcy)      ' inside the pickup rect: the nearer pickup color must win over the far enemy
+        c37okA = (c37above& <> ceilingCol& And c37above& <> floorCol& And c37above& <> amCol&(amT(0)))
+        c37okB = (c37in& = amCol&(amT(0)))
+        c37msg$ = "above=0x" + Hex$(c37above&) + " in=0x" + Hex$(c37in&) + " amCol=0x" + Hex$(amCol&(amT(0))) + " ceil=0x" + Hex$(ceilingCol&) + " floor=0x" + Hex$(floorCol&)
+    End If
+    If selftest And testPhase = 37 And testFlag = 3 And Timer - testT0 >= 0.3 Then
+        testFlag = 4
+        ' (b) wall-corner case: player at (8.5,6.5) looking north; pickup B at (8.5,2.5)
+        ' sits behind the row-5 wall block (cell (8,5)='#') -> must stay wall-clipped
+        pdx = amX(0) - px: pdy = amY(0) - py
+        pdist = Sqr(pdx * pdx + pdy * pdy)
+        pang = _ATan2(pdy, pdx) - angle
+        pdistP = pdist * Cos(pang)
+        pcx = RW / 2 * (1 + Tan(pang) / planeDist)
+        pbase = midY + RH / (2 * pdist) + pitch
+        wcx = Int(pcx)
+        If wcx < 0 Then wcx = 0
+        If wcx > RW - 1 Then wcx = RW - 1
+        wcy = Int(pbase) - 2
+        c37wall& = POINT(wcx, wcy)
+        c37okC = (c37wall& <> amCol&(amT(0)))
+        c37msg$ = c37msg$ + " wall=0x" + Hex$(c37wall&) + " amColB=0x" + Hex$(amCol&(amT(0)))
+    End If
     ' selftest fas 10: occlusion-audit pa pixel-niva (POINT pa buf&, dest är ännu buf&)
     ' körs en gang när testFlag=1 (satt av SelftestDrive efter några renderade frames)
     If selftest And testPhase = 10 And testFlag = 1 Then
@@ -4463,15 +4590,6 @@ ApplyMapSpawns:
     Next yy
     Return
 
-' 6K: SprMark — efter att EN sprite ritats klart, sänk sprDist för alla dess
-' kolumner där spriten är närmare än vad som redan finns (vägg eller tidigare
-' ritad sprite). Nästa sprite i samma kolumn ser då detta värde och occluderas.
-SprMark:
-    For smX = smX0 To smX1
-        If smD! < sprDist(smX) Then sprDist(smX) = smD!
-    Next smX
-    Return
-
 ' ======== 6H STEG 5: AUDIT-BOT (cmd "audit") ================
 ' AuLog: skriv auMsg$ till terminal + /tmp/schleswig_audit.log (append per rad = flush direkt)
 AuLog:
@@ -4788,6 +4906,17 @@ EnemyTakeHit:
         hpMsg$ = "HIT"
         hpMsgTime = Timer
         PlaySound SND_HIT
+        ' 6M FIX 3: aggro-on-hit — damaging an enemy reveals the player to THAT
+        ' enemy (per-enemy only): JAKT + last-known position + ALERT sound with
+        ' the same 0.5 s per-enemy cooldown as the PATROLL->JAKT transition
+        ' (general plays SND_ALERT_G). EnemyTakeHit is the ONE damage funnel —
+        ' projectile hits, axe melee hits and mortar splash all land here.
+        If enState(hitE) = 0 Then enState(hitE) = 1
+        enLx(hitE) = px: enLy(hitE) = py: enLastSeen(hitE) = Timer
+        If Timer - enAlertT(hitE) >= 0.5 Then
+            If enType(hitE) = ET_GENERAL Then PlaySound SND_ALERT_G Else PlaySound SND_ALERT
+            enAlertT(hitE) = Timer
+        End If
         ' Fas 4A: dodge-on-hit (per-type etDodge!, seedable LCG DodgeRnd#).
         ' 6A: melee-hit använder lägre tröskel etDodgeMelee!; QTD quantum-mode
         ' höjer tröskeln högfrekvent (x3) — och dodgen blir teleport då.
@@ -5523,6 +5652,10 @@ SelftestDrive:
                     enX(0) = 10.5: enY(0) = 4.5: enState(0) = 1: enLastSeen(0) = Timer: enLx(0) = px: enLy(0) = py
                     enZigT(0) = Timer + 99   ' no zigzag Rnd consumed before the shot
                     lastShotTime = -1: ammoN(1) = 1   ' EN kula räcker — annars hinner en andra kula trigga en andra dodge under glide-väntan
+                    ' 6M FIX 4: seed a FULL magazine too — fireBtn stays 1 for this frame only, and with an
+                    ' empty 6H magazine that single frame would only START the 1.8 s reload (pool 1->0)
+                    ' without ever spawning the ball (the old fas14c failure "seeded shot never landed")
+                    wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0
                     preX = enX(0): preY = enY(0)
                     dodgeSeed& = 2             ' known dodge seed -> first DodgeRnd# ~0.028 < officer dodge 0.4
                     c14hit = 0: c14t = 0
@@ -7960,9 +8093,17 @@ SelftestDrive:
                     End
                 End If
                 For c22i = 0 To ET_COUNT - 1: etDodge!(c22i) = 0: Next c22i   ' minimal skill = every ball hits
+                Randomize 20261127   ' 6M: deterministic patrol Rnd for the bot
                 c22lvl = 1: c22min = 999: c22shots = 0
                 c22msave = moveStep: moveStep = 0.08   ' bot speed (collision checks active)
                 lvlIdx = 0
+                ' 6M fixture fix: make the bot self-contained — earlier phases may leave
+                ' wpCur on another weapon (LoadLevel keeps wpCur), and an axe-swinging
+                ' bot never spends ammo nor kills at bd>1.4 (observed: pool stuck at
+                ' 15+10 with 0 shots fired -> timeout). Musket + full mag, like other phases.
+                For c22i = 0 To WP_COUNT - 1: wpOwned(c22i) = 0: Next c22i
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET
+                wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0
                 ammoN(1) = startAmmo   ' 6A: LoadLevel nollställer INTE ammo längre — simulera fresh round här
                 Gosub LoadLevel
                 c22ammo0 = ammoN(1)
@@ -8025,6 +8166,8 @@ SelftestDrive:
                                 lvlIdx = c22lvl - 1
                                 Gosub LoadLevel
                                 ' 6A: ammo PERSISTERAR över banor nu — c22ammo0 sätts bara vid första laddningen
+                                ' 6M fixture fix: full musket mag at each level start (LoadLevel keeps wpMagNow)
+                                wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0
                                 testT0 = Timer
                             End If
                         Else
@@ -8040,12 +8183,25 @@ SelftestDrive:
                                 ' hunt-bot: fire only with clear LOS and short range;
                                 ' otherwise walk toward the enemy along the BFS gradient
                                 fx = px: fy = py: tx = enX(c22bi): ty = enY(c22bi): Gosub LOSCheck
-                                If losOK And c22bd <= 3 Then   ' 6E: tillbaka till 3 celler (6D:s 2 fick botten att fastna i labyrinten på L3; caps 40 ger ammo-marginal ändå)
+                                ' 6M fixture fix: melee needs NO LOS — swing the axe whenever in
+                                ' melee range (free, and no whiffed point-blank balls: a ball
+                                ' spawns AT the player and never gets within the 0.35 hit radius
+                                ' of an enemy already closer). Without this the bot could stand
+                                ' next to an ANFALL enemy with blocked LOS forever (5e-d timeout).
+                                If c22bd < 1.3 Then
                                     angle = _ATan2(enY(c22bi) - py, enX(c22bi) - px)
                                     dirX = Cos(angle): dirY = Sin(angle)
+                                    wpCur = WP_AXE
+                                    fireBtn = 1: c22shots = c22shots + 1
+                                    c22key$ = ""
+                                ElseIf losOK And c22bd <= 3 Then   ' 6E: tillbaka till 3 celler (6D:s 2 fick botten att fastna i labyrinten på L3; caps 40 ger ammo-marginal ändå)
+                                    angle = _ATan2(enY(c22bi) - py, enX(c22bi) - px)
+                                    dirX = Cos(angle): dirY = Sin(angle)
+                                    wpCur = WP_MUSKET
                                     fireBtn = 1: c22shots = c22shots + 1
                                     c22key$ = ""
                                 Else
+                                    wpCur = WP_MUSKET
                                     fireBtn = 0
                                     bfsTX = Int(enX(c22bi)): bfsTY = Int(enY(c22bi)): Gosub BFSCompute
                                     For c22y = 0 To mapH - 1
@@ -8075,7 +8231,13 @@ SelftestDrive:
                         End If
                     End If
                 End If
-                If state$ = "playing" And Timer - testT0 >= 40 Then
+                ' 6M fixture fix: timeout 40->150 s. Since 6H every musket ball costs a
+                ' ~1.8 s magazine reload (cycle ~2.1 s, and the reload only starts on a
+                ' fire attempt), so L3's 15 hits need ~35 s + travel + walk/fire
+                ' alternation — the pre-6H 40 s cap (0.3 s/shot) now flakes.
+                ' (Masked until now because the old fas14c failure stopped the suite at
+                ' phase 14.) The assertion itself (ammoN(1) never reaches 0) is unchanged.
+                If state$ = "playing" And Timer - testT0 >= 150 Then
                     stMsg$ = "FAIL 5e-d-timeout level=" + Str$(c22lvl) + " state=" + state$ + " ammoN(1)=" + Str$(ammoN(1))
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
@@ -8802,7 +8964,7 @@ SelftestDrive:
                     wpCur = WP_MUSKET: lastShotTime = -1
                     bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
                     state$ = "playing"
-                    c23ok = 0: c23i = 1: c23t = Timer
+                    c23ok = 0: c23i = 1: c23t = Timer: c23rl = 0   ' 6M: reset the reload-armed flag
                     fireBtn = 1
                 ElseIf c23i = 1 Then
                     ' 6H: magasin-vapen — skott drar från magasinet, pool rörs först vid reload
@@ -8820,6 +8982,15 @@ SelftestDrive:
                         c23i = 21: c23t = Timer   ' vänta på båda reloads (musket 1.8 s, MG 2.5 s)
                     End If
                 ElseIf c23i = 21 Then
+                    ' 6M fixture fix: 6H starts a reload ONLY on an empty-mag fire attempt or
+                    ' the R key — there is no auto-reload of a partial mag, so one MG shot
+                    ' (mag 8->7) would never reload (this expectation was masked by the old
+                    ' fas14c stop). Arm both reload timers here (the exact state a trigger
+                    ' pull / R produces) and let the REAL reload tick move pool->mag.
+                    If c23rl = 0 Then
+                        wpRlT!(WP_MUSKET) = wpReload!(WP_MUSKET): wpRlT!(WP_MG) = wpReload!(WP_MG)
+                        c23rl = 1: c23t = Timer
+                    End If
                     If wpRlT!(WP_MUSKET) = 0 And wpRlT!(WP_MG) = 0 And Timer - c23t >= 0.2 Then
                         If ammoN(1) = 9 And wpMagNow(WP_MUSKET) = 1 And ammoN(3) = 9 And wpMagNow(WP_MG) = 8 And ammoN(2) = 2 And ammoN(4) = 1 Then c23ok = c23ok + 1   ' reload: pool1 10->9, pool3 10->9, mag fyllda
                         For c23j = 0 To 10: amActive(c23j) = 0: Next c23j
@@ -8851,12 +9022,14 @@ SelftestDrive:
                 ElseIf c23i = 4 Then
                     If Timer - c23t >= 0.5 Then
                         If ammoN(2) = 6 And ammoN(4) = 3 And ammoN(1) = 19 And ammoN(3) = 21 Then c23ok = c23ok + 1   ' 6H per-typ: B 2+4=6, D 1+2=3 (cap 16/12 ej nådd)
-                        If c23ok = 4 Then
-                            stMsg$ = "PASS 6b-e-ammo-isolation (6H magasin: fire drar mag (musket 1->0, MG 8->7) utan pooländring; reload fyller mag från EGEN pool (pool1 10->9, pool3 10->9); pickup A laddar ENBART pool1 9->19 (+10), C ENBART pool3 9->21 (+12); B 2->6 (+4), D 1->3 (+2))"
+                        ' 6M: there are FIVE checks (fire-muskeg, fire-MG, reload-deficit, pickup A/C, pickup B/D) —
+                        ' the old "= 4" could only pass because the reload check never fired pre-6M-fix
+                        If c23ok = 5 Then
+                            stMsg$ = "PASS 6b-e-ammo-isolation (6H magasin: fire drar mag (musket 1->0, MG 8->7) utan pooländring; reload fyller mag från EGEN pool med ENDAST underskottet (pool1 10->9, pool3 10->9); pickup A laddar ENBART pool1 9->19 (+10), C ENBART pool3 9->21 (+12); B 2->6 (+4), D 1->3 (+2))"
                             Gosub STLog
                             testFlag = 13: testT0 = Timer: c23i = 0: c23t = Timer: c23ok = 0: c23msg$ = ""
                         Else
-                            stMsg$ = "FAIL 6b-e ok=" + Str$(c23ok) + "/4 ammo=" + Str$(ammoN(1)) + "/" + Str$(ammoN(2)) + "/" + Str$(ammoN(3)) + "/" + Str$(ammoN(4))
+                            stMsg$ = "FAIL 6b-e ok=" + Str$(c23ok) + "/5 ammo=" + Str$(ammoN(1)) + "/" + Str$(ammoN(2)) + "/" + Str$(ammoN(3)) + "/" + Str$(ammoN(4))
                             Gosub STLog
                             stMsg$ = "SELFTEST FAIL"
                             Gosub STLog
@@ -9028,7 +9201,7 @@ SelftestDrive:
                     ammoN(1) = 12: ammoN(2) = 2: ammoN(3) = 0: ammoN(4) = 4
                     bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
                     state$ = "playing"
-                    c23i = 1: c23t = Timer
+                    c23i = 1: c23t = Timer: c23rl = 0   ' 6M: reset reload-armed flag
                 ElseIf c23i = 1 Then
                     If Timer - c23t >= 0.3 Then
                         Gosub BuildAmmoHud
@@ -9045,6 +9218,14 @@ SelftestDrive:
                         c23i = 21: c23t = Timer
                     End If
                 ElseIf c23i = 21 Then
+                    ' 6M fixture fix: same as 6b-e — 6H arms a reload only on an empty-mag
+                    ' fire attempt or R (no auto-reload), so arm the timer here (the exact
+                    ' state a trigger pull on the empty mag produces) and let the real
+                    ' reload tick move pool->mag (deficit only, post-6M engine fix)
+                    If c23rl = 0 Then
+                        wpRlT!(WP_MUSKET) = wpReload!(WP_MUSKET)
+                        c23rl = 1: c23t = Timer
+                    End If
                     If wpRlT!(WP_MUSKET) = 0 And Timer - c23t >= 0.2 Then
                         Gosub BuildAmmoHud
                         If ammoN(1) = 11 And wpMagNow(WP_MUSKET) = 1 And ammoHud$ = "AMMO  MUSKET:11  BLUNDERBUSS:2  MACHINE MUSKET:0  MINI CANNON:4" And InStr(wpHud$, "MUSKET*1/1") > 0 Then c23ok = c23ok + 1   ' 6H: reload från pool: A 12->11, mag 1
@@ -10436,10 +10617,15 @@ SelftestDrive:
                     Next c26y
                     Close #c26h&
                     mapFile$ = c26map$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
-                    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: hp = 100: dmgTaken = 0
+                    ' 6M FIX 2 fixture update: player moved next to the closed door (7.5,8.5)
+                    ' and the musketeer placed at (12.5,8.5) — dist 5 is INSIDE his fire
+                    ' band 3..5.5 — and promoted to JAKT, so the ONLY thing that can block
+                    ' his shot is the closed door's LOS (the new enState>=1 fire gate would
+                    ' otherwise mask the LOS assertion)
+                    px = 7.5: py = plStartY + 0.5: angle = 0: hp = 100: dmgTaken = 0
                     For c26j = 0 To 10: enActive(c26j) = 0: Next c26j
                     ' fienden (U) finns på kartan via ApplyMapSpawns/SpawnEnemies? nej — sätt manuellt:
-                    enX(0) = 14.5: enY(0) = 8.5: enActive(0) = 1: enType(0) = ET_MUSKETEER: enHP(0) = etHP(ET_MUSKETEER): enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer - 1: enZigT(0) = Timer + 99: enAlertT(0) = -99
+                    enX(0) = 12.5: enY(0) = 8.5: enActive(0) = 1: enType(0) = ET_MUSKETEER: enHP(0) = etHP(ET_MUSKETEER): enSpd(0) = 0: enState(0) = 1: enFireT(0) = Timer - 1: enZigT(0) = Timer + 99: enAlertT(0) = -99
                     For c26j = 0 To PR_MAX: prActive(c26j) = 0: Next c26j
                     c26pr0 = projEnemySpawned
                     bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
@@ -11031,7 +11217,10 @@ SelftestDrive:
                         c29msg$ = "p30[dz=" + LTrim$(Str$(Int(c29dz! * 1000) / 1000)) + " plan=" + LTrim$(Str$(Int(c29h! * 1000) / 1000)) + "]"
                         If c29dz! >= Sin(0.5235987756) - 0.01 And Abs(c29h! - Cos(0.5235987756)) < 0.01 Then c29ok = c29ok + 1
                         ' (2) pitch = 0 -> plant skott som före
+                        ' 6M fixture fix: re-seed the mag — the first shot spent it, and an
+                        ' empty-mag fire attempt only arms the reload (6H), so no ball would spawn
                         pitch = 0: lastShotTime = -99: c29pr0 = projSpawned: fireBtn = 1
+                        wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0
                         c29i = 2: c29t = Timer
                     ElseIf Timer - c29t > 2 Then
                         stMsg$ = "FAIL 6f-e-timeout1 projSpawned=" + Str$(projSpawned) + " pr0=" + Str$(c29pr0) + " owner=" + Str$(prLastOwner)
@@ -11051,7 +11240,8 @@ SelftestDrive:
                         enX(0) = 11.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = ET_FOOT: enHP(0) = etHP(ET_FOOT): enZ(0) = 1: enSpd(0) = 0: enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                         c29hp0 = enHP(0)
                         pitch = RH * Tan(_ATan2(1, 3))
-                        lastShotTime = -99: c29pr0 = projSpawned: fireBtn = 1
+                        lastShotTime = -99: c29pr0 = projSpawned: fireBtn = 1   ' 6M: re-seed mag (see above)
+                        wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0
                         c29i = 3: c29t = Timer
                     ElseIf Timer - c29t > 2 Then
                         stMsg$ = "FAIL 6f-e-timeout2 projSpawned=" + Str$(projSpawned) + " pr0=" + Str$(c29pr0)
@@ -11706,6 +11896,188 @@ SelftestDrive:
                 enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
                 For c33j = 0 To PR_MAX: prActive(c33j) = 0: Next c33j
                 For c33j = 0 To WP_COUNT - 1: wpOwned(c33j) = 0: Next c33j
+                wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
+                bfsForX = -1: bfsForY = -1
+                winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                runT0 = Timer - 3
+                state$ = "playing"
+                testPhase = 37: testT0 = Timer: testFlag = 0   ' 6M: chain into the 6M phases, fas12 stays the end of the chain
+            End If
+        Case 37  ' 6M FIX 1 6m-a: unified billboard z-order — a pickup in front of a far
+                 ' enemy occludes ONLY its own rect (pixel-probe in the render section,
+                 ' testFlag 1->2), wall-corner clip unchanged (testFlag 3->4)
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                px = 8.5: py = 4.5: angle = 0: pitch = 0: hp = 100
+                For c37j = 0 To 10: enActive(c37j) = 0: Next c37j
+                For c37j = 0 To 10: amActive(c37j) = 0: pkActive(c37j) = 0: keyActive(c37j) = 0: wpActive(c37j) = 0: Next c37j
+                For c37j = 0 To PR_MAX: prActive(c37j) = 0: Next c37j
+                ' (a) ammo pickup type A (yellow) 4 cells ahead on open row 4,
+                ' far FOOT 6 cells ahead on the SAME sightline (behind the pickup)
+                amActive(0) = 1: amX(0) = 12.5: amY(0) = 4.5: amT(0) = 1
+                enX(0) = 14.5: enY(0) = 4.5: enActive(0) = 1: enType(0) = ET_FOOT
+                enHP(0) = etHP(ET_FOOT): enDmg(0) = etDmg(ET_FOOT): enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                state$ = "playing"
+                testFlag = 1: testT0 = Timer   ' render probe (a) fires when Timer-testT0 >= 0.3
+            End If
+            If testFlag = 2 Then
+                ' probe (a) done — set up (b): look north from (8.5,6.5); the pickup
+                ' at (8.5,2.5) is behind the row-5 wall block (cell (8,5)='#')
+                px = 8.5: py = 6.5: angle = -1.5707963: pitch = 0
+                For c37j = 0 To 10: enActive(c37j) = 0: Next c37j
+                ' dummy far away keeps the win-trigger off (alive > 0)
+                enX(1) = 2.5: enY(1) = 14.5: enActive(1) = 1: enType(1) = ET_FOOT
+                enHP(1) = etHP(ET_FOOT): enDmg(1) = etDmg(ET_FOOT): enSpd(1) = 0
+                enState(1) = 0: enFireT(1) = Timer + 99: enZigT(1) = Timer + 99
+                amActive(0) = 1: amX(0) = 8.5: amY(0) = 2.5: amT(0) = 2   ' B orange
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                testFlag = 3: testT0 = Timer   ' render probe (b) fires when Timer-testT0 >= 0.3
+            End If
+            If testFlag = 4 Then
+                If c37okA And c37okB And c37okC Then
+                    stMsg$ = "PASS 6m-a-billboard-zorder (pickup in front of far enemy occludes ONLY its own rect: enemy pixels above the pickup exist, pickup rect keeps its type color; wall-corner clip unchanged) " + c37msg$
+                    Gosub STLog
+                    testPhase = 38: testT0 = Timer: testFlag = 0
+                Else
+                    stMsg$ = "FAIL 6m-a-billboard-zorder okA=" + Str$(c37okA) + " okB=" + Str$(c37okB) + " okC=" + Str$(c37okC) + " " + c37msg$
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+        Case 38  ' 6M FIX 2 6m-b: an UNDETECTED enemy (PATROLL, LOS but beyond the 6-cell
+                 ' detect range) NEVER fires across several fire intervals; promoted to
+                 ' JAKT it fires within its per-type range as before
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                For c38j = 0 To 10: enActive(c38j) = 0: Next c38j
+                For c38j = 0 To PR_MAX: prActive(c38j) = 0: Next c38j
+                ' open row 12: player at the west end, OFFICER 8 cells east (LOS clear,
+                ' but dist > 6 -> stays PATROLL)
+                px = 2.5: py = 12.5: angle = 0: pitch = 0: hp = 100
+                enX(0) = 10.5: enY(0) = 12.5: enActive(0) = 1: enType(0) = ET_OFFICER
+                enHP(0) = etHP(ET_OFFICER): enDmg(0) = etDmg(ET_OFFICER): enSpd(0) = 0
+                enState(0) = 0: enLastSeen(0) = 0: enLx(0) = enX(0): enLy(0) = enY(0): enCalmT(0) = 0: enLastHit(0) = 0
+                enFireT(0) = Timer - 1: enZigT(0) = Timer + 99: enAlertT(0) = -99
+                ' patrol target one cell TOWARD the player so the slow PATROLL drift keeps
+                ' the dist inside the officer fire band 2..8 when promoted (6M: else the
+                ' dist could drift past 8 and 6m-b2 would never see a ball)
+                enTx(0) = 9: enTy(0) = 12: enPatrolT(0) = Timer + 99
+                ' dummy FOOT keeps the win-trigger off
+                enX(1) = 14.5: enY(1) = 14.5: enActive(1) = 1: enType(1) = ET_FOOT
+                enHP(1) = etHP(ET_FOOT): enDmg(1) = etDmg(ET_FOOT): enSpd(1) = 0
+                enState(1) = 0: enFireT(1) = Timer + 99: enZigT(1) = Timer + 99
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                projEnemySpawned = 0: c38pr0 = 0
+                state$ = "playing"
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 And Timer - testT0 >= 2.5 Then
+                ' 2.5 s = several officer fire intervals (etFireT! = 1 s); LOS clear, dist ~8
+                If projEnemySpawned = c38pr0 And enState(0) = 0 Then
+                    stMsg$ = "PASS 6m-b1-undetected-no-fire (officer at dist 8 with clear LOS but PATROLL: 0 enemy projectiles across 2.5 s / several fire intervals)"
+                    Gosub STLog
+                    ' promote to JAKT — now the per-type range/cadence applies (officer 2..8 cells)
+                    enState(0) = 1: enLastSeen(0) = Timer: enLx(0) = px: enLy(0) = py
+                    c38pr0 = projEnemySpawned
+                    testFlag = 2: testT0 = Timer
+                Else
+                    stMsg$ = "FAIL 6m-b1-undetected-no-fire proj+=" + Str$(projEnemySpawned - c38pr0) + " enState=" + Str$(enState(0))
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 And Timer - testT0 >= 2 Then
+                If projEnemySpawned > c38pr0 Then
+                    stMsg$ = "PASS 6m-b2-jakt-fires (same officer promoted to JAKT: enemy BALL spawned within 2 s at dist ~7.5 inside officer range 2..8)"
+                    Gosub STLog
+                    testPhase = 39: testT0 = Timer: testFlag = 0
+                Else
+                    stMsg$ = "FAIL 6m-b2-jakt-fires proj+=" + Str$(projEnemySpawned - c38pr0)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+        Case 39  ' 6M FIX 3 6m-c: aggro-on-hit — a projectile hit on a PATROLL enemy
+                 ' (beyond the detect range) makes THAT enemy JAKT in the same frame
+                 ' (last-known position + alert cooldown armed); other enemies stay PATROLL
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                For c39j = 0 To 10: enActive(c39j) = 0: Next c39j
+                For c39j = 0 To PR_MAX: prActive(c39j) = 0: Next c39j
+                px = 2.5: py = 12.5: angle = 0: pitch = 0: hp = 100
+                ' two FOOTs in open row 12, both beyond the 6-cell detect range (PATROLL)
+                enX(0) = 10.5: enY(0) = 12.5: enActive(0) = 1: enType(0) = ET_FOOT
+                enHP(0) = 99: enDmg(0) = 0: enSpd(0) = 0: enState(0) = 0: enLastSeen(0) = 0
+                enLx(0) = enX(0): enLy(0) = enY(0): enCalmT(0) = 0: enLastHit(0) = 0
+                enFireT(0) = Timer + 99: enZigT(0) = Timer + 99: enAlertT(0) = -99
+                enTx(0) = 10: enTy(0) = 12: enPatrolT(0) = Timer + 99
+                enX(1) = 13.5: enY(1) = 12.5: enActive(1) = 1: enType(1) = ET_FOOT
+                enHP(1) = 99: enDmg(1) = 0: enSpd(1) = 0: enState(1) = 0: enLastSeen(1) = 0
+                enLx(1) = enX(1): enLy(1) = enY(1): enCalmT(1) = 0: enLastHit(1) = 0
+                enFireT(1) = Timer + 99: enZigT(1) = Timer + 99: enAlertT(1) = -99
+                enTx(1) = 13: enTy(1) = 12: enPatrolT(1) = Timer + 99
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                ' real player ball straight +x down row 12 at enemy 0 (real UpdateProjectiles hit path)
+                spX = px: spY = py: spZ = 0.5: spDX = 1: spDY = 0: spDZ = 0: spSpd! = plrBallSpd!: spOwner = 0: spDmg = 1: spType = PR_BALL
+                spSrcType = -1: spTX = 0: spTY = 0: spLandT = 0
+                Gosub SpawnProjectile
+                c39hit = 0
+                state$ = "playing"
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                If enHP(0) < 99 And c39hit = 0 Then
+                    c39hit = 1
+                    ' EnemyTakeHit ran this frame (UpdateProjectiles): aggro must already be set
+                    c39ok = 0
+                    If enState(0) = 1 And enLx(0) = px And enLy(0) = py And Abs(enLastSeen(0) - Timer) < 0.5 And enAlertT(0) >= Timer - 0.5 Then c39ok = 1
+                    ' per-enemy only: enemy 1 was not hit -> must stay PATROLL
+                    If enState(1) <> 0 Then c39ok = 0
+                    If c39ok = 1 Then
+                        stMsg$ = "PASS 6m-c-aggro-on-hit (player ball hit PATROLL foot at dist 8 beyond detect range: enState 0->1 same frame, enLx/enLy=player pos, enLastSeen=now, alert cooldown armed (enAlertT); un-hit enemy stays PATROLL)"
+                        Gosub STLog
+                        testFlag = 2: testT0 = Timer
+                    Else
+                        stMsg$ = "FAIL 6m-c-aggro-on-hit enState=" + Str$(enState(0)) + " enLx=" + LTrim$(Str$(enLx(0))) + " enLy=" + LTrim$(Str$(enLy(0))) + " lastSeen=" + LTrim$(Str$(Int(enLastSeen(0) * 10) / 10)) + " alertT=" + LTrim$(Str$(Int(enAlertT(0) * 10) / 10)) + " now=" + LTrim$(Str$(Int(Timer * 10) / 10)) + " en1state=" + Str$(enState(1))
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf Timer - testT0 >= 3 And c39hit = 0 Then
+                    stMsg$ = "FAIL 6m-c-timeout (ball never hit enemy 0: enHP=" + Str$(enHP(0)) + " prActive0=" + Str$(prActive(0)) + ")"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                ' 6M phases done: restore the selftest environment, chain to fas12 (end of chain)
+                gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
+                mapFile$ = selftestMap$
+                Gosub LoadMapAuto
+                Gosub ApplyMapSpawns
+                px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
+                injMvF = 0: injMvB = 0: injMvL = 0: injMvR = 0: injTurnL = 0: injTurnR = 0
+                For c39j = 0 To 10: enActive(c39j) = 0: Next c39j
+                enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                For c39j = 0 To PR_MAX: prActive(c39j) = 0: Next c39j
+                For c39j = 0 To WP_COUNT - 1: wpOwned(c39j) = 0: Next c39j
                 wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET : wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0   ' 6H fullt magasin
                 bfsForX = -1: bfsForY = -1
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0

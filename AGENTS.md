@@ -51,10 +51,13 @@ L3-L5 ammo balance + full selftest suite gate before public release).
   → ALL phases must PASS, log:
   /tmp/schleswig_selftest.log
 - Report exactly: "SELFTEST OK, n PASS / 0 FAIL".
-- KNOWN PRE-EXISTING FAILURE (not a timing flake; observed identical on
-  4552e33 and e93da7b, so NOT introduced by 6L-B): fas14c-dodge fails with
-  "seeded shot never landed: enHP=6 ammoN(1)=0" and the suite stops there.
-  Known timing flakes: fas15a, 6e-c, 5e-d — document, do not "fix".
+- fas14c-dodge KNOWN FAILURE FIXED in 6M (root cause: the fixture set
+  fireBtn=1 for a single frame, but with the 6H magazine an empty musket mag
+  turns that frame into only a reload START (pool 1->0), so the ball never
+  spawned — "seeded shot never landed: enHP=6 ammoN(1)=0". The FIXTURE now
+  seeds a full magazine (wpMagNow=wpMag) like the other fire phases; the
+  engine was correct). Known timing flakes: fas15a, 6e-c, 5e-d — document,
+  do not "fix".
 
 ## Every pass (workflow)
 1. Read this file + the prompt.
@@ -376,6 +379,18 @@ of teleporting; pass 2 interpolates in <=0.3-cell sub-steps with OpenCell%
 checks (monotonic, never inside a wall, never a >0.5-cell frame hop).
 Exception: QTD quantum mode teleports (the joke).
 
+## Enemy AI rules (detection / fire / aggro — 6M consolidated)
+- Detection: pass 1 sets enSeen(i)=losOK at any distance, but PATROLL->JAKT
+  only when losOK AND edist < 6 (ANFALL at edist < 0.8).
+- Fire gate (6M FIX 2): an enemy fires ONLY when enState >= 1 (JAKT/ANFALL)
+  AND enSeen AND past its per-type cadence — an undetected (PATROLL) enemy
+  NEVER fires, even with LOS beyond 6 cells.
+- Aggro on hit (6M FIX 3): any non-lethal player damage (projectile, axe
+  melee, mortar splash — all funnel through EnemyTakeHit) makes THAT enemy
+  JAKT immediately (enState=1, enLx/enLy=player, enLastSeen=Timer, ALERT sound
+  with the 0.5 s per-enemy enAlertT cooldown; general plays SND_ALERT_G).
+  Per-enemy only.
+
 ## SCHLESWIG 6D — aim, HUD panel, pickup colors, speeds, score model
 FIX A (aim, ONE source): after `angle = angle + mmx * mouseSens * speed` the
   dirX/dirY pair is recomputed from the SAME angle in the same frame
@@ -586,16 +601,74 @@ use & for key codes (kcn&). Replay test tokens "E<code>" inject raw overlay
 events (combat_replay_test.py scenario "e"). Keylog uses monotonic lifeFr&
 (frames resets each second for FPS).
 
-## SCHLESWIG 6K — sprite z-order (pickups behind pickups fixed)
-Root cause: pickups (amActive/wpActive/pkActive) were blitted in fixed index
-order with a per-column check only against wallDist — two sprites on the same
-sightline could paint over each other in the wrong order. Fix: ONE per-column
-sprite zbuffer sprDist(RW) initialized from wallDist before sprites; EVERY
-sprite type (pickups, weapon pickups, medkits, keys, enemies, projectiles,
-markers) tests each column against sprDist(x) and marks it via SprMark (which
-LOWERS sprDist(x) after the sprite) — back-to-front painter order across the
-whole sprite layer, nearest occludes. The viewmodel (gunBuf&) and the HUD are
-rendered LAST on top and are untouched by the zbuffer.
+## SCHLESWIG 6M — pre-release fixes (billboard occlusion, undetected fire, aggro-on-hit, fas14c gate)
+FIX 1 (fel.png — billboards occluded FULL screen columns): the 6K approach
+(SprMark lowering sprDist per drawn column) made a floor pickup hide
+everything in its columns, including a far enemy high above the small box.
+6M REMOVES inter-sprite sprDist marking entirely: sprDist(RW) is the WALL
+depth buffer only (init from wallDist, per-column clip unchanged). ALL
+billboards (medkits, ammo, keys, weapon pickups, enemies, balls, mortar
+shells) are projected into ONE visibility list (sbK/sbI/sbD!/rect arrays,
+~99 entries), depth-sorted far->near (bubble sort), and drawn in that order
+(painter's algorithm) — a nearer sprite overwrites a farther one with its
+ACTUAL pixels only (_PutImage keeps transparent margins; Line draws only the
+sprite's own rect). The enemy vis* arrays are rebuilt in draw order after the
+sort so the 6e-s5/6f-b probes keep working (6e-s5 still passes). Mortar
+telegraph rings, the cannon landing marker and the splash ring draw AFTER the
+billboards as floor decals (center-column clip vs sprDist, no sprDist writes).
+The viewmodel (gunBuf&) and the HUD are rendered LAST, untouched. Selftest
+phase 37 (6m-a): pixel-probes a pickup-in-front-of-far-enemy setup (enemy
+pixels ABOVE the pickup rect must exist, pixels inside the rect are the
+pickup color) + a wall-corner case still clips.
+FIX 2 (enemies fired without detecting the player): pass 1 set
+enSeen(i)=losOK at ANY distance, but only the PATROLL->JAKT transition was
+gated by the 6-cell detect range; the fire gate never checked enState, so an
+enemy with LOS beyond 6 cells (still PATROLL) shot. The fire gate now reads
+`If etShoot(...) > 0 And enSeen(i) And enState(i) >= 1 And Timer >= enFireT(i)`
+— an undetected enemy NEVER fires; once JAKT/ANFALL the per-type
+range/cadence applies unchanged. Selftest phase 38 (6m-b): officer at dist 8
+with clear LOS, PATROLL -> 0 projectiles across several fire intervals; same
+officer promoted to JAKT -> fires within range. 6e-b fixture updated (player
+next to the door, musketeer in fire range, promoted to JAKT) so the closed
+door — not the new state gate — is the only blocker it tests.
+FIX 3 (aggro-on-hit, André-approved): damaging an enemy reveals the player to
+THAT enemy. Implemented once in EnemyTakeHit — the single damage funnel for
+projectile hits, axe melee hits AND mortar splash — on non-lethal hits:
+enState(hitE)=1 (JAKT), enLx/enLy=player pos, enLastSeen=Timer, and the ALERT
+sound with the existing 0.5 s per-enemy cooldown (enAlertT; the general plays
+SND_ALERT_G). Per-enemy only — a hit does not reveal the player to others.
+Selftest phase 39 (6m-c): PATROLL foot beyond detect range hit by a real
+player ball -> enState=1 same frame + position/last-seen/alert armed; the
+un-hit second enemy stays PATROLL.
+FIX 4 (fas14c release gate): see the selftest note above — fixture-only fix
+(seed full musket magazine before the single-frame fireBtn).
+6M ENGINE FIX (found once fas14c unblocked phases 22+): the 6H reload tick
+charged the pool a FULL magazine (take2 = min(wpMag, ammoN)) even when the mag
+was partially full (R-reload path) — an 8-mag MG at 7/8 drained 8 from the
+pool for +1 round. Now the reload moves only the DEFICIT
+(take2 = wpMag - wpMagNow, clamped to the pool). Selftest 6b-e proves it.
+Masked 6H-era fixture fixes (the old fas14c stop at phase 14 hid all of these;
+all are fixture-only, engine paths were already proven by the replay suites):
+- 6b-e: arm both reload timers explicitly (6H has no auto-reload of a partial
+  mag; reload starts only on an empty-mag fire attempt or R) + pass count 4->5
+  (the reload check can now actually fire).
+- 6d-b: arm the musket reload the same way before asserting pool 12->11.
+- 6f-e: re-seed the musket mag between the three single-frame shots.
+- 5e-d ammo bot: self-contained weapon state (wpCur=WP_MUSKET + full mag — an
+  axe-swinging bot never spends pool 1), full mag at each LoadLevel, axe in
+  melee range (bd<1.3, no LOS needed — a point-blank ball whiffs forever since
+  it spawns at the player and the 0.35 hit radius is already behind it), seeded
+  Randomize, per-level timeout 40->150 s (6H reload cycle ~2.1 s/shot).
+Fixture-change log for 6M: fas14c setup (full-mag seed), 6e-b setup (player
+(7.5,8.5), musketeer (12.5,8.5) in fire band, enState=1), 6b-e/6d-b/6f-e/5e-d
+as above. 6e-a needed no change (its musketeer is at dist 4 < 6 and
+self-promotes to JAKT in pass 1).
+
+## SCHLESWIG 6K — sprite z-order (SUPERSEDED by 6M FIX 1)
+6K introduced the per-column sprite zbuffer sprDist + SprMark (every drawn
+sprite lowered sprDist in its columns). 6M removed SprMark again — see the
+6M section above: sprDist is wall-only, inter-sprite order is the unified
+painter-sorted billboard list.
 
 ## Viewmodel design note (5A-hotfix2)
 The viewmodel sits deliberately ~half a gun-width RIGHT of center
