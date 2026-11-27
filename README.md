@@ -1,9 +1,9 @@
 # SCHLESWIG
-### A retro raycaster set in 1676 Skåne, during the Danish siege.
+### A retro raycaster set in an alternative reality of Skåne, 1676.
 **v0.1.0-beta — Henpei Game Studios**
 
-Skåne, autumn 1676. The Danish army is at the walls. You have a musket,
-an axe, and a fortress to hold.
+Skåne, autumn 1676 — in an alternative reality. The Danish army is at the
+walls. You have a musket, an axe, and a fortress to hold.
 
 This beta contains the five-level campaign from The Outskirts to The
 Citadel: the core loop — explore, fight, find the bronze, silver and gold
