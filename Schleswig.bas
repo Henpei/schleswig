@@ -1,5 +1,5 @@
 ' ============================================================================
-' SCHLESWIG v0.1.0  -- raycaster-FPS i QB64-PE (Linux/Wayland)
+' SCHLESWIG v0.1.0-beta  -- raycaster-FPS i QB64-PE (Linux/Wayland)
 ' ============================================================================
 ' VAD: Wolfenstein/Doom-liknande raycaster (DDA) med titelmeny, mouselook (yaw),
 '      pitch via y-shearing, HP, medkit/ammo-pickups, skjutning (Fas 2; ingen
@@ -233,11 +233,11 @@ turnStep = 0.04
 mouseSens = 0.002
 Const pitchSens = 2
 ' Version (semver-light): MINOR = stor fas, PATCH = fix, 1.0.0 = fullständig spelarkrets.
-' Placering: git-tagg (v0.1.0) + denna rad + titelskärm-hörn + _Title.
-Const ver$ = "v0.1.0"
+' Placering: git-tagg (v0.1.0-beta) + denna rad + titelskärm-hörn + _Title.
+Const ver$ = "v0.1.0-beta"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "df579c9"
+Const strBuild$ = "fade532"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).

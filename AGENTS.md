@@ -3,9 +3,11 @@ Read this FIRST in every session, then follow it.
 
 ## Project
 QB64-PE raycaster game (Wayland-native). Source:
-schleswig/Schleswig.bas. Repo: Henpei/schleswig.
+Schleswig.bas (repo root). Repo: Henpei/schleswig.
 Working on: pre-release polish (6L-B cap visibility + starvation-zero
 L3-L5 ammo balance + full selftest suite gate before public release).
+Easter egg: type QTD while playing — KNOWN-BROKEN per captain's feel-test
+2026-11-27, queued for 0.2.0 (see "QTD easter egg" below + 0.2.0 backlog).
 
 ## Language rules (STRICT)
 - ALL commit messages: English.
@@ -22,18 +24,19 @@ L3-L5 ammo balance + full selftest suite gate before public release).
   SPACE is NOT a menu selector; menus select with E, mouse click works
   in parallel where applicable.
 
-## Build (CANONICAL workdir = /home/andre/Dokument/Projekt/schleswig — the repo root)
-  cd /home/andre/Dokument/Projekt/schleswig
-  /home/andre/QB64pe/qb64pe -c Schleswig.bas -o schleswig -x
-- The compiler binary lives at /home/andre/QB64pe/qb64pe — that is the
+## Build (CANONICAL workdir = the repo root)
+  cd <repo root>
+  qb64pe -c Schleswig.bas -o schleswig -x     (qb64pe = the QB64-PE compiler binary, on PATH or given as a full path)
+- The compiler binary lives in the QB64-PE installation — that is the
   COMPILER's home, NOT the project. Any build area next to the compiler
   installation is André's manual playground: agents must never read or
   write there.
 - MIGRATION LESSON (6G migration pass): NEVER assume a workdir — always read
   it from the task instructions or this AGENTS.md; the project can be moved
   by the user at any time.
-- BEFORE THE REPOSITORY BECOMES PUBLIC: generalize all machine-specific
-  paths (this section included) — absolute /home/ paths must not ship.
+- The repository is PUBLIC since v0.1.0-beta: all machine-specific paths
+  were generalized (this section included) — absolute /home/ paths must
+  never be re-introduced into shipped files.
 - Requirement: exit code 0. Shell is FISH: check
   $status, not $?.
 - Compile errors land in internal/temp/compilelog.txt,
@@ -121,6 +124,14 @@ L3-L5 ammo balance + full selftest suite gate before public release).
   vCurX/vCurY, MoveVirtualCursor, ButtonHit%,
   DrawCursor, cursorBuf&.
 
+## 0.2.0 backlog (opens right after the v0.1.0-beta release)
+- QTD — investigate what's wrong and fix (known-broken in real play per
+  captain's 2026-11-27 feel-test; see "QTD easter egg" above).
+- MAP-BRIEF.md — the map module, fully specced (corner minimap + M-map).
+- AI asymmetry + balance (the aggro-on-hit base from 6M/fade532 is the
+  foundation; difficulty tuning belongs here — captain notes the Danes are
+  hard, intended for now).
+
 ## Map format (.map) — Fas 5A / 5A-hotfix2
 Load a map: `./schleswig path/to/map.map`. NO arg = `maps/default.map`
 — the shipped 64x64 TEST ARENA (sealed border, 20x20 center room with a mid
@@ -183,7 +194,7 @@ the arg as-is, then "schleswig/" + arg (fallback for other exe locations).
 Works from any shell cwd:
   ./schleswig maps/test64.map     (from the canonical repo root)
 No arg -> maps/default.map. Build/run from the canonical workdir
-(/home/andre/Dokument/Projekt/schleswig) — see the Build section above.
+(the repo root) — see the Build section above.
 mapRow$ is THE single map grid — every read goes via CellAt$/Solid%/OpenCell%.
 LoadMapAuto always runs before the first render frame.
 
@@ -366,12 +377,15 @@ Viewmodels: gunBuf&(WP_COUNT) — ONE procedural sprite buffer per weapon
 (wpRecoil!) and shake (wpShake!): axe swing, blunderbuss wide kick, MG small
 quick kicks, cannon heavy screen shake.
 
-## QTD easter egg (6A — PERMANENT official joke feature)
+## QTD easter egg (6A — PERMANENT official joke feature) — KNOWN-BROKEN, queued for 0.2.0
 Type "qtd" on the keyboard while playing (last-3-keys buffer qtdBuf$) ->
 quantum mode for qtdDur! = 60 s: HUD message "QUANTUM MODE ENGAGED —
 danskarnas osäkerhetsprincip är DIN", enemy dodge rolls get x3 threshold and
 the dodge becomes an instant sideways TELEPORT (the normal dodge is a glide —
 see below). Auto-off after 60 s. Documented here as a permanent feature.
+STATUS 2026-11-27 (captain's feel-test): does NOT trigger reliably in real
+play (works via injected selftest/replay input). Known-broken — do not
+document as working in player-facing docs; fix queued for 0.2.0.
 
 ## Dodge = glide, not teleport (6A)
 EnemyDodge now sets a glide target (enDodgeSX!/SY! -> TX!/TY!, 0.2 s) instead
