@@ -51,6 +51,10 @@ L3-L5 ammo balance + full selftest suite gate before public release).
   → ALL phases must PASS, log:
   /tmp/schleswig_selftest.log
 - Report exactly: "SELFTEST OK, n PASS / 0 FAIL".
+- KNOWN PRE-EXISTING FAILURE (not a timing flake; observed identical on
+  4552e33 and e93da7b, so NOT introduced by 6L-B): fas14c-dodge fails with
+  "seeded shot never landed: enHP=6 ammoN(1)=0" and the suite stops there.
+  Known timing flakes: fas15a, 6e-c, 5e-d — document, do not "fix".
 
 ## Every pass (workflow)
 1. Read this file + the prompt.
@@ -265,13 +269,20 @@ Pickup chars: A=+10 typ1, B=+4 typ2, C=+12 typ3, D=+2 typ4 (capped).
 truncation -> "+<actual gain> <NAME> AMMO (FULL: +<lost> lost)"; normal pickup
 without truncation -> the unchanged 6L message (always the pickup's amount).
 6C real maps (measured char counts, selftest 6b-f re-proves >= principle):
-level01 A x3 M x1; level02 A x3 B x3 M x2; level03 A/B/C x2 M x2;
-level04 A/B/C/D x2 M x2; level05 A/B/C x1 D x3 M x2 — every level carries
-ammo for ALL weapons ownable at that point (L1 A / L2 A+B / L3 A+B+C /
-L4 A+B+C+D / L5 D-rich + A+B+C+M). (The old 5E placeholder counts 1/2/2/3/4
-A-cells are superseded by the real maps.) 6H STEG 5 audit added A-pickups on
-L3 (+2 near 'k'), L4 (+4: near 'c' x2, row 19, row 55), L5 (+2) after the
-audit bot showed pool-A starvation on L3-L5.
+level01 A x3 M x1; level02 A x3 B x3 M x2; level03 A x5 B x2 C x2 M x2;
+level04 A x6 B x1 C x2 D x1 M x2; level05 A x4 B x1 C x1 D x3 M x2 — every
+level carries ammo for ALL weapons ownable at that point (L1 A / L2 A+B /
+L3 A+B+C / L4 A+B+C+D / L5 D-rich + A+B+C+M). (The old 5E placeholder counts
+1/2/2/3/4 A-cells are superseded by the real maps.) 6H STEG 5 audit added
+A-pickups on L3/L4/L5 after the audit bot showed pool-A starvation; 6L-B
+PART 2 (starvation-zero) added +1 A at (32,58) — the start corridor the bot
+walks over from S=(32,59) — on L3/L4/L5 (L4: also removed A(57,30)/B(57,34),
+which the spAmN<10 spawn cap silently dropped, and one redundant D(19,52),
+so the new A stays within the 10-pickup cap). Audit x2 after the change:
+L3/L4/L5 poolMin A = 8..28, starveEvents = 0 on all levels.
+NOTE: the ammo spawn pool caps at 10 per map (spAmN < 10 in ParseMap) —
+ammo chars beyond the first 10 in row-major order are normalized but never
+spawn; keep per-map ammo char count <= 10.
 
 ## Weapon system (6A) — data-driven register
 Same pattern as the enemy register (InitEnemyTypes -> InitWeapons fills
