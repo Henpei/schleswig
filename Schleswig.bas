@@ -113,6 +113,14 @@ DIM c36ok, c36s, c36j, c36exp!, c36got!   ' Fas 36 (6G 6g-e) FaceNearestEnemy se
 DIM c37okA, c37okB, c37okC, c37j, c37above&, c37in&, c37wall&, c37msg$   ' Fas 37 (6M 6m-a) unified-billboard z-order pixel-probe vars
 DIM c38j, c38pr0   ' Fas 38 (6M 6m-b) undetected-enemy-never-fires selftest vars
 DIM c39j, c39hit, c39ok   ' Fas 39 (6M 6m-c) aggro-on-hit selftest vars
+DIM c40i, c40x, c40y, c40sol, c40ok, c40maps$(5), c40exp(5)   ' Fas 40 (0.2.0-a 7a-map-parse) vars
+DIM c41i, c41s, c41ok, c41done, c41w&, c41p&, c41x0, c41x1, c41y0, c41y1, c41maps$(5)   ' Fas 41 (7b-minimap bounds+render, all maps) vars
+DIM c42s, c42ok, c42done, c42w&, c42u&, c42v&, c42vN, c42vPrev, c42step   ' Fas 42 (7c-fog-of-war monotonic) vars
+DIM c43key$, c43s, c43ok, c43done, c43f&, c43m&, c43pr0, c43exp   ' Fas 43 (7d-M-toggle state machine) vars
+DIM c44j, c44s, c44bad, c44ok, c44seed&, c44losWall   ' Fas 44 (0.2.0 W1 wall-clip investigation) vars
+DIM visitedN, visitedStamp, doorStamp   ' 0.2.0-a fog-of-war visited counter + cache stamps (visited% itself is DIM'd next to doorOpen%, after Const MAP_MAX)
+DIM mapFogBuf&, fogBufHash&, fogBufCs, fogBufDoor, fogBufVis, bufCs, bux, buy, bch$, bc$, bc2&   ' 0.2.0-a cached fog layer buffer
+DIM mmx, mmy, mmcs, mmx0, mmy0, mmw, mmh, mmpx, mmps, mmkDown, mapFull, mapKeyPrev, mmx1, mmy1, fmCs, fmX0, fmY0, fxx, fyy   ' 0.2.0-a map module: minimap/full-map draw vars (QB64 is case-insensitive: mmcs == mmCs)
 DIM feI, feD!, feA!, feFound, feDx!, feDy!, feDD!   ' FaceNearestEnemy (6G FIX 5) egna variabler (GOSUB/label-delad scope)
 DIM c27bg&(2047, 1299)               ' 6f-a: background capture of the sprite rect, world without the enemy (static — REDIM in main flow = "Duplicate definition" in this build; 2048x1300 covers the dist-4 FOOT rect on up to 4K)
 ' Fas 2.5: meny-knapp + ljud + fade-overgang. Knapptext = riktig TTF-font ~2x
@@ -190,6 +198,7 @@ Const MAP_MAX = 128
 DIM SHARED mapRow$(MAP_MAX - 1)
 DIM SHARED mapW, mapH
 DIM SHARED doorOpen%(MAP_MAX - 1, MAP_MAX - 1)
+DIM visited%(MAP_MAX - 1, MAP_MAX - 1)   ' 0.2.0-a fog-of-war: visited cell set (monotonic, reset in ParseMap)
 DIM mapSrc$(MAP_MAX - 1), mapTmp$(MAP_MAX - 1)
 DIM spEnT(10), spEnX(10), spEnY(10), spEnN     ' Fas 5A: enemy spawns from map (F/O/U/K/G)
 DIM spPkX(10), spPkY(10), spPkN                 ' medkits (M)
@@ -237,7 +246,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0-beta"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "fade532"
+Const strBuild$ = "9baf101"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -755,6 +764,8 @@ Do
     If selftest And (testPhase = 24 Or testPhase = 25) And c24key$ <> "" Then k$ = c24key$
     ' 6E fas26: key injection (w för sprint-testet)
     If selftest And testPhase = 26 And c26key$ <> "" Then k$ = c26key$
+    ' 0.2.0-a fas43: one-shot M-key injection for the full-map toggle (cleared on use)
+    If selftest And testPhase = 43 And c43key$ <> "" Then k$ = c43key$: c43key$ = ""
     ' 6G FIX 1/2: replay-mode — apply due script tokens THIS frame (same place the selftest
     ' injects k$, so menus/weapon-keys use the real event path and movement uses KeyDown2%)
     If replayMode Then
@@ -1389,6 +1400,7 @@ Do
                 If doorOpen%(doorCX, doorCY) = 0 Then
                     If doorCh$ = "d" Then
                         doorOpen%(doorCX, doorCY) = 1
+                        doorStamp = doorStamp + 1   ' 0.2.0-a: fog-layer cache invalidation
                         hpMsg$ = strDoorOpen$: hpMsgTime = Timer
                         PlaySound SND_HIT
                     Else
@@ -1404,6 +1416,7 @@ Do
                             PlaySoundVol SND_HIT, 0.3
                         Else
                             doorOpen%(doorCX, doorCY) = 1
+                            doorStamp = doorStamp + 1   ' 0.2.0-a: fog-layer cache invalidation
                             hpMsg$ = strDoorOpen$: hpMsgTime = Timer
                             PlaySound SND_HIT
                         End If
@@ -1517,6 +1530,10 @@ Do
                 hpMsg$ = "RELOADING": hpMsgTime = Timer
             End If
         End If
+        ' 0.2.0-a: M = toggle full-map overlay (game keeps running, not paused). Edge-triggered via mapKeyPrev.
+        mmkDown = KeyDown2%(Asc("M")) Or (replayMode And (k$ = "m" Or k$ = "M")) Or (selftest And (k$ = "m" Or k$ = "M"))
+        If mmkDown And mapKeyPrev = 0 Then mapFull = 1 - mapFull
+        mapKeyPrev = mmkDown
         ' 6H STEG 5 audit-bot: rörelse/sikte/vapen sätts här (före rörelseblocket);
         ' auFire kopplas in efter mus-läsningen nedan.
         If auditMode Then Gosub AuditBot
@@ -1564,6 +1581,15 @@ Do
     ' Fas 4: fotsteg spelare — var 0.5 cell gångavstånd (rytm følger hastigheten)
     stepAcc = stepAcc + Sqr((px - ox) ^ 2 + (py - oy) ^ 2)
     If stepAcc >= 0.5 Then stepAcc = 0: PlaySound SND_STEP
+
+    ' 0.2.0-a fog-of-war: cells within radius 2 of the player become visited (monotonic set)
+    For fyy = Int(py) - 2 To Int(py) + 2
+        For fxx = Int(px) - 2 To Int(px) + 2
+            If fxx >= 0 And fxx < mapW And fyy >= 0 And fyy < mapH Then
+                If visited%(fxx, fyy) = 0 Then visited%(fxx, fyy) = 1: visitedN = visitedN + 1: visitedStamp = visitedStamp + 1
+            End If
+        Next fxx
+    Next fyy
 
     If selftest Then
         ' Fas 3 autoplay/selftest: scriptad input istället för riktig mus/tangentbord
@@ -3273,6 +3299,26 @@ Do
         If fs > 60 Then fs = 60
         Line (RW \ 2 - fs, RH \ 2 - fs)-(RW \ 2 + fs, RH \ 2 + fs), _RGB32(255, 220, 80), BF   ' 6F FIX B: crosshair FAST i skärmens mitt — pitch flyttar världen, inte siktet
     End If
+    ' 0.2.0-a map module: corner minimap (always in playing) / M full-map — over world+HUD, before fade/_Display
+    Gosub DrawMapOverlay
+    ' 0.2.0-a selftest pixel-probes: Point on display& AFTER the map, before _Display
+    If selftest And testPhase = 41 And testFlag >= 1 And testFlag <= 6 And c41s = 1 Then
+        c41w& = Point(mmx0 + 1, mmy0 + 1)
+        c41p& = Point(mmx0 + Int(px) * mmcs, mmy0 + Int(py) * mmcs + mmcs - 1)   ' dot corner, not center: the white facing tick crosses the center pixel
+        c41x0 = mmx0: c41x1 = mmx1: c41y0 = mmy0: c41y1 = mmy1
+        c41done = 1
+    End If
+    If selftest And testPhase = 42 And testFlag = 1 Then
+        c42w& = Point(mmx0 + 6 * mmcs + mmcs \ 2, mmy0 + 5 * mmcs + mmcs \ 2)   ' wall (6,5): visited from start at (7,4)
+        c42u& = Point(mmx0 + 0 * mmcs + mmcs \ 2, mmy0 + 0 * mmcs + mmcs \ 2)   ' wall (0,0): never visited in this phase
+        c42v& = Point(mmx0 + 5 * mmcs + mmcs \ 2, mmy0 + 10 * mmcs + mmcs \ 2)  ' wall (5,10): visited only after the move to row 12
+        c42done = 1
+    End If
+    If selftest And testPhase = 43 And c43s >= 1 Then
+        c43f& = Point(fmX0 + 1, fmY0 + 1)
+        c43m& = Point(mmx0 + 1, mmy0 + 1)
+        c43done = 1
+    End If
     ' fade-in: svart overlay över spelet, FÖRE _Display (ritordningsregeln)
     If fading = 2 Then
         fa = (Timer - fadeT0) / 0.4
@@ -4404,6 +4450,7 @@ ParseMap:
     mapW = mw2: mapH = srcN
     REDIM mapRow$(mapH - 1)
     REDIM doorOpen%(mapW - 1, mapH - 1)
+    REDIM visited%(mapW - 1, mapH - 1)   ' 0.2.0-a: fog-of-war reset per map
     REDIM bfsD(mapW - 1, mapH - 1)
     REDIM qx(mapW * mapH - 1)
     REDIM qy(mapW * mapH - 1)
@@ -4420,8 +4467,10 @@ ParseMap:
     For yy = 0 To mapH - 1
         For xx = 0 To mapW - 1
             doorOpen%(xx, yy) = 0
+            visited%(xx, yy) = 0   ' 0.2.0-a: fog-of-war reset per map
         Next xx
     Next yy
+    visitedN = 0: visitedStamp = visitedStamp + 1
     plStartX = tStartX: plStartY = tStartY
     mapWarn$ = ""
     If spEnN = 0 Then mapWarn$ = "map has no enemy spawns (F/O/U/K/G) — wave fill only"
@@ -4439,6 +4488,7 @@ ParseMap:
 LoadMapAuto:
     loadedMapFile$ = ""
     loadFatal = 0: mapValid = 0: fatalMsg$ = "": errRow = 0: errCol = 0: mapWarn$ = ""
+    mapFull = 0   ' 0.2.0-a: a map change always closes the full-map overlay (no stuck state)
     If Len(mapFile$) = 0 Then mapFile$ = "maps/default.map"
     If _FileExists(mapFile$) Then
         lmPath$ = mapFile$
@@ -5145,6 +5195,70 @@ C22Path:
         If c22found = 0 Then c22pathN = 0: Return
     Wend
     c22found = 1
+    Return
+
+' 0.2.0-a map module (MAP-BRIEF): corner minimap always on in playing + M toggles the
+' full map. Source of truth = the SAME parsed grid (mapRow$) as collision; fog-of-war
+' draws only visited cells, unknown/unvisited = never drawn (no guesses). No enemy dots,
+' no item dots in v1. Full map adds the level tag. Game is NOT paused while the map is open.
+' Dedicated loop vars (mm*/bux/buy/fxx/fyy) per the GOSUB shared-scope rule.
+DrawMapOverlay:
+    If mapFull Then
+        fmCs = (RW - 120) \ mapW: If (RH - 120) \ mapH < fmCs Then fmCs = (RH - 120) \ mapH
+        If fmCs < 2 Then fmCs = 2
+        If fmCs > 12 Then fmCs = 12
+        mmw = mapW * fmCs: mmh = mapH * fmCs
+        fmX0 = (RW - mmw) \ 2: fmY0 = (RH - mmh) \ 2
+        Line (0, 0)-(RW - 1, RH - 1), _RGBA32(0, 0, 0, 170), BF
+        Line (fmX0 - 6, fmY0 - 6)-(fmX0 + mmw + 5, fmY0 + mmh + 5), _RGB32(16, 16, 22), BF
+        Line (fmX0 - 6, fmY0 - 6)-(fmX0 + mmw + 5, fmY0 + mmh + 5), _RGB32(200, 200, 200), B
+        mmcs = fmCs: mmx0 = fmX0: mmy0 = fmY0
+        Color _RGB32(230, 230, 230)
+        _PrintString (fmX0, fmY0 - 20), HudLevelTag$ + "  (M = close)"
+    Else
+        mmcs = 160 \ mapW: If 160 \ mapH < mmcs Then mmcs = 160 \ mapH
+        If mmcs < 1 Then mmcs = 1
+        If mmcs > 4 Then mmcs = 4
+        mmw = mapW * mmcs: mmh = mapH * mmcs
+        mmx0 = RW - mmw - 8: mmy0 = 8
+        Line (mmx0 - 3, mmy0 - 3)-(mmx0 + mmw + 2, mmy0 + mmh + 2), _RGBA32(0, 0, 0, 150), BF
+        Line (mmx0 - 3, mmy0 - 3)-(mmx0 + mmw + 2, mmy0 + mmh + 2), _RGB32(120, 120, 120), B
+        fmCs = mmcs: fmX0 = mmx0: fmY0 = mmy0
+    End If
+    mmx1 = mmx0 + mmw + 2: mmy1 = mmy0 + mmh + 2   ' outer border rect (selftest probes read these)
+    ' cached fog layer: rebuild only on map/door/visited/cell-size change, else one blit per frame
+    If mapFogBuf& = 0 Or fogBufHash& <> mapHash& Or fogBufCs <> mmcs Or fogBufDoor <> doorStamp Or fogBufVis <> visitedStamp Then
+        bufCs = mmcs: Gosub BuildMapFogBuf
+    End If
+    _PutImage (mmx0, mmy0)-(mmx0 + mmw - 1, mmy0 + mmh - 1), mapFogBuf&
+    ' player: blue block + facing tick (MAP-BRIEF v1: no enemy/item dots)
+    mmpx = mmx0 + Int(px) * mmcs: mmps = mmy0 + Int(py) * mmcs
+    Line (mmpx, mmps)-(mmpx + mmcs - 1, mmps + mmcs - 1), _RGB32(0, 120, 255), BF
+    Line (mmpx + mmcs \ 2, mmps + mmcs \ 2)-(mmpx + mmcs \ 2 + Int(Cos(angle) * mmcs), mmps + mmcs \ 2 + Int(Sin(angle) * mmcs)), _RGB32(255, 255, 255)
+    Return
+
+' BuildMapFogBuf: renders the visited wall/door layer into mapFogBuf& at cell size bufCs.
+BuildMapFogBuf:
+    If mapFogBuf& <> 0 Then _FreeImage mapFogBuf&
+    mapFogBuf& = _NewImage(mapW * bufCs, mapH * bufCs, 32)
+    _Dest mapFogBuf&
+    Line (0, 0)-(mapW * bufCs - 1, mapH * bufCs - 1), _RGB32(8, 8, 12), BF
+    For buy = 0 To mapH - 1
+        bch$ = mapRow$(buy)
+        For bux = 0 To mapW - 1
+            If visited%(bux, buy) Then
+                bc$ = Mid$(bch$, bux + 1, 1)
+                If WallChar%(bc$) Then
+                    Line (bux * bufCs, buy * bufCs)-((bux + 1) * bufCs - 1, (buy + 1) * bufCs - 1), _RGB32(180, 180, 180), BF
+                ElseIf DoorChar%(bc$) Then
+                    If doorOpen%(bux, buy) Then bc2& = _RGB32(0, 200, 0) Else bc2& = _RGB32(230, 200, 0)
+                    Line (bux * bufCs, buy * bufCs)-((bux + 1) * bufCs - 1, (buy + 1) * bufCs - 1), bc2&, BF
+                End If
+            End If
+        Next bux
+    Next buy
+    _Dest display&
+    fogBufHash& = mapHash&: fogBufCs = bufCs: fogBufDoor = doorStamp: fogBufVis = visitedStamp
     Return
 
 ' SelftestDrive: scriptat autoplay-scenario (endast när selftest=1).
@@ -12083,7 +12197,353 @@ SelftestDrive:
                 winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
                 runT0 = Timer - 3
                 state$ = "playing"
-                testPhase = 12: testT0 = Timer: testFlag = 0
+                testPhase = 40: testT0 = Timer: testFlag = 0   ' 0.2.0-a: chain continues into the map-module phases
+            End If
+        Case 40  ' 0.2.0-a 7a-map-parse: all six shipped maps (level01-05 + test64) through the REAL
+                 ' LoadMapAuto/ParseMap path: mapValid=1, mapBadN=0, 64x64, exactly one S, exact solid count
+            If testFlag = 0 Then
+                c40maps$(0) = "maps/level01.map": c40maps$(1) = "maps/level02.map": c40maps$(2) = "maps/level03.map"
+                c40maps$(3) = "maps/level04.map": c40maps$(4) = "maps/level05.map": c40maps$(5) = "maps/test64.map"
+                c40exp(0) = 2268: c40exp(1) = 2236: c40exp(2) = 2192: c40exp(3) = 2173: c40exp(4) = 2229: c40exp(5) = 327
+                c40ok = 0
+                For c40i = 0 To 5
+                    mapFile$ = c40maps$(c40i): Gosub LoadMapAuto
+                    c40sol = 0
+                    If mapValid = 1 Then
+                        For c40y = 0 To mapH - 1
+                            For c40x = 0 To mapW - 1
+                                If Solid%(c40x, c40y) Then c40sol = c40sol + 1
+                            Next c40x
+                        Next c40y
+                    End If
+                    If mapValid = 1 And mapBadN = 0 And mapW = 64 And mapH = 64 And nStartS = 1 And c40sol = c40exp(c40i) Then
+                        c40ok = c40ok + 1
+                        stMsg$ = "PASS 7a-map-parse " + c40maps$(c40i) + " (64x64, 1 S, solids=" + Str$(c40sol) + ", mapBadN=0)"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL 7a-map-parse " + c40maps$(c40i) + " mapValid=" + Str$(mapValid) + " mapBadN=" + Str$(mapBadN) + " mapW=" + Str$(mapW) + " mapH=" + Str$(mapH) + " nStartS=" + Str$(nStartS) + " solids=" + Str$(c40sol) + " exp=" + Str$(c40exp(c40i))
+                        Gosub STLog
+                    End If
+                Next c40i
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns   ' restore the selftest map
+                If c40ok = 6 Then
+                    stMsg$ = "PASS 7a-map-parse-counts (all 6 shipped maps via LoadMapAuto: 64x64, exactly one S, exact solids 2268/2236/2192/2173/2229/327, mapBadN=0)"
+                    Gosub STLog
+                    testPhase = 41: testT0 = Timer: testFlag = 0
+                Else
+                    stMsg$ = "FAIL 7a-map-parse-counts ok=" + Str$(c40ok) + "/6"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+        Case 41  ' 0.2.0-a 7b-minimap-bounds-render: per shipped map (fully explored), the corner
+                 ' minimap rect stays inside the screen and pixel-probes show gray wall cell + blue player dot
+            If testFlag = 0 Then
+                c41maps$(0) = "maps/level01.map": c41maps$(1) = "maps/level02.map": c41maps$(2) = "maps/level03.map"
+                c41maps$(3) = "maps/level04.map": c41maps$(4) = "maps/level05.map": c41maps$(5) = "maps/test64.map"
+                c41ok = 0: c41s = 0
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag >= 1 And testFlag <= 6 Then
+                If c41s = 0 Then
+                    mapFile$ = c41maps$(testFlag - 1): Gosub LoadMapAuto
+                    For c40y = 0 To mapH - 1
+                        For c40x = 0 To mapW - 1
+                            visited%(c40x, c40y) = 1   ' fully explored for this render test
+                        Next c40x
+                    Next c40y
+                    visitedN = mapW * mapH: visitedStamp = visitedStamp + 1
+                    For c39j = 0 To 10: enActive(c39j) = 0: Next c39j
+                    For c39j = 0 To PR_MAX: prActive(c39j) = 0: Next c39j
+                    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    mapFull = 0: mapKeyPrev = 0
+                    state$ = "playing"
+                    c41done = 0: c41s = 1: testT0 = Timer
+                ElseIf c41s = 1 Then
+                    If c41done = 1 Then
+                        c40sol = 1
+                        If c41x0 < 0 Or c41y0 < 0 Or c41x1 >= RW Or c41y1 >= RH Then c40sol = 0
+                        If c40sol = 1 And _Red32(c41w&) = 180 And _Green32(c41w&) = 180 And _Blue32(c41w&) = 180 And _Red32(c41p&) = 0 And _Green32(c41p&) = 120 And _Blue32(c41p&) = 255 Then
+                            c41ok = c41ok + 1
+                            stMsg$ = "PASS 7b-minimap " + c41maps$(testFlag - 1) + " (rect " + Str$(c41x0) + "," + Str$(c41y0) + "-" + Str$(c41x1) + "," + Str$(c41y1) + " inside " + Str$(RW) + "x" + Str$(RH) + ", wall gray, player dot blue)"
+                            Gosub STLog
+                        Else
+                            stMsg$ = "FAIL 7b-minimap " + c41maps$(testFlag - 1) + " rect=" + Str$(c41x0) + "," + Str$(c41y0) + "-" + Str$(c41x1) + "," + Str$(c41y1) + " RW=" + Str$(RW) + " RH=" + Str$(RH) + " w=" + Str$(c41w&) + " p=" + Str$(c41p&)
+                            Gosub STLog
+                            stMsg$ = "SELFTEST FAIL"
+                            Gosub STLog
+                            ShutdownSound
+                            End
+                        End If
+                        testFlag = testFlag + 1: c41s = 0: testT0 = Timer
+                    ElseIf Timer - testT0 > 5 Then
+                        stMsg$ = "FAIL 7b-minimap-timeout map=" + c41maps$(testFlag - 1)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+            End If
+            If testFlag = 7 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                If c41ok = 6 Then
+                    stMsg$ = "PASS 7b-minimap-bounds-render (all 6 shipped maps: minimap rect inside screen, wall cell gray, player dot blue)"
+                    Gosub STLog
+                    testPhase = 42: testT0 = Timer: testFlag = 0
+                Else
+                    stMsg$ = "FAIL 7b-minimap-bounds-render ok=" + Str$(c41ok) + "/6"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+        Case 42  ' 0.2.0-a 7c-fog-of-war: visited set only GROWS (monotonic), unvisited walls are not
+                 ' drawn, visited walls are; a short scripted walk must not crash or shrink the set
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                For c39j = 0 To 10: enActive(c39j) = 0: Next c39j
+                For c39j = 0 To PR_MAX: prActive(c39j) = 0: Next c39j
+                enX(0) = 14.5: enY(0) = 14.5: enActive(0) = 1: enType(0) = ET_FOOT   ' dummy keeps the win trigger off
+                enHP(0) = etHP(ET_FOOT): enDmg(0) = etDmg(ET_FOOT): enSpd(0) = 0
+                enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                px = 7.5: py = 4.5: angle = 0: pitch = 0: hp = 100
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                mapFull = 0: mapKeyPrev = 0
+                state$ = "playing"
+                c42s = 0: c42ok = 0: c42done = 0: c42step = 0: c42vPrev = 0
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                If c42s = 0 Then
+                    If c42done = 1 And Timer - testT0 > 0.1 Then
+                        ' at (7,4) the radius-2 mark covers exactly 25 cells (5x5, none clipped)
+                        If visitedN = 25 Then c42ok = c42ok + 1
+                        ' unvisited wall (0,0) NOT gray; visited wall (6,5) gray; (5,10) not yet visited
+                        If Not (_Red32(c42u&) = 180 And _Green32(c42u&) = 180 And _Blue32(c42u&) = 180) Then c42ok = c42ok + 1
+                        If _Red32(c42w&) = 180 And _Green32(c42w&) = 180 And _Blue32(c42w&) = 180 Then c42ok = c42ok + 1
+                        If Not (_Red32(c42v&) = 180 And _Green32(c42v&) = 180 And _Blue32(c42v&) = 180) Then c42ok = c42ok + 1
+                        c42vPrev = visitedN: c42s = 1: px = 3.5: py = 12.5: testT0 = Timer   ' jump to open row 12
+                    End If
+                ElseIf c42s = 1 Then
+                    If c42done = 1 And Timer - testT0 > 0.1 Then
+                        If visitedN > c42vPrev Then c42ok = c42ok + 1   ' set grew after the move
+                        If _Red32(c42v&) = 180 And _Green32(c42v&) = 180 And _Blue32(c42v&) = 180 Then c42ok = c42ok + 1   ' (5,10) now visited -> drawn
+                        If Not (_Red32(c42u&) = 180 And _Green32(c42u&) = 180 And _Blue32(c42u&) = 180) Then c42ok = c42ok + 1   ' (0,0) still hidden
+                        c42vPrev = visitedN: c42s = 2: c42step = 0: testT0 = Timer
+                    End If
+                ElseIf c42s = 2 Then
+                    If visitedN < c42vPrev Then
+                        stMsg$ = "FAIL 7c-fog-shrunk visitedN=" + Str$(visitedN) + " prev=" + Str$(c42vPrev)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                    c42vPrev = visitedN
+                    If c42step = 0 And Timer - testT0 > 0.2 Then px = 8.5: py = 12.5: c42step = 1: testT0 = Timer
+                    If c42step = 1 And Timer - testT0 > 0.2 Then px = 13.5: py = 12.5: c42step = 2: testT0 = Timer
+                    If c42step = 2 And Timer - testT0 > 0.2 Then px = 13.5: py = 1.5: c42step = 3: testT0 = Timer
+                    If c42step = 3 And Timer - testT0 > 0.5 Then
+                        If c42ok = 7 Then
+                            stMsg$ = "PASS 7c-fog-of-war (visited set monotonic across a 4-stop walk: 25 cells at start, grew on every move, unvisited wall (0,0) never drawn, visited walls gray, no crash)"
+                            Gosub STLog
+                            testPhase = 43: testT0 = Timer: testFlag = 0
+                        Else
+                            stMsg$ = "FAIL 7c-fog ok=" + Str$(c42ok) + "/7 visitedN=" + Str$(visitedN)
+                            Gosub STLog
+                            stMsg$ = "SELFTEST FAIL"
+                            Gosub STLog
+                            ShutdownSound
+                            End
+                        End If
+                    End If
+                End If
+                If Timer - testT0 > 30 Then
+                    stMsg$ = "FAIL 7c-fog-timeout s=" + Str$(c42s) + " step=" + Str$(c42step) + " ok=" + Str$(c42ok)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+        Case 43  ' 0.2.0-a 7d-M-toggle: M edge-toggles mapFull through repeated presses (1,0,1,0,1),
+                 ' the full map renders while combat continues (JAKT officer fires with map open),
+                 ' and a map change (LoadMapAuto) closes the overlay — no stuck state
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                For c39j = 0 To 10: enActive(c39j) = 0: Next c39j
+                For c39j = 0 To PR_MAX: prActive(c39j) = 0: Next c39j
+                px = 2.5: py = 12.5: angle = 0: pitch = 0: hp = 100
+                For c40y = 0 To mapH - 1
+                    For c40x = 0 To mapW - 1
+                        visited%(c40x, c40y) = 1
+                    Next c40x
+                Next c40y
+                visitedN = mapW * mapH: visitedStamp = visitedStamp + 1
+                enX(0) = 10.5: enY(0) = 12.5: enActive(0) = 1: enType(0) = ET_OFFICER   ' JAKT, fires while map open
+                enHP(0) = etHP(ET_OFFICER): enDmg(0) = etDmg(ET_OFFICER): enSpd(0) = 0
+                enState(0) = 1: enLastSeen(0) = Timer: enLx(0) = px: enLy(0) = py
+                enFireT(0) = Timer - 0.5: enZigT(0) = Timer + 99: enAlertT(0) = -99
+                enTx(0) = 10: enTy(0) = 12: enPatrolT(0) = Timer + 99
+                enX(1) = 14.5: enY(1) = 14.5: enActive(1) = 1: enType(1) = ET_FOOT   ' dummy keeps the win trigger off
+                enHP(1) = etHP(ET_FOOT): enDmg(1) = etDmg(ET_FOOT): enSpd(1) = 0
+                enState(1) = 0: enFireT(1) = Timer + 99: enZigT(1) = Timer + 99
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                mapFull = 0: mapKeyPrev = 0: c43key$ = ""
+                c43pr0 = projEnemySpawned
+                state$ = "playing"
+                c43s = 0: c43ok = 0: c43done = 0
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag = 1 Then
+                If c43s <= 8 And c43s Mod 2 = 0 Then
+                    ' send tap number c43s/2
+                    If Timer - testT0 > 0.25 Then c43key$ = "m": c43s = c43s + 1: testT0 = Timer
+                ElseIf c43s <= 9 And c43s Mod 2 = 1 Then
+                    c43exp = 1 - (((c43s - 1) \ 2) Mod 2)   ' expected mapFull after this tap: 1,0,1,0,1
+                    If mapFull = c43exp Then
+                        c43ok = c43ok + 1
+                        If c43exp = 1 And c43s = 1 And c43done = 1 Then
+                            If _Red32(c43f&) = 180 And _Green32(c43f&) = 180 And _Blue32(c43f&) = 180 Then c43ok = c43ok + 1   ' full map rendered (wall gray at fm coords)
+                        End If
+                        If c43exp = 0 And c43s = 3 And c43done = 1 Then
+                            If _Red32(c43m&) = 180 And _Green32(c43m&) = 180 And _Blue32(c43m&) = 180 Then c43ok = c43ok + 1   ' minimap back (wall gray at mm coords)
+                        End If
+                        c43s = c43s + 1: testT0 = Timer
+                    ElseIf Timer - testT0 > 3 Then
+                        stMsg$ = "FAIL 7d-M-toggle-stuck s=" + Str$(c43s) + " mapFull=" + Str$(mapFull) + " exp=" + Str$(c43exp)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c43s = 10 Then
+                    ' 5 taps done (mapFull=1): combat must have continued while the map was open
+                    If projEnemySpawned > c43pr0 Then c43ok = c43ok + 1
+                    mapFile$ = selftestMap$: Gosub LoadMapAuto   ' map change must close the overlay
+                    If mapFull = 0 Then c43ok = c43ok + 1
+                    If c43ok = 9 Then
+                        stMsg$ = "PASS 7d-M-toggle (5 edge-taps -> mapFull 1,0,1,0,1 with full-map/minimap pixel probes, officer fired while map open (proj+=" + Str$(projEnemySpawned - c43pr0) + "), LoadMapAuto closed the overlay: no stuck state)"
+                        Gosub STLog
+                        testPhase = 44: testT0 = Timer: testFlag = 0
+                    Else
+                        stMsg$ = "FAIL 7d-M-toggle ok=" + Str$(c43ok) + "/9 mapFull=" + Str$(mapFull) + " proj+=" + Str$(projEnemySpawned - c43pr0)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                End If
+                If Timer - testT0 > 30 Then
+                    stMsg$ = "FAIL 7d-M-toggle-timeout s=" + Str$(c43s)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+        Case 44  ' 0.2.0 W1 (COMBAT-BRIEF, investigation ONLY — the fix is pass 0.2.0-c): enemy adjacent
+                 ' to wall cell (7,13), dodge FORCED toward the wall (seeded DodgeRnd#), assert
+                 ' Solid%(Int(enX(0)),Int(enY(0)))=0 EVERY frame across 3 glides + 2 QTD teleports;
+                 ' plus a logged note on LOS from inside geometry (report item a)
+            If testFlag = 0 Then
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                For c39j = 0 To 10: enActive(c39j) = 0: Next c39j
+                For c39j = 0 To PR_MAX: prActive(c39j) = 0: Next c39j
+                ' row 12 is open; walls (7,13)/(8,13) south. Player west of the enemy -> bullet
+                ' line +x -> perpendicular dodge +-y; +y target (7,13) is the WALL
+                px = 2.5: py = 12.5: angle = 0: pitch = 0: hp = 100
+                enX(0) = 7.5: enY(0) = 12.5: enActive(0) = 1: enType(0) = ET_FOOT
+                enHP(0) = etHP(ET_FOOT): enDmg(0) = etDmg(ET_FOOT): enSpd(0) = 0
+                enState(0) = 0: enLastSeen(0) = 0: enLx(0) = enX(0): enLy(0) = enY(0)
+                enCalmT(0) = 0: enLastHit(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99: enAlertT(0) = -99
+                enTx(0) = 7: enTy(0) = 12: enPatrolT(0) = Timer + 99: enDodgeOn(0) = 0
+                enX(1) = 14.5: enY(1) = 14.5: enActive(1) = 1: enType(1) = ET_FOOT   ' dummy keeps the win trigger off
+                enHP(1) = etHP(ET_FOOT): enDmg(1) = etDmg(ET_FOOT): enSpd(1) = 0
+                enState(1) = 0: enFireT(1) = Timer + 99: enZigT(1) = Timer + 99
+                bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                mapFull = 0: qtdT0 = Timer - qtdDur! - 1
+                state$ = "playing"
+                c44bad = 0: c44ok = 0: c44s = 0
+                testFlag = 1: testT0 = Timer
+            End If
+            If testFlag >= 1 And testFlag <= 5 Then
+                ' invariant EVERY frame while a dodge scenario runs: never inside a wall cell
+                If enActive(0) And Solid%(Int(enX(0)), Int(enY(0))) Then c44bad = c44bad + 1
+                enFireT(0) = Timer + 99: enZigT(0) = Timer + 99: enPatrolT(0) = Timer + 99   ' freeze fire/patrol drift
+                If c44s = 0 Then
+                    enX(0) = 7.5: enY(0) = 12.5: enDodgeOn(0) = 0: enState(0) = 0
+                    c44seed& = 31337 + 7919 * testFlag
+                    dodgeSeed& = c44seed&
+                    If testFlag >= 4 Then qtdT0 = Timer: qtdOn = 1   ' QTD variant: instant teleport
+                    bestE = 0: Gosub EnemyDodge
+                    c44s = 1: testT0 = Timer
+                ElseIf c44s = 1 And Timer - testT0 >= 0.55 Then
+                    If Abs(enY(0) - 12.5) > 0.1 Then c44ok = c44ok + 1   ' the dodge actually executed
+                    testFlag = testFlag + 1: c44s = 0: testT0 = Timer
+                End If
+                If Timer - testT0 > 10 Then
+                    stMsg$ = "FAIL 7e-w1-timeout tf=" + Str$(testFlag) + " s=" + Str$(c44s)
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 6 Then
+                qtdT0 = Timer - qtdDur! - 1: qtdOn = 0
+                ' report item (a): LOS from INSIDE a wall cell — LOSCheck never tests the START cell,
+                ' only cells stepped into. (12,2) has a wall neighbor -> 0; (3,2) has an OPEN
+                ' neighbor (2,2) -> 1: an in-wall enemy WOULD get losOK and pass the fire gate,
+                ' but its ball dies on the first in-wall substep, and no displacement path reaches it.
+                fx = 12.5: fy = 2.5: tx = 11.5: ty = 2.5: Gosub LOSCheck
+                c44losWall = losOK
+                fx = 3.5: fy = 2.5: tx = 2.5: ty = 2.5: Gosub LOSCheck
+                stMsg$ = "W1-note losFromInsideWall: (12,2)->(11,2)=" + Str$(c44losWall) + " wall-neighbor; (3,2)->(2,2)=" + Str$(losOK) + " open-neighbor (LOSCheck skips the start cell -> in-wall enemy gets LOS; its ball dies on the first in-wall substep; W1 invariant: no path reaches inside geometry)"
+                Gosub STLog
+                If c44bad = 0 And c44ok = 5 Then
+                    stMsg$ = "PASS 7e-w1-wallclip (enemy adjacent to wall (7,13), dodge forced toward the wall with seeded DodgeRnd#: 3 glides + 2 QTD teleports, Solid%(Int(enX),Int(enY))=0 every frame, all 5 dodges executed)"
+                    Gosub STLog
+                    gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
+                    mapFile$ = selftestMap$
+                    Gosub LoadMapAuto
+                    Gosub ApplyMapSpawns
+                    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
+                    injMvF = 0: injMvB = 0: injMvL = 0: injMvR = 0: injTurnL = 0: injTurnR = 0
+                    For c39j = 0 To 10: enActive(c39j) = 0: Next c39j
+                    enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                    enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    For c39j = 0 To PR_MAX: prActive(c39j) = 0: Next c39j
+                    For c39j = 0 To WP_COUNT - 1: wpOwned(c39j) = 0: Next c39j
+                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET: wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0
+                    bfsForX = -1: bfsForY = -1
+                    winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                    runT0 = Timer - 3
+                    mapFull = 0: mapKeyPrev = 0: qtdT0 = Timer - qtdDur! - 1: qtdOn = 0
+                    state$ = "playing"
+                    testPhase = 12: testT0 = Timer: testFlag = 0   ' chain end: 44 -> fas12 (final win -> SELFTEST OK)
+                Else
+                    stMsg$ = "FAIL 7e-w1-wallclip bad=" + Str$(c44bad) + " dodges=" + Str$(c44ok) + "/5 en0=(" + LTrim$(Str$(enX(0))) + "," + LTrim$(Str$(enY(0))) + ")"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
             End If
     End Select
     Return

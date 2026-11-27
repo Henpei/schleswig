@@ -678,6 +678,56 @@ Fixture-change log for 6M: fas14c setup (full-mag seed), 6e-b setup (player
 as above. 6e-a needed no change (its musketeer is at dist 4 < 6 and
 self-promotes to JAKT in pass 1).
 
+## SCHLESWIG 0.2.0-a — map module (MAP-BRIEF) + W1 wall-clip investigation
+Map module (corner minimap + M full map), per MAP-BRIEF.md:
+- Corner minimap ALWAYS on in playing, TOP-RIGHT corner (HP/ammo/weapon list
+  live bottom-left, so top-right is collision-free). Cell size clamp(160\mapW/H, 1..4).
+- Fog-of-war: visited%(x,y) marks all cells within radius 2 of the player each
+  playing frame (monotonic set, reset in ParseMap); only VISITED wall/door cells
+  are drawn. Source of truth = the SAME parsed mapRow$ as collision (Solid%) —
+  the minimap can never disagree with the walls; unvisited = simply not drawn,
+  never guessed.
+- Frame budget: the visited layer is cached in mapFogBuf& and rebuilt ONLY on
+  map/door/visited/cell-size change (mapHash&, doorStamp, visitedStamp, bufCs);
+  per frame it costs ONE _PutImage + player dot + facing tick.
+- M toggles the full map (edge-triggered via mapKeyPrev; KeyDown2% + replay/selftest
+  k$ path). Full map = centered dimmed panel with the level tag (HudLevelTag$),
+  same fog rules, bigger cells clamp(...,2..12). Game NOT paused while open
+  (reported choice: pausing would need update-path changes and the map reveals
+  nothing time-sensitive; no exploit either way). LoadMapAuto always sets
+  mapFull=0, so a map change can never leave a stuck-open overlay.
+- MAP-BRIEF v1: NO enemy dots, NO item dots on either map. DEVIATION from the
+  brief: the "exit tile once discovered" does not exist in v0.1.0 (level clear =
+  all enemies dead; the map format has no exit cell char) — the full map shows
+  the level tag instead. Facing tick on the player dot included (brief: optional).
+Selftest phases 40-44 (chain 39->40->41->42->43->44->12); suite 181 PASS / 0 FAIL:
+- 40 (7a-map-parse-counts): all 6 shipped maps (level01-05 + test64) through the
+  REAL LoadMapAuto/ParseMap path: 64x64, exactly one S, mapBadN=0, exact solid
+  counts 2268/2236/2192/2173/2229/327.
+- 41 (7b-minimap-bounds-render): per map, fully explored: minimap rect inside the
+  screen + pixel probes (wall cell gray, player dot blue — probed at the dot
+  CORNER, the white facing tick crosses the center pixel).
+- 42 (7c-fog-of-war): visited set monotonic over a 4-stop walk (25 cells at
+  start), unvisited wall (0,0) never drawn, visited walls gray, no crash.
+- 43 (7d-M-toggle): 5 edge-taps -> mapFull 1,0,1,0,1 with pixel probes; a JAKT
+  officer fired while the map was open (combat continues); LoadMapAuto closed the
+  overlay. No stuck state.
+- 44 (7e-w1-wallclip, COMBAT-BRIEF W1 investigation ONLY — the fix itself is pass
+  0.2.0-c): enemy adjacent to wall cell (7,13), dodge forced TOWARD the wall with
+  seeded DodgeRnd#: 3 glides + 2 QTD teleports, Solid%(Int(enX),Int(enY))=0 EVERY
+  frame, all 5 dodges executed. W1 answers: (a) LOSCheck never tests the START
+  cell, only cells stepped into — measured (3,2)->(2,2)=1 (open neighbor) vs
+  (12,2)->(11,2)=0 (wall neighbor): an in-wall enemy WOULD get losOK and pass the
+  fire gate, but its ball dies on the first in-wall projectile substep, so no
+  shot ever leaves geometry; and the W1 invariant proves no displacement path
+  puts an enemy inside a wall in the first place -> NOT patch-priority on current
+  evidence; the LOS start-cell blind spot is a latent hardening note for 0.2.0-c.
+  (b) Diagnosis of the dodge displacement path: fully clamped — EnemyDodge
+  OpenCell%-checks the side cell (chosen side first, then the other) before
+  gliding/teleporting, and the glide pass interpolates in <=0.3-cell substeps
+  with per-axis OpenCell% margin checks; spawn, PATROLL drift and BFS walks are
+  likewise OpenCell-clamped. No wall clip reproduced.
+
 ## SCHLESWIG 6K — sprite z-order (SUPERSEDED by 6M FIX 1)
 6K introduced the per-column sprite zbuffer sprDist + SprMark (every drawn
 sprite lowered sprDist in its columns). 6M removed SprMark again — see the
