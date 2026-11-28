@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""6K repro: two pickups on the SAME sightline — medkit M near (10,20),
-ammo A far (14,20), player S=(4,20) facing east, one far enemy F=(28,20)
-(keeps start-facing east, sealed off by distance). Runs the normal binary in
+"""6K repro: two pickups on the SAME sightline — medkit M near (4,10),
+ammo A far (4,14), player S=(4,4) facing south (0.2.0-b start-facing rule,
+S row < 32), one far enemy F=(4,28) (sealed off by distance). Runs the normal binary in
 replay mode and saves the periodic screenshot /tmp/schleswig_replay.bmp to
 the path given as argv[2] (e.g. docs/pickup-dumps/6k_bug.bmp / 6k_fix.bmp).
 
@@ -17,15 +17,19 @@ LOG = "/tmp/schleswig_replay.log"
 BMP = "/tmp/schleswig_replay.bmp"
 MAP = "/tmp/schleswig_zorder_map.map"
 
-# 32x32: S=(4,20), M=(10,20) near, A=(14,20) far, F=(28,20) far east (facing)
+# 32x32: S=(4,4), M=(4,10) near, A=(4,14) far, F=(4,28) far south (0.2.0-b start
+# facing rule: S row < 32 -> face south, so the pickups/enemy sit in column 4)
 rows = ["#" * 32]
 for y in range(1, 31):
     row = ["#"] + ["."] * 30 + ["#"]
-    if y == 20:
+    if y == 4:
         row[4] = "S"
-        row[10] = "M"
-        row[14] = "A"
-        row[28] = "F"
+    if y == 10:
+        row[4] = "M"
+    if y == 14:
+        row[4] = "A"
+    if y == 28:
+        row[4] = "F"
     rows.append("".join(row))
 rows.append("#" * 32)
 with open(MAP, "w") as f:

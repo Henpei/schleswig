@@ -21,16 +21,16 @@ SCR = "/tmp/schleswig_replay.scr"
 LOG = "/tmp/schleswig_replay.log"
 MAP = "/tmp/schleswig_reload_map.map"
 
-# 32x24 fixture: S=(4,20), musket pickup "m" one cell north at (4,19),
-# one FOOT due north at (4,8) -> start-facing = north (6G FIX 5)
+# 32x24 fixture: S=(4,4), musket pickup "m" one cell SOUTH at (4,5),
+# one FOOT far south at (4,22) -> 0.2.0-b start-facing rule (S row < 32) faces SOUTH
 rows = ["#" * 32]
 for y in range(1, 23):
     row = ["#"] + ["."] * 30 + ["#"]
-    if y == 8:
+    if y == 22:
         row[4] = "F"
-    if y == 19:
+    if y == 5:
         row[4] = "m"
-    if y == 20:
+    if y == 4:
         row[4] = "S"
     rows.append("".join(row))
 rows.append("#" * 32)
@@ -42,7 +42,7 @@ with open(MAP, "w") as f:
 # (no passive timer); R starts a manual reload; a weapon switch cancels rlt.
 script = [
     (5, "e"),          # START GAME (absolute frame — menu is before first playing frame)
-    ("p15", "W+"), ("p60", "W-"),     # walk north over the "m" pickup -> MUSKET owned, full mag (+4 pool)
+    ("p15", "W+"), ("p60", "W-"),     # walk south (start facing) over the "m" pickup -> MUSKET owned, full mag (+4 pool)
     ("p80", "2"),                     # select MUSKET (digit 2)
     ("p120", "F+"), ("p135", "F-"),   # shot 1 -> mag 1->0, pool UNCHANGED
     ("p300", "F+"), ("p315", "F-"),   # fire attempt with empty mag -> AUTO-reload starts (shots stays 1)

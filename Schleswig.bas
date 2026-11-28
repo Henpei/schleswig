@@ -118,6 +118,7 @@ DIM c41i, c41s, c41ok, c41done, c41w&, c41p&, c41x0, c41x1, c41y0, c41y1, c41map
 DIM c42s, c42ok, c42done, c42w&, c42u&, c42v&, c42vN, c42vPrev, c42step   ' Fas 42 (7c-fog-of-war monotonic) vars
 DIM c43key$, c43s, c43ok, c43done, c43f&, c43m&, c43pr0, c43exp   ' Fas 43 (7d-M-toggle state machine) vars
 DIM c44j, c44s, c44bad, c44ok, c44seed&, c44losWall   ' Fas 44 (0.2.0 W1 wall-clip investigation) vars
+DIM c45i, c45s, c45ok, c45done, c45probe, c45t&, c45tx, c45ty, c45maps$(5), c45expA!, c45dir$   ' Fas 45 (0.2.0-b 7f start-angle rule) vars
 DIM visitedN, visitedStamp, doorStamp   ' 0.2.0-a fog-of-war visited counter + cache stamps (visited% itself is DIM'd next to doorOpen%, after Const MAP_MAX)
 DIM mapFogBuf&, fogBufHash&, fogBufCs, fogBufDoor, fogBufVis, bufCs, bux, buy, bch$, bc$, bc2&   ' 0.2.0-a cached fog layer buffer
 DIM mmx, mmy, mmcs, mmx0, mmy0, mmw, mmh, mmpx, mmps, mmkDown, mapFull, mapKeyPrev, mmx1, mmy1, fmCs, fmX0, fmY0, fxx, fyy   ' 0.2.0-a map module: minimap/full-map draw vars (QB64 is case-insensitive: mmcs == mmCs)
@@ -246,7 +247,7 @@ Const pitchSens = 2
 Const ver$ = "v0.1.0-beta"
 ' Bygg-stämpel: commit-hash som denna källa bygger från — UPPDATERAS I VARJE
 ' COMMIT (en rad i commit-rutinen). Visas nere höger i meny + resultat.
-Const strBuild$ = "9baf101"
+Const strBuild$ = "8927a9d"
 
 ' KeyUse = the universal interaction key (E). Menus select/confirm with it now;
 ' doors etc. phase 5+ — reuse this exact check (KeyUseHit%).
@@ -1074,7 +1075,7 @@ Do
         If gameMode$ <> "campaign" And (k$ = "r" Or k$ = "R" Or k$ = " " Or _KeyDown(Asc("R")) Or _KeyDown(32)) Then
             ' reset ALLT -> tillbaka till menyn
             hp = 100: ammoN(1) = startAmmo
-            px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0   ' Fas 5A: start from map 'S'
+            Gosub PlayerStartInit: pitch = 0   ' 0.2.0-b: start from map 'S', facing per S-row rule (up/down)
             Gosub ApplyMapSpawns   ' Fas 5A: pickups/keys/doors from map, doors closed
             Gosub SpawnEnemies   ' Fas 3: fiender respawnas också vid full reset
             hpMsg$ = "": hpMsgTime = 0
@@ -1582,9 +1583,10 @@ Do
     stepAcc = stepAcc + Sqr((px - ox) ^ 2 + (py - oy) ^ 2)
     If stepAcc >= 0.5 Then stepAcc = 0: PlaySound SND_STEP
 
-    ' 0.2.0-a fog-of-war: cells within radius 2 of the player become visited (monotonic set)
-    For fyy = Int(py) - 2 To Int(py) + 2
-        For fxx = Int(px) - 2 To Int(px) + 2
+    ' fog-of-war: cells within radius 4 of the player become visited (monotonic set)
+    ' (0.2.0-a: radius 2; 0.2.0-b: radius 4 per captain's feel-test — "2 tiles more")
+    For fyy = Int(py) - 4 To Int(py) + 4
+        For fxx = Int(px) - 4 To Int(px) + 4
             If fxx >= 0 And fxx < mapW And fyy >= 0 And fyy < mapH Then
                 If visited%(fxx, fyy) = 0 Then visited%(fxx, fyy) = 1: visitedN = visitedN + 1: visitedStamp = visitedStamp + 1
             End If
@@ -3147,10 +3149,10 @@ Do
     Line (cx - ct, cy + cg)-(cx + ct, cy + ca + cg), _RGB32(255, 255, 255), BF
     Color _RGB32(255, 255, 0)
     _PrintString (0, 0), strFps$ + Str$(fpsShow) + " mmx:" + Str$(mmx) + " mmy:" + Str$(mmy) + " ang:" + Str$(Int(angle * 57.2958)) + " x:" + LTrim$(Str$(px)) + " y:" + LTrim$(Str$(py)) + " pitch:" + Str$(Int(pitch))
-    ' HUD: live SCORE i övre HÖGRA hörnet (FPS-debug är övre vänstra, HP/ammoN(1) nere) — ingen kollision
+    ' HUD: live SCORE hör till nedre VÄNSTRA klustret (0.2.0-b) — övre högra hörnet är
+    ' vikt åt minimap-kartan (mmcs ett steg större sedan 0.2.0-b), så alla siffror
+    ' (score/ammo/vapen/HP) ligger nu tillsammans nere till vänster.
     scHud$ = strScore$ + " " + LTrim$(Str$(liveScore&))   ' live-räknare — tickar ner med tiden
-    Color _RGB32(255, 255, 0)
-    _PrintString (RW - Len(scHud$) * 8 - 8, 4), scHud$
     ' 5C HUD mode/level rad (FIX F): "LVL n/total <namn> MAP <fil> #<hash> RESTARTS r"
     ' i kampanjläge, "SINGLE <fil> #<hash>" i arg-testläge, "ARENA <fil> #<hash>" utan arg.
     lvlHud$ = HudLevelTag$
@@ -3277,6 +3279,10 @@ Do
     Gosub BuildAmmoHud
     Color _RGB32(230, 200, 0)
     _PrintString (hpX0, hudY - 52), ammoHud$
+    ' 0.2.0-b: live SCORE i nedre vänstra klustret (ovanför ammo-panelen) — övre högra
+    ' hörnet är minimapens (ingen kollision där längre)
+    Color _RGB32(255, 255, 0)
+    _PrintString (hpX0, hudY - 68), scHud$
     ' Fas 5A: keys row — only OWNED keys are shown (HUD is drawn after the weapon
     ' sprite, so it always has precedence over the viewmodel)
     If hasBronze Or hasSilver Or hasGold Then
@@ -3318,6 +3324,14 @@ Do
         c43f& = Point(fmX0 + 1, fmY0 + 1)
         c43m& = Point(mmx0 + 1, mmy0 + 1)
         c43done = 1
+    End If
+    If selftest And testPhase = 45 And c45probe = 1 And c45done = 0 Then
+        ' facing-tick endpoint on the minimap — must be the WHITE tick pixel at the
+        ' angle-derived endpoint (proves the tick points along the start angle)
+        c45tx = mmx0 + Int(px) * mmcs + mmcs \ 2 + Int(Cos(angle) * mmcs)
+        c45ty = mmy0 + Int(py) * mmcs + mmcs \ 2 + Int(Sin(angle) * mmcs)
+        c45t& = Point(c45tx, c45ty)
+        c45done = 1
     End If
     ' fade-in: svart overlay över spelet, FÖRE _Display (ritordningsregeln)
     If fading = 2 Then
@@ -4059,6 +4073,16 @@ FaceNearestEnemy:
     If feFound Then angle = feA!: anglePrev = angle
     Return
 
+' PlayerStartInit (0.2.0-b JOB 3): EN start-init för spelaren — position från kartans 'S'
+' plus startriktning som REGEL (ej konstant): S-rad >= 32 -> angle = -_Pi/2 (uppåt,
+' Y växer nedåt i grid:en); S-rad < 32 -> angle = _Pi/2 (nedåt). Kampanjkartorna
+' (S rad 59) landar på "upp", test64 (S rad 1) på "ned" (in i kartan). Anropas från
+' StartRun / LoadLevel / dead-R-reset.
+PlayerStartInit:
+    px = plStartX + 0.5: py = plStartY + 0.5
+    If plStartY >= 32 Then angle = -_Pi / 2 Else angle = _Pi / 2
+    Return
+
 StartRun:
     ' ENDA start-vägen (meny START-klick/SPACE + pendingStart från VIDARE).
     ' startRuns räknar triggeringar — selftest fas12b bevisar att VIDARE går här.
@@ -4073,11 +4097,12 @@ StartRun:
     For i = 0 To WP_COUNT - 1: wpOwned(i) = 0: wpMagNow(i) = wpMag(i): wpRlT!(i) = 0: Next i
     wpOwned(WP_AXE) = 1: wpCur = WP_AXE: wpSwitchT! = 0: wpSwingT = 0
     If selftest Then wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET   ' selftest skjuter med musköt i gamla faser
-    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0   ' Fas 5A: start from map 'S'
+    Gosub PlayerStartInit: pitch = 0   ' 0.2.0-b: start from map 'S', facing per S-row rule (up/down)
     If gameMode$ = "campaign" Then killsTotal = 0: restarts = 0: waveNo = 0   ' 5C: fresh campaign counters, wave register starts at wave 1
     Gosub ApplyMapSpawns   ' Fas 5A: pickups/keys/doors from map, doors closed each round
     Gosub SpawnEnemies
-    If Not selftest Then Gosub FaceNearestEnemy   ' 6G FIX 5: start-yaw mot närmaste fiende (inte ryggen mot målet)
+    ' 0.2.0-b: FaceNearestEnemy (6G FIX 5) anropas INTE längre vid start — PlayerStartInit-
+    ' regeln (upp/ned efter S-rad) är den effektiva startriktningen (labeln finns kvar, fas36 testar den)
     hpMsg$ = "": hpMsgTime = 0
     lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
     gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: bobPhase = 0: turnDelta = 0: gunSway = 0: anglePrev = angle   ' Fas 4C viewmodel reset
@@ -4606,11 +4631,11 @@ LoadLevel:
         Return
     End If
     Gosub ApplyMapSpawns
-    px = plStartX + 0.5: py = plStartY + 0.5: angle = 0: pitch = 0
+    Gosub PlayerStartInit: pitch = 0   ' 0.2.0-b: start from map 'S', facing per S-row rule (up/down)
     hp = 100: stamina! = stamMax!: sprintLock = 0   ' 6E FIX G + 6A: ammoN/vapen PERSISTERAR över banor (ingen reset här)
     waveNo = 0
     Gosub SpawnEnemies   ' resets ALL enemy state + projectiles + BFS (no leak from level N)
-    If Not selftest Then Gosub FaceNearestEnemy   ' 6G FIX 5: varje bana startar vänd mot närmaste fiende
+    ' 0.2.0-b: FaceNearestEnemy (6G FIX 5) anropas INTE längre vid banstart — PlayerStartInit-regeln gäller
     hpMsg$ = "": hpMsgTime = 0
     lastShotTime = -1: tracerTime = -1: flashTime = -1: flashDist = 99
     gunX = 0: gunY = 0: recoil = 0: muzzleT = 0: shakeT = 0: bobPhase = 0: turnDelta = 0: gunSway = 0: anglePrev = angle   ' Fas 4C viewmodel reset
@@ -5216,7 +5241,9 @@ DrawMapOverlay:
         Color _RGB32(230, 230, 230)
         _PrintString (fmX0, fmY0 - 20), HudLevelTag$ + "  (M = close)"
     Else
-        mmcs = 160 \ mapW: If 160 \ mapH < mmcs Then mmcs = 160 \ mapH
+        ' 0.2.0-b: one cell step up (base 224 -> cell size 3 on 64x64 maps, 192px minimap);
+        ' top-right corner is kept clean for it (the Score readout moved to the bottom-left HUD)
+        mmcs = 224 \ mapW: If 224 \ mapH < mmcs Then mmcs = 224 \ mapH
         If mmcs < 1 Then mmcs = 1
         If mmcs > 4 Then mmcs = 4
         mmw = mapW * mmcs: mmh = mapH * mmcs
@@ -12324,8 +12351,8 @@ SelftestDrive:
             If testFlag = 1 Then
                 If c42s = 0 Then
                     If c42done = 1 And Timer - testT0 > 0.1 Then
-                        ' at (7,4) the radius-2 mark covers exactly 25 cells (5x5, none clipped)
-                        If visitedN = 25 Then c42ok = c42ok + 1
+                        ' at (7,4) the radius-4 mark covers exactly 81 cells (9x9, none clipped; 0.2.0-b: radius 2 -> 4)
+                        If visitedN = 81 Then c42ok = c42ok + 1
                         ' unvisited wall (0,0) NOT gray; visited wall (6,5) gray; (5,10) not yet visited
                         If Not (_Red32(c42u&) = 180 And _Green32(c42u&) = 180 And _Blue32(c42u&) = 180) Then c42ok = c42ok + 1
                         If _Red32(c42w&) = 180 And _Green32(c42w&) = 180 And _Blue32(c42w&) = 180 Then c42ok = c42ok + 1
@@ -12354,7 +12381,7 @@ SelftestDrive:
                     If c42step = 2 And Timer - testT0 > 0.2 Then px = 13.5: py = 1.5: c42step = 3: testT0 = Timer
                     If c42step = 3 And Timer - testT0 > 0.5 Then
                         If c42ok = 7 Then
-                            stMsg$ = "PASS 7c-fog-of-war (visited set monotonic across a 4-stop walk: 25 cells at start, grew on every move, unvisited wall (0,0) never drawn, visited walls gray, no crash)"
+                            stMsg$ = "PASS 7c-fog-of-war (visited set monotonic across a 4-stop walk: 81 cells at start (radius 4), grew on every move, unvisited wall (0,0) never drawn, visited walls gray, no crash)"
                             Gosub STLog
                             testPhase = 43: testT0 = Timer: testFlag = 0
                         Else
@@ -12535,9 +12562,110 @@ SelftestDrive:
                     runT0 = Timer - 3
                     mapFull = 0: mapKeyPrev = 0: qtdT0 = Timer - qtdDur! - 1: qtdOn = 0
                     state$ = "playing"
-                    testPhase = 12: testT0 = Timer: testFlag = 0   ' chain end: 44 -> fas12 (final win -> SELFTEST OK)
+                    testPhase = 45: testT0 = Timer: testFlag = 0   ' chain: 44 -> 45 -> fas12 (final win -> SELFTEST OK)
                 Else
                     stMsg$ = "FAIL 7e-w1-wallclip bad=" + Str$(c44bad) + " dodges=" + Str$(c44ok) + "/5 en0=(" + LTrim$(Str$(enX(0))) + "," + LTrim$(Str$(enY(0))) + ")"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+        Case 45  ' 0.2.0-b 7f-start-angle: per shipped map the shared PlayerStartInit sets the start
+                 ' facing by RULE (S row >= 32 -> -pi/2 up, else +pi/2 down); pixel probe: the minimap
+                 ' facing tick renders at the angle-derived endpoint (campaign maps = up, test64 = down)
+            If testFlag = 0 Then
+                c45maps$(0) = "maps/level01.map": c45maps$(1) = "maps/level02.map": c45maps$(2) = "maps/level03.map"
+                c45maps$(3) = "maps/level04.map": c45maps$(4) = "maps/level05.map": c45maps$(5) = "maps/test64.map"
+                c45ok = 0
+                For c45i = 0 To 5
+                    mapFile$ = c45maps$(c45i): Gosub LoadMapAuto
+                    Gosub PlayerStartInit
+                    If plStartY >= 32 Then c45expA! = -_Pi / 2 Else c45expA! = _Pi / 2
+                    If Abs(angle - c45expA!) < 0.001 And px = plStartX + 0.5 And py = plStartY + 0.5 Then
+                        c45ok = c45ok + 1
+                        If plStartY >= 32 Then c45dir$ = "up" Else c45dir$ = "down"
+                        stMsg$ = "PASS 7f-start-angle " + c45maps$(c45i) + " (S row " + Str$(plStartY) + " -> angle " + Str$(c45expA!) + " = " + c45dir$ + ")"
+                        Gosub STLog
+                    Else
+                        stMsg$ = "FAIL 7f-start-angle " + c45maps$(c45i) + " Srow=" + Str$(plStartY) + " angle=" + Str$(angle) + " exp=" + Str$(c45expA!) + " px=" + Str$(px) + " py=" + Str$(py)
+                        Gosub STLog
+                    End If
+                Next c45i
+                mapFile$ = selftestMap$: Gosub LoadMapAuto: Gosub ApplyMapSpawns   ' restore the selftest map
+                If c45ok = 6 Then
+                    stMsg$ = "PASS 7f-start-angle-rule (all 6 shipped maps: S row >= 32 -> angle -pi/2 (up), else +pi/2 (down); campaign maps land on up, test64 on down)"
+                    Gosub STLog
+                    testFlag = 2: c45s = 0: c45done = 0: c45probe = 0: testT0 = Timer
+                Else
+                    stMsg$ = "FAIL 7f-start-angle-rule ok=" + Str$(c45ok) + "/6"
+                    Gosub STLog
+                    stMsg$ = "SELFTEST FAIL"
+                    Gosub STLog
+                    ShutdownSound
+                    End
+                End If
+            End If
+            If testFlag = 2 Then
+                If c45s = 0 Or c45s = 2 Then
+                    ' render-probe one map: s=0 -> level01 (expect up), s=2 -> test64 (expect down)
+                    If c45s = 0 Then mapFile$ = "maps/level01.map" Else mapFile$ = "maps/test64.map"
+                    Gosub LoadMapAuto: Gosub ApplyMapSpawns
+                    For c39j = 0 To 10: enActive(c39j) = 0: Next c39j
+                    For c39j = 0 To PR_MAX: prActive(c39j) = 0: Next c39j
+                    Gosub PlayerStartInit: pitch = 0: hp = 100
+                    bfsForX = -1: bfsForY = -1: winPending = 0: runTimeFrozen = -1
+                    mapFull = 0: mapKeyPrev = 0
+                    state$ = "playing"
+                    c45done = 0: c45probe = 1: c45s = c45s + 1: testT0 = Timer
+                ElseIf c45s = 1 Or c45s = 3 Then
+                    If c45done = 1 And Timer - testT0 > 0.1 Then
+                        If _Red32(c45t&) = 255 And _Green32(c45t&) = 255 And _Blue32(c45t&) = 255 Then
+                            c45ok = c45ok + 1
+                            stMsg$ = "PASS 7f-facing-tick map=" + mapFile$ + " angle=" + Str$(Int(angle * 57.2958)) + "deg tick endpoint white at (" + Str$(c45tx) + "," + Str$(c45ty) + ")"
+                            Gosub STLog
+                        Else
+                            stMsg$ = "FAIL 7f-facing-tick map=" + mapFile$ + " angle=" + Str$(angle) + " tick px=" + Str$(c45t&)
+                            Gosub STLog
+                            stMsg$ = "SELFTEST FAIL"
+                            Gosub STLog
+                            ShutdownSound
+                            End
+                        End If
+                        c45probe = 0
+                        c45s = c45s + 1: testT0 = Timer
+                    ElseIf Timer - testT0 > 5 Then
+                        stMsg$ = "FAIL 7f-facing-tick-timeout map=" + mapFile$ + " s=" + Str$(c45s)
+                        Gosub STLog
+                        stMsg$ = "SELFTEST FAIL"
+                        Gosub STLog
+                        ShutdownSound
+                        End
+                    End If
+                ElseIf c45s = 4 Then
+                    c45probe = 0
+                    gameMode$ = "selftest": menuPick = 0: autoCamp = 0: pendingNext = 0: pendingStart = 0: lvlN = 0: lvlIdx = 0
+                    mapFile$ = selftestMap$
+                    Gosub LoadMapAuto
+                    Gosub ApplyMapSpawns
+                    Gosub PlayerStartInit: pitch = 0: hp = 100: ammoN(1) = startAmmo: stamina! = stamMax!: sprintLock = 0: sprintInj = 0: stamPauseUntil! = 0
+                    injMvF = 0: injMvB = 0: injMvL = 0: injMvR = 0: injTurnL = 0: injTurnR = 0
+                    For c39j = 0 To 10: enActive(c39j) = 0: Next c39j
+                    enX(0) = 13.5: enY(0) = 9.5: enActive(0) = 1: enSpd(0) = 0
+                    enState(0) = 0: enFireT(0) = Timer + 99: enZigT(0) = Timer + 99
+                    For c39j = 0 To PR_MAX: prActive(c39j) = 0: Next c39j
+                    For c39j = 0 To WP_COUNT - 1: wpOwned(c39j) = 0: Next c39j
+                    wpOwned(WP_AXE) = 1: wpOwned(WP_MUSKET) = 1: wpCur = WP_MUSKET: wpMagNow(WP_MUSKET) = wpMag(WP_MUSKET): wpRlT!(WP_MUSKET) = 0
+                    bfsForX = -1: bfsForY = -1
+                    winPending = 0: runTimeFrozen = -1: restarts = 0: lvlN = 0
+                    runT0 = Timer - 3
+                    mapFull = 0: mapKeyPrev = 0: qtdT0 = Timer - qtdDur! - 1: qtdOn = 0
+                    state$ = "playing"
+                    testPhase = 12: testT0 = Timer: testFlag = 0   ' chain end: 45 -> fas12 (final win -> SELFTEST OK)
+                End If
+                If Timer - testT0 > 30 Then
+                    stMsg$ = "FAIL 7f-timeout s=" + Str$(c45s)
                     Gosub STLog
                     stMsg$ = "SELFTEST FAIL"
                     Gosub STLog

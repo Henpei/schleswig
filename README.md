@@ -33,6 +33,7 @@ repository root as `schleswig`; run it from there (`./schleswig`) so the
 - Enemy state machine: PATROL / HUNT / ATTACK, line-of-sight fire gate
   (undetected enemies never shoot), and aggro-on-hit — hit a patroller
   from behind and it will hunt you
+- Enemies dodge incoming shots (a sidestep away from your ball)
 - Unified depth-sorted renderer (walls, sprites, projectiles, pickups)
 - Procedural enemy sprites and procedural sound (no binary assets, no audio files)
 - 164-assertion self-test suite, all green at release (commit fade532)

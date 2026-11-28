@@ -24,13 +24,16 @@ SCR = "/tmp/schleswig_replay.scr"
 LOG = "/tmp/schleswig_replay.log"
 MAP = "/tmp/schleswig_combat_map.map"
 
-# 32x32 arena: S=(4,20), F=(6,20) two cells east (melee range, keeps swinging)
+# 32x32 arena: S=(4,4), F=(4,6) two cells SOUTH (melee range along the 0.2.0-b
+# start facing — S row < 32 faces south — keeps swinging; long south walkway so
+# the sprint scenarios can't corner the player against the border wall)
 rows = ["#" * 32]
 for y in range(1, 31):
     row = ["#"] + ["."] * 30 + ["#"]
-    if y == 20:
+    if y == 4:
         row[4] = "S"
-        row[6] = "F"
+    if y == 6:
+        row[4] = "F"
     rows.append("".join(row))
 rows.append("#" * 32)
 with open(MAP, "w") as f:

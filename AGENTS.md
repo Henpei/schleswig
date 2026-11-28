@@ -738,3 +738,39 @@ painter-sorted billboard list.
 The viewmodel sits deliberately ~half a gun-width RIGHT of center
 (Const vmOffsetX! = 0.06) — Wolfenstein/Quake design. DO NOT "fix" it to
 center. Sway/bob/recoil apply to the WHOLE sprite via one gunX/gunY offset.
+
+## SCHLESWIG 0.2.0-b — feel-test pass (captain's notes 2026-11-28)
+JOB 1 (minimap bigger + Score HUD collision): corner-minimap cell size one
+  step up — base 160 -> 224 in DrawMapOverlay, so 64x64 maps render at cell
+  size 3 (192px + border, clamp 1..4 unchanged; full-map clamp 2..12
+  unchanged). The live SCORE readout moved from the TOP-RIGHT corner into the
+  bottom-left HUD cluster (printed at (hpX0, hudY-68), above the ammo panel,
+  yellow as before) — top-right now belongs to the minimap alone.
+  Selftest 41 (7b) auto-adapts via the mmcs/mmx0 vars and still asserts the
+  rect inside the screen + wall/player-dot pixel probes on all 6 maps.
+JOB 2 (fog-of-war radius): reveal radius 2 -> 4 (the playing-frame visited
+  mark loop is now Int(p)-4..Int(p)+4). Selftest 42 (7c) re-probed: 81 cells
+  visited at the (7,4) start (9x9, none clipped), monotonic growth, hidden/
+  visited wall probes unchanged.
+JOB 3 (start angle faces UP — RULE, not constant): new shared init
+  PlayerStartInit sets px/py from the map 'S' AND angle = -_Pi/2 when the S
+  row >= 32 (faces up; Y grows downward), else +_Pi/2 (faces down). Applied
+  at the 3 real init sites: StartRun, LoadLevel, dead-R->menu reset.
+  Campaign maps (S row 59) land on UP; test64 (S row 1) on DOWN (into the
+  interior). DEVIATION vs 6G FIX 5, reported: FaceNearestEnemy is NO LONGER
+  CALLED at StartRun/LoadLevel (the label remains; selftest 36 still tests
+  the label directly) — otherwise the up/down rule could never be the
+  effective start facing and "campaign start: player faces UP" would not
+  hold in real play. Consequence for the replay fixtures (tools/*.py): they
+  were aimed at the old 6G nearest-enemy/east facing; since every fixture
+  map has < 32 rows the rule faces them SOUTH, so ammo/reload/combat/
+  zorder fixtures now place S near the north edge with the target
+  (pickups/weapon/enemy) along the south column (combat got a long south
+  walkway so sprint scenarios cannot corner the player). New selftest
+  phase 45 (7f-start-angle): per shipped map
+  asserts the rule after PlayerStartInit (6 maps) + a minimap facing-tick
+  pixel probe (tick endpoint white) on level01 (up) and test64 (down);
+  chain 44 -> 45 -> 12.
+JOB 4 (dodge doc): README "What's inside" gained one factual line: enemies
+  dodge incoming shots. The QTD easter egg stays undocumented as working
+  (known-broken, still queued for 0.2.0).

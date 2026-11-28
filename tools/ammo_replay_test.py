@@ -22,9 +22,9 @@ each fixture uses <= 10 pickups and the scenarios are split into three maps:
   fullD   ( 7 pk): D x7 -> 12 = cap exactly, then FULL D
 
 Fixture maps are generated in /tmp (the real maps/*.map are NOT touched).
-Layout per fixture: 32x32, S=(2,29), one melee F=(29,29) due east (so 6G FIX 5
-start-facing gives angle=0 = east), pickups on row 29 starting at x=3;
-holding W walks straight over all of them.
+Layout per fixture: 32x32, S=(2,2), one melee F=(29,29) far away (never detects),
+pickups in COLUMN 2 starting at row 3; the 0.2.0-b start-facing rule (S row < 32
+-> angle=+pi/2 = south) makes holding W walk straight down the column over all of them.
 
 Every scenario runs TWICE (deterministic) — both runs must be green.
 
@@ -49,7 +49,7 @@ def seq_normal(t, before):
     return (t, before, before + PICKUP[t], "+%d %s AMMO" % (PICKUP[t], WPNAME[t]))
 
 
-# (type, before, after, expected hpMsg$) per pickup, in walk order (x=3,4,5,...)
+# (type, before, after, expected hpMsg$) per pickup, in walk order (row 3,4,5,...)
 SCENARIOS = {
     "main": {
         "pickups": ["A", "B", "C", "D", "A", "A", "A", "B", "B", "B"],
@@ -94,12 +94,13 @@ def write_fixture(pickups):
     rows = ["#" * 32]
     for y in range(1, 31):
         row = ["#"] + ["."] * 30 + ["#"]
+        if y == 2:
+            row[2] = "S"      # S row 2 < 32 -> 0.2.0-b rule faces SOUTH
         if y == 29:
-            row[2] = "S"
-            row[29] = "F"
-            for i, c in enumerate(pickups):
-                row[3 + i] = c
+            row[29] = "F"     # far away, stays PATROLL (undetected never fires)
         rows.append("".join(row))
+    for i, c in enumerate(pickups):
+        rows[3 + i] = rows[3 + i][:2] + c + rows[3 + i][3:]   # column 2, rows 3..
     rows.append("#" * 32)
     with open(map_path, "w") as f:
         f.write("\n".join(rows) + "\n")
